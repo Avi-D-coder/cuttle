@@ -1056,61 +1056,7 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-/////////////////
-// Transitions //
-/////////////////
-.transition-all {
-  transition: all 1s;
-}
-// All list transitions leave with position absolute
-.slide-below-leave-active,
-.slide-above-leave-active,
-.in-below-out-left-leave-active {
-  position: absolute;
-}
-// slide-below (enter and leave below)
-.slide-below-enter-from,
-.slide-below-leave-to {
-  opacity: 0;
-  transform: translateY(32px);
-}
-// slide-above (enter and leave above)
-.slide-above-enter-from,
-.slide-above-leave-to {
-  opacity: 0;
-  transform: translateY(-32px);
-}
-// in-below-out-left (enter from below, exit to left)
-.in-below-out-left-enter-from {
-  opacity: 0;
-  transform: translateY(32px);
-}
-.in-below-out-left-leave-to {
-  opacity: 0;
-  transform: translateX(-32px);
-}
-// in-above-out-below (enter from above, exit below)
-.in-above-out-below-enter-from {
-  opacity: 0;
-  transform: translateY(-32px);
-}
-.in-above-out-below-leave-to {
-  opacity: 0;
-  transform: translateY(32px);
-}
-// in-below-out-above (enter from below, exit above)
-.in-below-out-above-enter-from {
-  opacity: 0;
-  transform: translateY(32px);
-}
-.in-below-out-above-leave-to {
-  opacity: 0;
-  transform: translateY(-32px);
-}
-.gameCard {
-  position: absolute;
-  transition: all 1s ease-out;
-}
+@import '@/routes/game/styles/game-ux-shared.scss';
 
 ////////////
 // Styles //

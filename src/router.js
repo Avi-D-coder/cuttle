@@ -1,6 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useGameStore } from '@/stores/game';
 import { useAuthStore } from '@/stores/auth';
+import { useCapabilitiesStore } from '@/stores/capabilities';
+import { useSnackbarStore } from '@/stores/snackbar';
+import i18n from '@/plugins/i18n';
 import GameStatus from '_/utils/GameStatus.json';
 
 export const ROUTE_NAME_GAME = 'Game';
@@ -14,6 +17,9 @@ export const ROUTE_NAME_LOGOUT = 'Logout';
 export const ROUTE_NAME_RULES = 'Rules';
 export const ROUTE_NAME_SIGNUP = 'Signup';
 export const ROUTE_NAME_STATS = 'Stats';
+export const ROUTE_NAME_CUTTHROAT_LOBBY = 'CutthroatLobby';
+export const ROUTE_NAME_CUTTHROAT_LOBBY_GAME = 'CutthroatLobbyGame';
+export const ROUTE_NAME_CUTTHROAT_GAME = 'CutthroatGame';
 
 const mustBeAuthenticated = async (to, from, next) => {
   if ([ 'discord', 'google' ].includes(to.query.oauthsignup)){
@@ -34,6 +40,17 @@ const logoutAndRedirect = async (to, from, next) => {
   const authStore = useAuthStore();
   await authStore.requestLogout();
   return next('/login');
+};
+
+const requireCutthroatAvailability = async () => {
+  const capabilitiesStore = useCapabilitiesStore();
+  const cutthroatAvailable = await capabilitiesStore.isCutthroatAvailable();
+  if (cutthroatAvailable) {
+    return true;
+  }
+  const snackbarStore = useSnackbarStore();
+  snackbarStore.alert(i18n.global.t('cutthroat.lobby.unavailable'));
+  return { path: '/' };
 };
 
 const checkAndSubscribeToLobby = async (to) => {
@@ -202,6 +219,30 @@ const routes = [
     path: '/rules',
     name: ROUTE_NAME_RULES,
     component: () => import('@/routes/rules/RulesView.vue'),
+  },
+  {
+    path: '/cutthroat',
+    name: ROUTE_NAME_CUTTHROAT_LOBBY,
+    component: () => import('@/routes/cutthroat/CutthroatLobbyListView.vue'),
+    beforeEnter: [ mustBeAuthenticated, requireCutthroatAvailability ],
+  },
+  {
+    path: '/cutthroat/lobby/:gameId',
+    name: ROUTE_NAME_CUTTHROAT_LOBBY_GAME,
+    component: () => import('@/routes/cutthroat/CutthroatLobbyView.vue'),
+    beforeEnter: [ mustBeAuthenticated, requireCutthroatAvailability ],
+    meta: {
+      hideNavigation: true,
+    },
+  },
+  {
+    name: ROUTE_NAME_CUTTHROAT_GAME,
+    path: '/cutthroat/game/:gameId',
+    component: () => import('@/routes/cutthroat/CutthroatGameView.vue'),
+    beforeEnter: [ mustBeAuthenticated, requireCutthroatAvailability ],
+    meta: {
+      hideNavigation: true,
+    },
   },
   {
     name: ROUTE_NAME_LOBBY,

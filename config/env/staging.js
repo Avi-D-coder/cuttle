@@ -23,7 +23,9 @@ module.exports = {
    ***************************************************************************/
 
   models: {
-    migrate: 'safe',
+    // In dockerized local staging, allow schema bootstrap on fresh Postgres volumes.
+    // Non-docker staging environments remain strict/safe.
+    migrate: process.env.CUTTLE_DOCKERIZED === 'true' ? 'alter' : 'safe',
   },
 
   /***************************************************************************

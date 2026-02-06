@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 252" width="180" height="252">
+  <defs>
+    <style>
+      .bg{fill:#fff4d7;}
+      .shadow{fill:#1f4fe0;}
+      .o1{fill:#f58a07;}   /* body orange */
+      .o2{fill:#ea8f00;}   /* accent orange */
+      .w{fill:#fff4d7;}    /* “white” stripe (same as card bg, like your pip cutouts) */
+      .t{fill:#1f4fe0;font-family:Georgia,serif;font-weight:700;}
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="180" height="252" rx="12"/>
+
+  <!-- corner -->
+  <g transform="translate(12,18)">
+    <text class="t" x="0" y="0" font-size="16">JOKER</text>
+    <text x="2" y="18" font-family="Georgia,serif" font-size="14" fill="#ea8f00">★</text>
+  </g>
+
+  <!-- ===== SHADOW (hard offset) ===== -->
+  <g transform="translate(6,6)" class="shadow">
+    <!-- fish silhouette -->
+    <ellipse cx="92" cy="154" rx="44" ry="28"/>
+    <path d="M52 154 L30 140 L30 168 Z"/>
+    <path d="M82 128 C86 116 104 116 110 128 C100 132 92 138 88 146 Z"/>
+    <path d="M80 180 C86 192 106 192 112 180 C102 176 94 170 90 160 Z"/>
+
+    <!-- crown -->
+    <path d="M92 92 L84 108 L74 98 L68 112 L116 112 L110 98 L100 108 Z"/>
+    <rect x="74" y="112" width="42" height="8" rx="3"/>
+
+    <!-- bubbles -->
+    <circle cx="66" cy="212" r="4"/>
+    <circle cx="82" cy="220" r="3"/>
+    <circle cx="98" cy="222" r="5"/>
+    <circle cx="116" cy="216" r="3.5"/>
+    <circle cx="132" cy="208" r="4.5"/>
+  </g>
+
+  <!-- ===== FOREGROUND ===== -->
+  <!-- fish body (as a clip so stripes are clean and “graphic”) -->
+  <defs>
+    <clipPath id="fishClip">
+      <ellipse cx="92" cy="154" rx="44" ry="28"/>
+      <path d="M52 154 L30 140 L30 168 Z"/>
+      <path d="M82 128 C86 116 104 116 110 128 C100 132 92 138 88 146 Z"/>
+      <path d="M80 180 C86 192 106 192 112 180 C102 176 94 170 90 160 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- base fish -->
+  <g clip-path="url(#fishClip)">
+    <rect x="30" y="116" width="130" height="90" class="o1"/>
+
+    <!-- 3 clownfish stripes: THIN bands, first directly behind the eye -->
+    <!-- back stripe (near tail) -->
+    <path class="w" d="M64 130 C62 146 62 162 64 178 C66 186 72 186 74 178 C76 162 76 146 74 130 C72 124 66 124 64 130 Z"/>
+    <!-- middle stripe -->
+    <path class="w" d="M84 128 C82 146 82 164 84 182 C86 190 92 190 94 182 C96 164 96 146 94 128 C92 122 86 122 84 128 Z"/>
+    <!-- front stripe (right behind eye at x≈118) -->
+    <path class="w" d="M104 130 C102 146 102 162 104 178 C106 186 112 186 114 178 C116 162 116 146 114 130 C112 124 106 124 104 130 Z"/>
+
+    <!-- small orange accents -->
+    <path class="o2" d="M44 154 C46 146 54 140 62 142 C56 148 54 156 58 164 C50 166 44 160 44 154 Z"/>
+    <path class="o2" d="M128 152 C132 146 140 146 144 152 C140 158 132 158 128 152 Z"/>
+  </g>
+
+  <!-- eye (dots only, like your system) -->
+  <circle cx="118" cy="150" r="6" class="bg"/>
+  <circle cx="120" cy="152" r="2.5" class="shadow"/>
+
+  <!-- crown -->
+  <g>
+    <path class="o2" d="M92 92 L84 108 L74 98 L68 112 L116 112 L110 98 L100 108 Z"/>
+    <rect class="o2" x="74" y="112" width="42" height="8" rx="3"/>
+    <circle class="o2" cx="74" cy="98" r="3"/>
+    <circle class="o2" cx="92" cy="90" r="3.2"/>
+    <circle class="o2" cx="110" cy="98" r="3"/>
+  </g>
+
+  <!-- bubbles -->
+  <g class="o2">
+    <circle cx="66" cy="212" r="4"/>
+    <circle cx="82" cy="220" r="3"/>
+    <circle cx="98" cy="222" r="5"/>
+    <circle cx="116" cy="216" r="3.5"/>
+    <circle cx="132" cy="208" r="4.5"/>
+  </g>
+</svg>

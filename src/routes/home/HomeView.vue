@@ -68,6 +68,17 @@
                     @error="handleSubscribeError(game.id, $event)"
                   />
                 </div>
+                <v-divider class="my-6" color="surface-1" />
+                <div v-if="isCutthroatAvailable && cutthroatLobbies.length > 0" class="cutthroat-section">
+                  <h2 class="text-surface-1">
+                    {{ t('cutthroat.lobby.listTitle') }}
+                  </h2>
+                  <CutthroatLobbyListItem
+                    v-for="lobby in cutthroatLobbies"
+                    :key="lobby.id"
+                    :lobby="lobby"
+                  />
+                </div>
               </v-window-item>
               <v-window-item :value="TABS.SPECTATE">
                 <p
@@ -99,7 +110,30 @@
       <v-row>
         <v-col class="home-card-games" :cols="$vuetify.display.mdAndUp ? 8 : 12">
           <div class="mx-auto my-4 my-xl-2 homeContent">
-            <CreateGameDialog @error="handleError" />
+            <CreateGameDialog :show-activator="false" :open-signal="createGameDialogOpenSignal" @error="handleError" />
+            <div class="create-game-actions">
+              <v-btn
+                class="px-16"
+                color="primary"
+                size="x-large"
+                text-color="white"
+                data-cy="create-game-unified-btn"
+                @click="createGameByMode"
+              >
+                {{ t('home.submitCreateGame') }}
+              </v-btn>
+              <v-select
+                v-model="createMode"
+                class="create-game-mode-select"
+                :items="effectiveCreateModeOptions"
+                item-title="title"
+                item-value="value"
+                variant="outlined"
+                density="compact"
+                hide-details
+                data-cy="create-game-mode-select"
+              />
+            </div>
             <div class="d-flex flex-row justify-md-space-between justify-space-evenly align-center my-4">
               <v-btn
                 v-if="!$vuetify.display.smAndUp"
@@ -145,10 +179,13 @@
 <script>
 import { mapStores } from 'pinia';
 import { useGameListStore } from '@/stores/gameList';
+import { useCutthroatStore } from '@/stores/cutthroat';
+import { useCapabilitiesStore } from '@/stores/capabilities';
 import { useSnackbarStore } from '@/stores/snackbar';
 import { useI18n } from 'vue-i18n';
 import GameListItem from '@/routes/home/components/GameListItem.vue';
 import CreateGameDialog from '@/routes/home/components/CreateGameDialog.vue';
+import CutthroatLobbyListItem from '@/routes/home/components/CutthroatLobbyListItem.vue';
 import GameStatus from '_/utils/GameStatus.json';
 import AnnouncementDialog from './components/announcementDialog/AnnouncementDialog.vue';
 import OauthSignupDialog from '@/routes/home/components/OauthSignupDialog.vue';
@@ -158,11 +195,18 @@ const TABS = {
   SPECTATE: '/spectate-list',
 };
 
+const CREATE_MODES = {
+  TWO_PLAYER: '2p',
+  CUTTHROAT: '3p',
+  AI: 'ai',
+};
+
 export default {
   name: 'HomeView',
   components: {
     GameListItem,
     CreateGameDialog,
+    CutthroatLobbyListItem,
     AnnouncementDialog,
     OauthSignupDialog,
   },
@@ -177,21 +221,55 @@ export default {
   data() {
     return {
       TABS,
+      CREATE_MODES,
       tab: TABS.PLAY,
+      createMode: CREATE_MODES.TWO_PLAYER,
+      createModeOptions: [
+        {
+          title: '2p',
+          value: CREATE_MODES.TWO_PLAYER,
+          props: { 'data-cy': 'create-game-mode-option-2p' },
+        },
+        {
+          title: '3p',
+          value: CREATE_MODES.CUTTHROAT,
+          props: { 'data-cy': 'create-game-mode-option-3p' },
+        },
+        {
+          title: 'ai',
+          value: CREATE_MODES.AI,
+          props: { 'data-cy': 'create-game-mode-option-ai' },
+        },
+      ],
+      createGameDialogOpenSignal: 0,
       loadingData: true,
       oAuthSignup: false,
     };
   },
   computed: {
-    ...mapStores(useGameListStore, useSnackbarStore),
+    ...mapStores(useGameListStore, useCutthroatStore, useCapabilitiesStore, useSnackbarStore),
+    isCutthroatAvailable() {
+      return this.capabilitiesStore.cutthroatAvailability === 'available';
+    },
     playableGameList() {
       return this.gameListStore.openGames;
     },
     spectateGameList() {
       return this.gameListStore.spectateGames;
     },
+    cutthroatLobbies() {
+      return this.cutthroatStore.lobbies;
+    },
     buttonSize() {
       return this.$vuetify.display.mdAndDown ? 'small' : 'medium';
+    },
+    effectiveCreateModeOptions() {
+      return this.createModeOptions.filter((option) => {
+        if (option.value !== CREATE_MODES.CUTTHROAT) {
+          return true;
+        }
+        return this.isCutthroatAvailable;
+      });
     },
   },
   watch: {
@@ -211,16 +289,33 @@ export default {
         }
       },
     },
+    isCutthroatAvailable(available) {
+      if (!available) {
+        this.cutthroatStore.disconnectLobbyWs();
+        if (this.createMode === CREATE_MODES.CUTTHROAT) {
+          this.createMode = CREATE_MODES.TWO_PLAYER;
+        }
+      } else {
+        this.cutthroatStore.connectLobbyWs();
+      }
+    },
   },
   async created() {
     try {
       await this.gameListStore.requestGameList();
+      await this.capabilitiesStore.refreshCutthroatAvailability();
+      if (this.isCutthroatAvailable) {
+        this.cutthroatStore.connectLobbyWs();
+      }
     } catch (err) {
       console.log(err);
     } finally {
       this.loadingData = false;
       this.tab = this.$route.path;
     }
+  },
+  beforeUnmount() {
+    this.cutthroatStore.disconnectLobbyWs();
   },
   methods: {
     setGameListUrl(url) {
@@ -244,6 +339,30 @@ export default {
         this.handleError(err);
       }
     },
+    async createCutthroatGame() {
+      try {
+        const gameId = await this.cutthroatStore.createGame();
+        this.$router.push(`/cutthroat/lobby/${gameId}`);
+      } catch (err) {
+        this.handleError(err?.message ?? err);
+      }
+    },
+    async createGameByMode() {
+      if (this.createMode === CREATE_MODES.TWO_PLAYER) {
+        this.createGameDialogOpenSignal += 1;
+        return;
+      }
+      if (this.createMode === CREATE_MODES.CUTTHROAT) {
+        if (!this.isCutthroatAvailable) {
+          this.snackbarStore.alert(this.t('cutthroat.lobby.unavailable'));
+          this.createMode = CREATE_MODES.TWO_PLAYER;
+          return;
+        }
+        await this.createCutthroatGame();
+        return;
+      }
+      await this.createAIGame();
+    },
     logout() {
       this.gameListStore
         .requestLogout()
@@ -264,6 +383,27 @@ export default {
 // width
 ::-webkit-scrollbar {
   width: 5px;
+}
+
+.create-game-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.create-game-mode-select {
+  width: 96px;
+  max-width: 96px;
+  min-width: 96px;
+  flex: 0 0 96px;
+}
+
+.create-game-mode-select :deep(.v-select__selection-text) {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 // Track
@@ -392,6 +532,17 @@ p {
 @media (max-width: 844px) {
   #game-list {
     max-width: 100%;
+  }
+  .create-game-actions :deep(.v-btn) {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-inline: 1.5rem !important;
+  }
+  .create-game-mode-select {
+    width: 88px;
+    max-width: 88px;
+    min-width: 88px;
+    flex-basis: 88px;
   }
 }
 @media (max-width: 600px) {

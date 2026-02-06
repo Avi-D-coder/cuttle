@@ -437,12 +437,35 @@ describe('Home - Game List', () => {
 describe('Home - Create Game', () => {
   beforeEach(setup);
 
+  function selectCreateMode(modeText) {
+    cy.get('[data-cy=create-game-mode-select]').click();
+    cy.get('.v-overlay .v-list-item-title')
+      .contains(new RegExp(`^${modeText}$`))
+      .click();
+  }
+
+  it('Defaults unified create mode to 2 players', () => {
+    cy.get('[data-cy=create-game-mode-select]').should('contain.text', '2p');
+  });
+
+  it('Creates a cutthroat game from the unified create controls', () => {
+    selectCreateMode('3p');
+    cy.get('[data-cy=create-game-unified-btn]').click();
+    cy.location('pathname').should('contain', '/cutthroat/lobby/');
+  });
+
+  it('Creates a vs AI game from the unified create controls', () => {
+    selectCreateMode('ai');
+    cy.get('[data-cy=create-game-unified-btn]').click();
+    cy.location('pathname').should('contain', '/ai/');
+  });
+
   it('Saves ranked setting between sessions', () => {
     cy.clearLocalStorage();
     cy.window().then((win) => {
       win.localStorage.setItem('announcement', announcementData.id);
     });
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]').should('be.visible');
 
     cy.toggleInput('[data-cy=create-game-ranked-switch]');
@@ -453,7 +476,7 @@ describe('Home - Create Game', () => {
     cy.reload();
 
     // Should stay checked
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]').should('be.visible');
 
     cy.toggleInput('[data-cy=create-game-ranked-switch]', true);
@@ -462,12 +485,12 @@ describe('Home - Create Game', () => {
     cy.reload();
 
     // Should stay unchecked
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]').should('be.visible');
     cy.get('[data-cy=create-game-ranked-switch]').should('not.be.checked');
   });
   it('Rejects game creation if gamename contains profanity', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -478,7 +501,7 @@ describe('Home - Create Game', () => {
     assertSnackbar('Please use respectful language', 'error');
   });
   it('Creates a new game by hitting enter in text field', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -509,7 +532,7 @@ describe('Home - Create Game', () => {
   });
 
   it('Creates a new unranked game by hitting the submit button', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -546,7 +569,7 @@ describe('Home - Create Game', () => {
   });
 
   it('Creates a new ranked game', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -585,7 +608,7 @@ describe('Home - Create Game', () => {
   });
 
   it('Limits the length of the game name for new ranked game', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -604,7 +627,7 @@ describe('Home - Create Game', () => {
   });
 
   it('Cancels create game dialog', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -613,7 +636,7 @@ describe('Home - Create Game', () => {
     cy.get('[data-cy=cancel-create-game]').should('be.visible')
       .click();
     // Game name should be empty
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=create-game-dialog]')
       .should('be.visible')
       .find('[data-cy=game-name-input]')
@@ -621,7 +644,7 @@ describe('Home - Create Game', () => {
   });
 
   it('Does not create game without game name', () => {
-    cy.get('[data-cy=create-game-btn]').click();
+    cy.get('[data-cy=create-game-unified-btn]').click();
     cy.get('[data-cy=submit-create-game]').should('be.visible')
       .click();
     // Test DOM

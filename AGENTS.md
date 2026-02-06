@@ -125,7 +125,36 @@ Before completing any task, verify:
 3.  **Pattern Consistency**: Changes align with existing file and project structures.
 4.  **Automated Checks**: Run `npm run lint` and `npm run test:unit`.
 
+## Cutthroat 3P Dev Notes
+
+### Rust Server (In-Memory)
+- The Cutthroat server is in-memory for lobbies and in-progress games.
+- No Postgres usage until a game finishes (persistence is deferred).
+- Auth is via JS session: Rust calls `GET /api/user/status` on the JS server with the cookie.
+
+### WebSockets and Routes
+- Lobby list WS: `/cutthroat/ws/lobbies` (Rust).
+- Game WS: `/cutthroat/ws/games/:id` (Rust).
+- 2P lobby/game sockets remain on the JS server.
+- Home page only opens Rust Cutthroat sockets when Rust capability checks pass.
+
+### Vite Proxy (Dev)
+- Vite proxies `/cutthroat/api` and `/cutthroat/ws` to the Rust server.
+- Default Rust base URL: `http://localhost:4000` (configurable via `CUTTLE_RUST_URL`).
+- Rust capability probe endpoint: `/cutthroat/api/v1/health`.
+
+### Optional Rust Fallback
+- If Rust is unavailable, Cutthroat UI is hidden from the home page create/list controls.
+- `/cutthroat/*` routes should redirect to `/` with a user-visible unavailable message.
+- 2P game flows must remain fully operational when Rust is down.
+
+### Cutthroat UI
+- Routes:
+  - `/cutthroat` (Cutthroat lobby list)
+  - `/cutthroat/lobby/:id` (ready/lobby view)
+  - `/cutthroat/game/:id` (triangle-table game UI)
+- Triangle layout: local player at base, opponents on left/right sides.
+
 ---
 
 **Remember**: You are a discovery system first, a code generator second. When in doubt, search, read, and ask questions before writing code.
-

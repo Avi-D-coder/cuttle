@@ -54,7 +54,7 @@
       "oAuth": {
         "alreadyLinked": "Account already linked to another user",
         "providerError": "Error connecting to provider",
-        "invalidProvider" : "invalidProvider"
+        "invalidProvider": "invalidProvider"
       }
     }
   },
@@ -72,8 +72,8 @@
       "fallback": "An unknown error has occured.",
       "forbidden": "You are not a player in this game!",
       "gameStatus": "Game has not yet started or is over.",
-      "noGameStates":"Game was not populated with .gameStates collection.",
-      "alreadyDealt":"Cards are already dealt."
+      "noGameStates": "Game was not populated with .gameStates collection.",
+      "alreadyDealt": "Cards are already dealt."
     }
   },
   "game": {
@@ -253,7 +253,6 @@
         "stalemateDialog": "If your opponent agrees, the game will end in a stalemate. The request will cancel if the opponent declines or either player makes a move.",
         "clipHighlight": "Clip Highlight",
         "highlightCopied": "Highlight Link Copied"
-
       },
       "spectatorListMenu": {
         "spectators": "Spectators",
@@ -365,8 +364,14 @@
     "playAiLink": "playing vs AI",
     "playAiContent2": "to learn the ropes and test your mettle.",
     "gameName": "Game Name",
-      "join": "Join",
-      "playVsAi": "Play VS AI"
+    "join": "Join",
+    "playVsAi": "Play VS AI",
+    "createModes": {
+      "twoPlayers": "2 Players",
+      "threePlayersCutthroat": "3P Cutthroat",
+      "onePlayerAi": "1P vs AI",
+      "createGameButton": "Create Game"
+    }
   },
   "rules": {
     "introduction": "Introduction",
@@ -547,11 +552,11 @@
       "award3": "Third Place Player",
       "seasonDescription2": "Each Season is divided into 13 weeks. For each week, we count the number of best 2/3 ranked matches each player wins against unique opponents (ignoring stalemates) and assign players points based on their weekly standing.",
       "points": {
-        "5": "The player with the most wins gets 5 points for the week",
-        "4": "The player with the 2nd most wins gets 4 points for the week",
-        "3": "The player with the 3rd most wins gets 3 points for the week",
+        "1": "Each other player who completed a match without winning gets 1 point for the week",
         "2": "Each other player who won at least one match gets 2 points for the week",
-        "1": "Each other player who completed a match without winning gets 1 point for the week"
+        "3": "The player with the 3rd most wins gets 3 points for the week",
+        "4": "The player with the 2nd most wins gets 4 points for the week",
+        "5": "The player with the most wins gets 5 points for the week"
       },
       "seasonDescription3": "You can view the statistics and rankings for each season on this page. At the end of each season, the top 8 players compete in a double elimination championship tournament. At the end of the year, the top 8 players from the Season Championships compete in the Cuttle World Championship! Do you have what it takes to become",
       "lordOfDeep": "Lord of the Deep?",
@@ -568,6 +573,91 @@
     "title": "Three Update",
     "heading": "Can't three for a three",
     "paragraph": "In order to prevent players from indefinitely stalling the game by making the 'non-move' of playing a three to pull a different three from the scrap, threes are no longer allowed as the selected card when picking from the scrap. You can still three for anything else, just not another three! This should have minimal impact on most games, as threeing-for-a-three is rarely a worthwhile move, but as it's come up recently, this change should prevent unfun play patterns in situations wher players are intent on stalling the game."
+  },
+  "cutthroat": {
+    "lobby": {
+      "title": "Cutthroat Lobby",
+      "seat": "Seat",
+      "openSeat": "Open Seat",
+      "ready": "Ready",
+      "notReady": "Not Ready",
+      "unready": "Unready",
+      "readyUp": "Ready Up",
+      "autoStart": "Game starts automatically when all three players are ready.",
+      "joinFailed": "Could not join Cutthroat lobby.",
+      "readyFailed": "Could not update ready status.",
+      "listTitle": "Cutthroat Lobbies",
+      "noLobbies": "No Cutthroat lobbies are open.",
+      "createTitle": "Create Cutthroat Game",
+      "createButton": "Create Cutthroat Game",
+      "nameLabel": "Game Name",
+      "join": "Join Cutthroat",
+      "unavailable": "Cutthroat is currently unavailable."
+    },
+    "game": {
+      "loading": "Loading cutthroat game...",
+      "points": "Points",
+      "royals": "Royals",
+      "noPoints": "No points yet",
+      "noRoyals": "No royals yet",
+      "deck": "Deck",
+      "scrap": "Scrap",
+      "emptyScrap": "Empty scrap",
+      "actions": "Actions",
+      "noActions": "No legal actions",
+      "action": "Action",
+      "draw": "Draw",
+      "pass": "Pass",
+      "playPoints": "Play points",
+      "scuttle": "Scuttle",
+      "with": "with",
+      "playRoyal": "Play royal",
+      "playJack": "Jack",
+      "playJoker": "Joker",
+      "playOneOff": "One-off",
+      "counter": "Counter",
+      "counterPass": "Pass",
+      "counterTwo": "Counter with Two",
+      "counterPassAction": "Pass Counter",
+      "pickFromScrap": "Pick from scrap",
+      "discard": "Discard",
+      "play": "Play",
+      "targetPlayer": "on player",
+      "targetPoint": "target point",
+      "targetRoyal": "target royal",
+      "targetJack": "target jack",
+      "targetJoker": "target joker",
+      "asPoints": "as points",
+      "asScuttle": "as scuttle",
+      "asRoyal": "as royal",
+      "asJack": "as jack",
+      "asJoker": "as joker",
+      "asOneOff": "as one-off",
+      "asDiscard": "as discard",
+      "frozen": "Frozen",
+      "noFrozen": "No frozen cards",
+      "primaryActions": "Primary actions",
+      "counterActions": "Counter actions",
+      "resolutionActions": "Resolution actions",
+      "yourTurn": "Your turn",
+      "waiting": "Waiting...",
+      "waitingTurn": "Waiting for {player}.",
+      "waitingCounter": "Waiting for counter action from {player}.",
+      "waitingResolve": "Waiting for {player} to resolve.",
+      "gameOverTitle": "Game over",
+      "gameOverGeneric": "This game has finished.",
+      "gameOverWinner": "{player} wins.",
+      "gameOverDraw": "Draw.",
+      "backToLobbies": "Back to lobbies",
+      "backToHome": "Back to home",
+      "chooseMove": "Choose a move",
+      "chooseTargetTitle": "Choose target for {action}",
+      "cancelTargeting": "Cancel Targeting",
+      "cancel": "Cancel",
+      "debugActions": "Debug Actions",
+      "actionFailed": "Action failed.",
+      "loadFailed": "Could not load cutthroat game."
+    }
   },
   "profile": {
     "myGames": "My Games",
