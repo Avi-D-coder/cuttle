@@ -20,6 +20,7 @@ export const ROUTE_NAME_STATS = 'Stats';
 export const ROUTE_NAME_CUTTHROAT_LOBBY = 'CutthroatLobby';
 export const ROUTE_NAME_CUTTHROAT_LOBBY_GAME = 'CutthroatLobbyGame';
 export const ROUTE_NAME_CUTTHROAT_GAME = 'CutthroatGame';
+export const ROUTE_NAME_CUTTHROAT_SPECTATE = 'CutthroatSpectate';
 
 const mustBeAuthenticated = async (to, from, next) => {
   if ([ 'discord', 'google' ].includes(to.query.oauthsignup)){
@@ -238,6 +239,15 @@ const routes = [
   {
     name: ROUTE_NAME_CUTTHROAT_GAME,
     path: '/cutthroat/game/:gameId',
+    component: () => import('@/routes/cutthroat/CutthroatGameView.vue'),
+    beforeEnter: [ mustBeAuthenticated, requireCutthroatAvailability ],
+    meta: {
+      hideNavigation: true,
+    },
+  },
+  {
+    name: ROUTE_NAME_CUTTHROAT_SPECTATE,
+    path: '/cutthroat/spectate/:gameId',
     component: () => import('@/routes/cutthroat/CutthroatGameView.vue'),
     beforeEnter: [ mustBeAuthenticated, requireCutthroatAvailability ],
     meta: {

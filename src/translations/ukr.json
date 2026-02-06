@@ -644,6 +644,7 @@
       "waitingTurn": "Очікуємо хід {player}.",
       "waitingCounter": "Очікуємо контрдію від {player}.",
       "waitingResolve": "Очікуємо, доки {player} завершить розв'язання.",
+      "spectating": "Спостереження",
       "gameOverTitle": "Гру завершено",
       "gameOverGeneric": "Цю гру завершено.",
       "gameOverWinner": "{player} перемагає.",
@@ -656,7 +657,9 @@
       "cancel": "Скасувати",
       "debugActions": "Дії налагодження",
       "actionFailed": "Не вдалося виконати дію.",
-      "loadFailed": "Не вдалося завантажити гру cutthroat."
+      "loadFailed": "Не вдалося завантажити гру cutthroat.",
+      "cannotSpectateOwnGame": "Ви не можете спостерігати за власною активною грою.",
+      "spectateUnavailable": "Ця гра cutthroat ще недоступна для спостереження."
     }
   },
   "profile": {

@@ -557,8 +557,8 @@ export function isCutthroatGameFinished(status) {
   return status === 2;
 }
 
-export function isActionInteractionDisabled(status, actionInFlight) {
-  return isCutthroatGameFinished(status) || actionInFlight;
+export function isActionInteractionDisabled(status, actionInFlight, isSpectator = false) {
+  return isCutthroatGameFinished(status) || actionInFlight || isSpectator;
 }
 
 export function extractActionSource(action) {

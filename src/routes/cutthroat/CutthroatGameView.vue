@@ -184,6 +184,9 @@
             <h3 class="history-title">
               {{ t('game.history.title') }}
             </h3>
+            <p v-if="spectatorNames.length > 0" class="history-spectators">
+              {{ t('game.menus.spectatorListMenu.spectators') }}: {{ spectatorNames.join(', ') }}
+            </p>
             <div ref="logsContainerDesktop" class="history-logs">
               <p
                 v-for="(log, index) in historyLines"
@@ -633,7 +636,7 @@
           color="surface-1"
           variant="flat"
           data-cy="submit-four-dialog"
-          :disabled="!canSubmitResolveFour"
+          :disabled="isSpectatorMode || !canSubmitResolveFour"
           @click="submitResolveFourDiscard"
         >
           {{ t('game.dialogs.four.discard') }}
@@ -668,7 +671,7 @@
           color="surface-1"
           variant="flat"
           data-cy="submit-five-dialog"
-          :disabled="!canSubmitResolveFive"
+          :disabled="isSpectatorMode || !canSubmitResolveFive"
           @click="submitResolveFiveDiscard"
         >
           {{ resolveFiveDialogButton }}
@@ -691,6 +694,7 @@
       <template #actions>
         <div class="finished-actions">
           <v-btn
+            v-if="!isSpectatorMode"
             size="small"
             color="primary"
             variant="flat"
@@ -761,6 +765,9 @@ const phaseData = computed(() => phase.value?.data ?? {});
 const legalActions = computed(() => store.legalActions ?? []);
 const historyLines = computed(() => store.logTail ?? []);
 const seatEntries = computed(() => store.lobby?.seats ?? []);
+const spectatorNames = computed(() => store.spectatingUsers ?? []);
+const isSpectatorMode = computed(() => store.isSpectator);
+const isSpectateRoute = computed(() => route.name === 'CutthroatSpectate');
 
 const mySeat = computed(() => store.seat ?? 0);
 const leftSeat = computed(() => (mySeat.value + 1) % 3);
@@ -791,7 +798,9 @@ const isResolvingFour = computed(() => phaseType.value === 'ResolvingFour');
 const isResolvingFive = computed(() => phaseType.value === 'ResolvingFive');
 const isResolvingSeven = computed(() => phaseType.value === 'ResolvingSeven');
 const isFinished = computed(() => isCutthroatGameFinished(store.status));
-const isActionDisabled = computed(() => isActionInteractionDisabled(store.status, actionInFlight.value));
+const isActionDisabled = computed(() => {
+  return isActionInteractionDisabled(store.status, actionInFlight.value, isSpectatorMode.value);
+});
 
 const isCounterTurn = computed(() => {
   if (!isCounteringPhase.value) {return false;}
@@ -1007,6 +1016,7 @@ const gameResultText = computed(() => {
 const turnLabel = computed(() => {
   if (!playerView.value) {return '';}
   if (isFinished.value) {return t('cutthroat.game.gameOverTitle');}
+  if (isSpectatorMode.value) {return t('cutthroat.game.spectating');}
   return playerView.value.turn === mySeat.value ? t('game.turn.yourTurn') : t('game.turn.opponentTurn');
 });
 
@@ -1408,11 +1418,13 @@ async function handleDeckClick() {
 }
 
 async function handleCounterPass() {
+  if (isSpectatorMode.value) {return;}
   const action = findMatchingAction(legalActions.value, { zone: 'counter', token: 'pass' }, 'counterPass');
   await sendResolvedAction(action);
 }
 
 async function handleCounterTwo(twoToken) {
+  if (isSpectatorMode.value) {return;}
   if (!twoToken) {return;}
   const action = findMatchingAction(
     legalActions.value,
@@ -1428,6 +1440,7 @@ async function handleCounterTwoFromDialog(twoId) {
 }
 
 function toggleResolveFourCard(token) {
+  if (isSpectatorMode.value) {return;}
   if (!token) {return;}
   const selected = selectedResolveFourTokens.value;
   if (selected.includes(token)) {
@@ -1443,6 +1456,7 @@ function toggleResolveFourCard(token) {
 }
 
 async function submitResolveFourDiscard() {
+  if (isSpectatorMode.value) {return;}
   if (!canSubmitResolveFour.value) {return;}
   const tokens = [ ...selectedResolveFourTokens.value ];
   for (const token of tokens) {
@@ -1459,6 +1473,7 @@ async function submitResolveFourDiscard() {
 }
 
 async function submitResolveFiveDiscard() {
+  if (isSpectatorMode.value) {return;}
   if (!canSubmitResolveFive.value) {return;}
   let action = null;
   if (selectedResolveFiveToken.value) {
@@ -1741,6 +1756,7 @@ function goToHome() {
 }
 
 async function handleRematch() {
+  if (isSpectatorMode.value) {return;}
   if (rematchLoading.value) {return;}
   rematchLoading.value = true;
   try {
@@ -1769,15 +1785,42 @@ onMounted(async () => {
   scrollHistoryLogs();
 
   try {
-    await store.fetchState(gameId.value);
-    if (store.status === 0) {
+    await store.fetchState(gameId.value, { spectateIntent: isSpectateRoute.value });
+    if (store.status === 0 && !isSpectatorMode.value) {
       router.replace(`/cutthroat/lobby/${gameId.value}`);
       return;
     }
+    if (store.status === 0 && isSpectatorMode.value) {
+      snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
+      router.push('/');
+      return;
+    }
+    if (isSpectateRoute.value && !isSpectatorMode.value) {
+      snackbarStore.alert(t('cutthroat.game.cannotSpectateOwnGame'));
+      router.replace(`/cutthroat/game/${gameId.value}`);
+    } else if (!isSpectateRoute.value && isSpectatorMode.value) {
+      router.replace(`/cutthroat/spectate/${gameId.value}`);
+    }
   } catch (err) {
+    if (isSpectateRoute.value && err?.status === 409) {
+      snackbarStore.alert(t('cutthroat.game.cannotSpectateOwnGame'));
+      await router.replace(`/cutthroat/game/${gameId.value}`);
+      await store.fetchState(gameId.value, { spectateIntent: false });
+      if (store.status === 0) {
+        router.replace(`/cutthroat/lobby/${gameId.value}`);
+        return;
+      }
+      store.connectWs(gameId.value, { spectateIntent: false });
+      return;
+    }
+    if (err?.status === 409) {
+      snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
+      router.push('/');
+      return;
+    }
     try {
       await store.joinGame(gameId.value);
-      await store.fetchState(gameId.value);
+      await store.fetchState(gameId.value, { spectateIntent: false });
       if (store.status === 0) {
         router.replace(`/cutthroat/lobby/${gameId.value}`);
         return;
@@ -1789,14 +1832,17 @@ onMounted(async () => {
     }
   }
 
-  store.connectWs(gameId.value);
+  store.connectWs(gameId.value, { spectateIntent: isSpectatorMode.value });
 });
 
 watch(
   () => store.status,
   (status) => {
-    if (status === 0) {
+    if (status === 0 && !isSpectatorMode.value) {
       router.replace(`/cutthroat/lobby/${gameId.value}`);
+    } else if (status === 0 && isSpectatorMode.value) {
+      snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
+      router.push('/');
     }
     if (status === 2) {
       clearInteractionState();
@@ -2253,6 +2299,12 @@ onBeforeUnmount(() => {
     AppleGothic,
     sans-serif;
   margin-bottom: 8px;
+}
+
+.history-spectators {
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .history-logs {

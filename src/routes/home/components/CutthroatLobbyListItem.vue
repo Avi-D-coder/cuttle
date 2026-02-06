@@ -6,7 +6,7 @@
           {{ lobby.name || `Cutthroat #${lobby.id}` }}
         </p>
         <p class="text-surface-1">
-          {{ lobby.seat_count ?? 0 }} / 3 {{ t('home.players') }}
+          {{ readyText }}
         </p>
       </v-col>
       <v-col lg="6" class="list-item__button pr-md-0">
@@ -15,16 +15,17 @@
           color="surface-1"
           variant="outlined"
           min-width="200"
-          :disabled="lobby.seat_count >= 3"
-          @click="joinLobby"
+          :disabled="!isSpectateMode && (lobby.seat_count ?? 0) >= 3"
+          :data-cy="isSpectateMode ? `cutthroat-spectate-game-${lobby.id}` : null"
+          @click="handleClick"
         >
           <v-icon
             class="mr-4"
             size="medium"
-            icon="mdi-account-group"
+            :icon="isSpectateMode ? 'mdi-eye' : 'mdi-account-group'"
             aria-hidden="true"
           />
-          {{ t('cutthroat.lobby.join') }}
+          {{ isSpectateMode ? t('home.spectate') : t('cutthroat.lobby.join') }}
         </v-btn>
       </v-col>
     </v-row>
@@ -33,6 +34,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 
@@ -41,6 +43,11 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  mode: {
+    type: String,
+    default: 'join',
+    validator: (value) => [ 'join', 'spectate' ].includes(value),
+  },
 });
 
 const router = useRouter();
@@ -48,6 +55,26 @@ const { t } = useI18n();
 
 function joinLobby() {
   router.push(`/cutthroat/lobby/${props.lobby.id}`);
+}
+
+function spectateGame() {
+  router.push(`/cutthroat/spectate/${props.lobby.id}`);
+}
+
+const isSpectateMode = computed(() => props.mode === 'spectate');
+const readyText = computed(() => {
+  if (isSpectateMode.value) {
+    return `${props.lobby.seat_count ?? 0} / 3 ${t('home.players')}`;
+  }
+  return `${props.lobby.seat_count ?? 0} / 3 ${t('home.players')}`;
+});
+
+function handleClick() {
+  if (isSpectateMode.value) {
+    spectateGame();
+    return;
+  }
+  joinLobby();
 }
 </script>
 

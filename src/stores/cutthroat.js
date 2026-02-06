@@ -21,13 +21,16 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const playerView = ref(null);
   const spectatorView = ref(null);
   const legalActions = ref([]);
+  const isSpectator = ref(false);
   const lobby = ref({ seats: [] });
+  const spectatingUsers = ref([]);
   const logTail = ref([]);
   const tokenlog = ref('');
   const lastEvent = ref(null);
   const socket = ref(null);
   const lobbySocket = ref(null);
   const lobbies = ref([]);
+  const spectateGames = ref([]);
   const lastError = ref(null);
   const pendingAction = ref(null);
   const isScrapStraightened = ref(false);
@@ -36,6 +39,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   let gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
   let activeGameSocketId = null;
   let activeGameSocket = null;
+  let activeGameSocketSpectateIntent = false;
   let lobbySocketShouldReconnect = false;
   let lobbySocketReconnectTimer = null;
   let lobbySocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
@@ -87,7 +91,10 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     gameSocketReconnectTimer = setTimeout(() => {
       gameSocketReconnectTimer = null;
       if (!gameSocketShouldReconnect || activeGameSocketId === null || socket.value) {return;}
-      connectWs(activeGameSocketId, { replace: false });
+      connectWs(activeGameSocketId, {
+        replace: false,
+        spectateIntent: activeGameSocketSpectateIntent,
+      });
       gameSocketReconnectDelayMs = Math.min(gameSocketReconnectDelayMs * 2, WS_RECONNECT_MAX_DELAY_MS);
     }, gameSocketReconnectDelayMs);
   }
@@ -114,19 +121,22 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     version.value = payload.version;
     seat.value = payload.seat;
     status.value = payload.status;
-    playerView.value = payload.player_view ?? null;
+    isSpectator.value = Boolean(payload.is_spectator);
+    playerView.value = isSpectator.value ? (payload.spectator_view ?? payload.player_view ?? null) : (payload.player_view ?? null);
     spectatorView.value = payload.spectator_view ?? null;
     legalActions.value = payload.legal_actions ?? [];
     lobby.value = payload.lobby ?? { seats: [] };
+    spectatingUsers.value = payload.spectating_usernames ?? [];
     logTail.value = payload.log_tail ?? [];
     tokenlog.value = payload.tokenlog ?? '';
     lastEvent.value = playerView.value?.last_event ?? null;
   }
 
-  async function fetchState(id) {
+  async function fetchState(id, { spectateIntent = false } = {}) {
     ensureCutthroatAvailable();
     isScrapStraightened.value = false;
-    const res = await fetch(`/cutthroat/api/v1/games/${id}/state`, {
+    const statePath = spectateIntent ? `/cutthroat/api/v1/games/${id}/spectate/state` : `/cutthroat/api/v1/games/${id}/state`;
+    const res = await fetch(statePath, {
       credentials: 'include',
     });
     if (!res.ok) {
@@ -213,7 +223,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     }
   }
 
-  function connectWs(id, { replace = true } = {}) {
+  function connectWs(id, { replace = true, spectateIntent = false } = {}) {
     if (capabilitiesStore.cutthroatAvailability === 'unavailable') {return;}
     if (!Number.isInteger(id)) {return;}
     if (replace) {
@@ -222,9 +232,11 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     clearGameReconnectTimer();
     gameSocketShouldReconnect = true;
     activeGameSocketId = id;
+    activeGameSocketSpectateIntent = spectateIntent;
     isScrapStraightened.value = false;
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://${window.location.host}/cutthroat/ws/games/${id}`);
+    const wsPath = spectateIntent ? `/cutthroat/ws/games/${id}/spectate` : `/cutthroat/ws/games/${id}`;
+    const ws = new WebSocket(`${protocol}://${window.location.host}${wsPath}`);
     activeGameSocket = ws;
     ws.onopen = () => {
       gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
@@ -264,6 +276,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     gameSocketShouldReconnect = false;
     activeGameSocketId = null;
     activeGameSocket = null;
+    activeGameSocketSpectateIntent = false;
     clearGameReconnectTimer();
     gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
     if (socket.value) {
@@ -292,6 +305,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'lobbies') {
           lobbies.value = msg.lobbies ?? [];
+          spectateGames.value = msg.spectatable_games ?? [];
         } else if (msg.type === 'error') {
           setLastError({
             code: msg.code,
@@ -319,6 +333,8 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
       lobbySocket.value.close();
       lobbySocket.value = null;
     }
+    lobbies.value = [];
+    spectateGames.value = [];
   }
 
   async function sendAction(action) {
@@ -387,11 +403,14 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     playerView,
     spectatorView,
     legalActions,
+    isSpectator,
     lobby,
+    spectatingUsers,
     logTail,
     tokenlog,
     lastEvent,
     lobbies,
+    spectateGames,
     lastError,
     isScrapStraightened,
     clearLastError,

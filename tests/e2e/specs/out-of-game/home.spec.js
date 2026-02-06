@@ -233,6 +233,24 @@ describe('Home - Game List', () => {
       });
     });
 
+    it('Shows active cutthroat games in the spectate list', () => {
+      cy.window()
+        .its('cuttle.cutthroatStore')
+        .then((store) => {
+          store.spectateGames = [
+            {
+              id: 9901,
+              name: 'Cutthroat Active',
+              seat_count: 3,
+              status: 1,
+            },
+          ];
+        });
+
+      cy.get('[data-cy-game-list-selector=spectate]').click();
+      cy.get('[data-cy=cutthroat-spectate-game-9901]').should('be.visible');
+    });
+
     it('Does not show open or completed games in spectate tab', () => {
       cy.signupOpponent(playerOne);
       cy.createGameOpponent('Game Created before page visit');

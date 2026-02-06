@@ -644,6 +644,7 @@
       "waitingTurn": "En attente de {player}.",
       "waitingCounter": "En attente d'une action de contre de {player}.",
       "waitingResolve": "En attente que {player} résolve.",
+      "spectating": "Observation",
       "gameOverTitle": "Partie terminée",
       "gameOverGeneric": "Cette partie est terminée.",
       "gameOverWinner": "{player} gagne.",
@@ -656,7 +657,9 @@
       "cancel": "Annuler",
       "debugActions": "Actions de débogage",
       "actionFailed": "Échec de l'action.",
-      "loadFailed": "Impossible de charger la partie cutthroat."
+      "loadFailed": "Impossible de charger la partie cutthroat.",
+      "cannotSpectateOwnGame": "Vous ne pouvez pas observer votre propre partie active.",
+      "spectateUnavailable": "Cette partie cutthroat n'est pas encore disponible pour l'observation."
     }
   },
   "profile": {

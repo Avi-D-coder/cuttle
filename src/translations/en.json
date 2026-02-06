@@ -644,6 +644,7 @@
       "waitingTurn": "Waiting for {player}.",
       "waitingCounter": "Waiting for counter action from {player}.",
       "waitingResolve": "Waiting for {player} to resolve.",
+      "spectating": "Spectating",
       "gameOverTitle": "Game over",
       "gameOverGeneric": "This game has finished.",
       "gameOverWinner": "{player} wins.",
@@ -656,7 +657,9 @@
       "cancel": "Cancel",
       "debugActions": "Debug Actions",
       "actionFailed": "Action failed.",
-      "loadFailed": "Could not load cutthroat game."
+      "loadFailed": "Could not load cutthroat game.",
+      "cannotSpectateOwnGame": "Cannot spectate your own active game.",
+      "spectateUnavailable": "Cutthroat game is not available to spectate yet."
     }
   },
   "profile": {

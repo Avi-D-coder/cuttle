@@ -83,6 +83,7 @@ function buildStartedState({
   gameId = 1,
   version = 1,
   seat = 0,
+  isSpectator = false,
   turn = seat,
   phase = { type: 'Main' },
   legalActions = [],
@@ -125,6 +126,7 @@ function buildStartedState({
     version,
     seat,
     status: 1,
+    is_spectator: isSpectator,
     player_view: playerView,
     spectator_view: {
       ...playerView,
@@ -274,6 +276,54 @@ describe('Cutthroat 3P smoke', () => {
       const scrollingEl = doc.scrollingElement;
       expect(scrollingEl.scrollHeight).to.be.lte(scrollingEl.clientHeight + 1);
     });
+  });
+
+  it('redirects non-player game route to spectate route and remains read-only', () => {
+    const gameId = 810;
+    const spectatorState = buildStartedState({
+      gameId,
+      isSpectator: true,
+      legalActions: [ { type: 'Draw' } ],
+    });
+
+    cy.intercept('GET', `/cutthroat/api/v1/games/${gameId}/state`, spectatorState);
+    cy.intercept('GET', `/cutthroat/api/v1/games/${gameId}/spectate/state`, spectatorState);
+
+    cy.visit(`/cutthroat/game/${gameId}`, {
+      onBeforeLoad(win) {
+        installMockCutthroatWs(win);
+      },
+    });
+
+    cy.url().should('include', `/cutthroat/spectate/${gameId}`);
+    cy.get('[data-cy=cutthroat-deck]').click();
+    cy.window().then((win) => {
+      const ws = getGameWs(win, gameId);
+      expect(ws.sent).to.have.length(0);
+    });
+  });
+
+  it('redirects self spectate route back to game route', () => {
+    const gameId = 811;
+    const playerState = buildStartedState({
+      gameId,
+      isSpectator: false,
+      legalActions: [ { type: 'Draw' } ],
+    });
+
+    cy.intercept('GET', `/cutthroat/api/v1/games/${gameId}/spectate/state`, {
+      statusCode: 409,
+      body: { message: 'conflict' },
+    });
+    cy.intercept('GET', `/cutthroat/api/v1/games/${gameId}/state`, playerState);
+
+    cy.visit(`/cutthroat/spectate/${gameId}`, {
+      onBeforeLoad(win) {
+        installMockCutthroatWs(win);
+      },
+    });
+
+    cy.url().should('include', `/cutthroat/game/${gameId}`);
   });
 
   it('hand -> move choice -> points sends PlayPoints', () => {

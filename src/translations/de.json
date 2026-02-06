@@ -644,6 +644,7 @@
       "waitingTurn": "Warte auf {player}.",
       "waitingCounter": "Warte auf Konteraktion von {player}.",
       "waitingResolve": "Warte darauf, dass {player} auflöst.",
+      "spectating": "Zuschauen",
       "gameOverTitle": "Spiel beendet",
       "gameOverGeneric": "Dieses Spiel ist beendet.",
       "gameOverWinner": "{player} gewinnt.",
@@ -656,7 +657,9 @@
       "cancel": "Abbrechen",
       "debugActions": "Debug-Aktionen",
       "actionFailed": "Aktion fehlgeschlagen.",
-      "loadFailed": "Cutthroat-Spiel konnte nicht geladen werden."
+      "loadFailed": "Cutthroat-Spiel konnte nicht geladen werden.",
+      "cannotSpectateOwnGame": "Du kannst dein eigenes laufendes Spiel nicht beobachten.",
+      "spectateUnavailable": "Dieses Cutthroat-Spiel kann noch nicht beobachtet werden."
     }
   },
   "profile": {

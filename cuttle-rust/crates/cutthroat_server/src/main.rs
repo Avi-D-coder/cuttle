@@ -1,3 +1,5 @@
+mod persistence;
+
 use axum::extract::ws::{Message, WebSocket};
 use axum::{
     Json, Router,
@@ -6,18 +8,21 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use chrono::{DateTime, Utc};
 use cutthroat_engine::state::{PhaseView, PublicCard};
 use cutthroat_engine::{
     Action, Card, CutthroatState, LastEventView, OneOffTarget, Phase, PublicView, Seat, SevenPlay,
     Winner, append_action, encode_header, parse_tokenlog,
 };
+use persistence::{CompletedGameRecord, ensure_schema_ready, run_persistence_worker};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
-use tracing::info;
+use tracing::{error, info};
 
 const STATUS_LOBBY: i16 = 0;
 const STATUS_STARTED: i16 = 1;
@@ -85,6 +90,21 @@ struct LobbySummary {
     status: i16,
 }
 
+#[derive(Serialize, Clone, Debug)]
+struct SpectatableGameSummary {
+    id: i64,
+    name: String,
+    seat_count: usize,
+    status: i16,
+    spectating_usernames: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct LobbyListsResponse {
+    lobbies: Vec<LobbySummary>,
+    spectatable_games: Vec<SpectatableGameSummary>,
+}
+
 #[derive(Serialize, Debug)]
 struct GameStateResponse {
     version: i64,
@@ -96,6 +116,8 @@ struct GameStateResponse {
     lobby: LobbyView,
     log_tail: Vec<String>,
     tokenlog: String,
+    is_spectator: bool,
+    spectating_usernames: Vec<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -136,7 +158,10 @@ enum WsServerMessage {
     #[serde(rename = "state")]
     State(Box<GameStateResponse>),
     #[serde(rename = "lobbies")]
-    Lobbies { lobbies: Vec<LobbySummary> },
+    Lobbies {
+        lobbies: Vec<LobbySummary>,
+        spectatable_games: Vec<SpectatableGameSummary>,
+    },
     #[serde(rename = "scrap_straighten")]
     ScrapStraighten {
         game_id: i64,
@@ -156,6 +181,12 @@ async fn main() -> Result<(), anyhow::Error> {
     let js_base = std::env::var("JS_INTERNAL_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:1337".to_string());
     let bind_addr = std::env::var("RUST_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:4000".to_string());
+    let database_url = resolve_database_url()?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+    ensure_schema_ready(&pool).await?;
 
     let http = reqwest::Client::new();
     let (updates, _) = broadcast::channel(128);
@@ -163,13 +194,16 @@ async fn main() -> Result<(), anyhow::Error> {
     let (scrap_straighten_updates, _) = broadcast::channel(128);
     let auth_cache = Arc::new(Mutex::new(HashMap::new()));
     let (store_tx, store_rx) = mpsc::channel(256);
+    let (persistence_tx, persistence_rx) = mpsc::channel(256);
 
     tokio::spawn(store_task(
         store_rx,
+        persistence_tx,
         updates.clone(),
         lobby_updates.clone(),
         scrap_straighten_updates.clone(),
     ));
+    tokio::spawn(run_persistence_worker(persistence_rx, pool));
 
     let state = AppState {
         js_base,
@@ -190,8 +224,16 @@ async fn main() -> Result<(), anyhow::Error> {
         .route("/cutthroat/api/v1/games/{id}/ready", post(set_ready))
         .route("/cutthroat/api/v1/games/{id}/start", post(start_game))
         .route("/cutthroat/api/v1/games/{id}/state", get(get_state))
+        .route(
+            "/cutthroat/api/v1/games/{id}/spectate/state",
+            get(get_spectate_state),
+        )
         .route("/cutthroat/api/v1/games/{id}/action", post(post_action))
         .route("/cutthroat/ws/games/{id}", get(ws_handler))
+        .route(
+            "/cutthroat/ws/games/{id}/spectate",
+            get(ws_spectate_handler),
+        )
         .route("/cutthroat/ws/lobbies", get(ws_lobbies_handler))
         .with_state(state);
 
@@ -199,6 +241,26 @@ async fn main() -> Result<(), anyhow::Error> {
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn resolve_database_url() -> Result<String, anyhow::Error> {
+    resolve_database_url_from(
+        std::env::var("CUTTHROAT_DATABASE_URL").ok(),
+        std::env::var("DATABASE_URL").ok(),
+    )
+}
+
+fn resolve_database_url_from(
+    cutthroat_database_url: Option<String>,
+    database_url: Option<String>,
+) -> Result<String, anyhow::Error> {
+    cutthroat_database_url
+        .or(database_url)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Missing database URL for cutthroat persistence. Set `CUTTHROAT_DATABASE_URL` (preferred) or `DATABASE_URL`."
+            )
+        })
 }
 
 async fn get_health() -> Json<HealthResponse> {
@@ -342,6 +404,23 @@ async fn get_state(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Json<GameStateResponse>, StatusCode> {
+    get_state_inner(state, id, headers, false).await
+}
+
+async fn get_spectate_state(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Result<Json<GameStateResponse>, StatusCode> {
+    get_state_inner(state, id, headers, true).await
+}
+
+async fn get_state_inner(
+    state: AppState,
+    id: i64,
+    headers: HeaderMap,
+    spectate_intent: bool,
+) -> Result<Json<GameStateResponse>, StatusCode> {
     let user = authorize(&state, &headers).await?;
     let (tx, rx) = oneshot::channel();
     state
@@ -349,6 +428,7 @@ async fn get_state(
         .send(Command::GetState {
             game_id: id,
             user,
+            spectate_intent,
             respond: tx,
         })
         .await
@@ -397,7 +477,21 @@ async fn ws_handler(
         Err(code) => return code.into_response(),
     };
 
-    ws.on_upgrade(move |socket| handle_ws(socket, state, id, user))
+    ws.on_upgrade(move |socket| handle_ws(socket, state, id, user, false))
+}
+
+async fn ws_spectate_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let user = match authorize(&state, &headers).await {
+        Ok(user) => user,
+        Err(code) => return code.into_response(),
+    };
+
+    ws.on_upgrade(move |socket| handle_ws(socket, state, id, user, true))
 }
 
 async fn ws_lobbies_handler(
@@ -413,34 +507,56 @@ async fn ws_lobbies_handler(
     ws.on_upgrade(move |socket| handle_lobbies_ws(socket, state, user))
 }
 
-async fn handle_ws(mut socket: WebSocket, state: AppState, game_id: i64, user: AuthUser) {
+async fn handle_ws(
+    mut socket: WebSocket,
+    state: AppState,
+    game_id: i64,
+    user: AuthUser,
+    spectate_intent: bool,
+) {
     let mut updates = state.updates.subscribe();
     let mut scrap_straighten_updates = state.scrap_straighten_updates.subscribe();
-    let seat = match seat_for_user(&state, game_id, user.clone()).await {
-        Ok(seat) => seat,
-        Err((code, message)) => {
-            let _ = socket
-                .send(Message::Text(
-                    serde_json::to_string(&WsServerMessage::Error { code, message })
-                        .unwrap()
-                        .into(),
-                ))
-                .await;
-            return;
-        }
-    };
-
-    if let Ok(resp) = build_state_response(&state, game_id, seat).await
-        && socket
+    let mut spectator_registered = false;
+    if let Err((code, message)) =
+        validate_viewer(&state, game_id, user.clone(), spectate_intent).await
+    {
+        let _ = socket
             .send(Message::Text(
-                serde_json::to_string(&WsServerMessage::State(Box::new(resp)))
+                serde_json::to_string(&WsServerMessage::Error { code, message })
                     .unwrap()
                     .into(),
             ))
-            .await
-            .is_err()
-    {
+            .await;
         return;
+    }
+
+    match build_state_response_for_user(&state, game_id, user.clone(), spectate_intent).await {
+        Ok(resp) => {
+            if resp.is_spectator {
+                if set_spectator_connected(&state, game_id, user.clone())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                spectator_registered = true;
+            }
+            if socket
+                .send(Message::Text(
+                    serde_json::to_string(&WsServerMessage::State(Box::new(resp)))
+                        .unwrap()
+                        .into(),
+                ))
+                .await
+                .is_err()
+            {
+                if spectator_registered {
+                    set_spectator_disconnected(&state, game_id, user.id).await;
+                }
+                return;
+            }
+        }
+        Err(_) => return,
     }
 
     loop {
@@ -450,7 +566,7 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, game_id: i64, user: A
                 if update.game_id != game_id {
                     continue;
                 }
-                if let Ok(resp) = build_state_response(&state, game_id, seat).await
+                if let Ok(resp) = build_state_response_for_user(&state, game_id, user.clone(), spectate_intent).await
                     && socket
                         .send(Message::Text(
                             serde_json::to_string(&WsServerMessage::State(Box::new(resp)))
@@ -534,17 +650,23 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, game_id: i64, user: A
             }
         }
     }
+    if spectator_registered {
+        set_spectator_disconnected(&state, game_id, user.id).await;
+    }
 }
 
 async fn handle_lobbies_ws(mut socket: WebSocket, state: AppState, user: AuthUser) {
     let mut updates = state.lobby_updates.subscribe();
 
-    if let Ok(lobbies) = lobby_list_for_user(&state, user.id).await {
+    if let Ok(lobby_lists) = lobby_list_for_user(&state, user.id).await {
         let _ = socket
             .send(Message::Text(
-                serde_json::to_string(&WsServerMessage::Lobbies { lobbies })
-                    .unwrap()
-                    .into(),
+                serde_json::to_string(&WsServerMessage::Lobbies {
+                    lobbies: lobby_lists.lobbies,
+                    spectatable_games: lobby_lists.spectatable_games,
+                })
+                .unwrap()
+                .into(),
             ))
             .await;
     }
@@ -553,10 +675,13 @@ async fn handle_lobbies_ws(mut socket: WebSocket, state: AppState, user: AuthUse
         tokio::select! {
             update = updates.recv() => {
                 let Ok(_) = update else { break; };
-                let Ok(lobbies) = lobby_list_for_user(&state, user.id).await else { continue; };
+                let Ok(lobby_lists) = lobby_list_for_user(&state, user.id).await else { continue; };
                 if socket
                     .send(Message::Text(
-                        serde_json::to_string(&WsServerMessage::Lobbies { lobbies })
+                        serde_json::to_string(&WsServerMessage::Lobbies {
+                            lobbies: lobby_lists.lobbies,
+                            spectatable_games: lobby_lists.spectatable_games,
+                        })
                             .unwrap()
                             .into(),
                     ))
@@ -625,17 +750,41 @@ async fn toggle_scrap_straighten_internal(
         .map_err(|err| (err.code(), err.message()))
 }
 
-async fn build_state_response(
+async fn validate_viewer(
     state: &AppState,
     game_id: i64,
-    seat: Seat,
+    user: AuthUser,
+    spectate_intent: bool,
+) -> Result<(), (u16, String)> {
+    let (tx, rx) = oneshot::channel();
+    state
+        .store_tx
+        .send(Command::ValidateViewer {
+            game_id,
+            user,
+            spectate_intent,
+            respond: tx,
+        })
+        .await
+        .map_err(|_| (500, "server error".to_string()))?;
+    rx.await
+        .map_err(|_| (500, "server error".to_string()))?
+        .map_err(|err| (err.code(), err.message()))
+}
+
+async fn build_state_response_for_user(
+    state: &AppState,
+    game_id: i64,
+    user: AuthUser,
+    spectate_intent: bool,
 ) -> Result<GameStateResponse, StatusCode> {
     let (tx, rx) = oneshot::channel();
     state
         .store_tx
-        .send(Command::GetStateForSeat {
+        .send(Command::GetState {
             game_id,
-            seat,
+            user,
+            spectate_intent,
             respond: tx,
         })
         .await
@@ -647,30 +796,37 @@ async fn build_state_response(
     Ok(resp)
 }
 
-async fn seat_for_user(
+async fn set_spectator_connected(
     state: &AppState,
     game_id: i64,
     user: AuthUser,
-) -> Result<Seat, (u16, String)> {
+) -> Result<(), StatusCode> {
     let (tx, rx) = oneshot::channel();
     state
         .store_tx
-        .send(Command::SeatForUser {
+        .send(Command::SpectatorConnected {
             game_id,
             user,
             respond: tx,
         })
         .await
-        .map_err(|_| (500, "server error".to_string()))?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     rx.await
-        .map_err(|_| (500, "server error".to_string()))?
-        .map_err(|err| (err.code(), err.message()))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|err| err.status_code())
+}
+
+async fn set_spectator_disconnected(state: &AppState, game_id: i64, user_id: i64) {
+    let _ = state
+        .store_tx
+        .send(Command::SpectatorDisconnected { game_id, user_id })
+        .await;
 }
 
 async fn lobby_list_for_user(
     state: &AppState,
     user_id: i64,
-) -> Result<Vec<LobbySummary>, StatusCode> {
+) -> Result<LobbyListsResponse, StatusCode> {
     let (tx, rx) = oneshot::channel();
     state
         .store_tx
@@ -779,6 +935,9 @@ struct GameEntry {
     tokenlog_full: String,
     last_event: Option<LastEventView>,
     scrap_straightened: bool,
+    started_at: Option<DateTime<Utc>>,
+    finished_at: Option<DateTime<Utc>>,
+    active_spectators: HashMap<i64, (String, usize)>,
     version: i64,
     engine: CutthroatState,
 }
@@ -825,6 +984,17 @@ struct Store {
 }
 
 impl Store {
+    fn active_spectator_usernames(game: &GameEntry) -> Vec<String> {
+        let mut names: Vec<String> = game
+            .active_spectators
+            .values()
+            .filter(|(_, count)| *count > 0)
+            .map(|(username, _)| username.clone())
+            .collect();
+        names.sort();
+        names
+    }
+
     fn new(
         updates: broadcast::Sender<GameUpdate>,
         lobby_updates: broadcast::Sender<LobbyListUpdate>,
@@ -840,8 +1010,8 @@ impl Store {
         }
     }
 
-    fn lobby_list_for_user(&self, user_id: Option<i64>) -> Vec<LobbySummary> {
-        let mut list: Vec<LobbySummary> = self
+    fn lobby_list_for_user(&self, user_id: Option<i64>) -> LobbyListsResponse {
+        let mut lobbies: Vec<LobbySummary> = self
             .games
             .values()
             .filter(|game| game.status == STATUS_LOBBY)
@@ -862,8 +1032,28 @@ impl Store {
                 status: game.status,
             })
             .collect();
-        list.sort_by_key(|lobby| lobby.id);
-        list
+        lobbies.sort_by_key(|lobby| lobby.id);
+
+        let mut spectatable_games: Vec<SpectatableGameSummary> = self
+            .games
+            .values()
+            .filter(|game| game.status == STATUS_STARTED)
+            .map(|game| {
+                SpectatableGameSummary {
+                    id: game.id,
+                    name: game.name.clone(),
+                    seat_count: game.seats.len(),
+                    status: game.status,
+                    spectating_usernames: Self::active_spectator_usernames(game),
+                }
+            })
+            .collect();
+        spectatable_games.sort_by_key(|game| game.id);
+
+        LobbyListsResponse {
+            lobbies,
+            spectatable_games,
+        }
     }
 
     fn broadcast_lobbies(&self) {
@@ -902,6 +1092,9 @@ impl Store {
             tokenlog_full: header,
             last_event: None,
             scrap_straightened: false,
+            started_at: None,
+            finished_at: None,
+            active_spectators: HashMap::new(),
             version: 0,
             engine,
         };
@@ -966,6 +1159,9 @@ impl Store {
             tokenlog_full: header,
             last_event: None,
             scrap_straightened: false,
+            started_at: None,
+            finished_at: None,
+            active_spectators: HashMap::new(),
             version: 0,
             engine,
         };
@@ -1061,6 +1257,9 @@ impl Store {
             && game.seats.iter().all(|seat| seat.ready)
         {
             game.status = STATUS_STARTED;
+            if game.started_at.is_none() {
+                game.started_at = Some(Utc::now());
+            }
         }
 
         self.broadcast_lobbies();
@@ -1077,18 +1276,99 @@ impl Store {
             return Err(StoreError::Conflict);
         }
         game.status = STATUS_STARTED;
+        if game.started_at.is_none() {
+            game.started_at = Some(Utc::now());
+        }
         self.broadcast_lobbies();
         self.broadcast_game(game_id);
         Ok(())
     }
 
-    fn seat_for_user(&self, game_id: i64, user: &AuthUser) -> Result<Seat, StoreError> {
+    fn validate_viewer(
+        &self,
+        game_id: i64,
+        user: &AuthUser,
+        spectate_intent: bool,
+    ) -> Result<(), StoreError> {
         let game = self.games.get(&game_id).ok_or(StoreError::NotFound)?;
-        game.seats
+        let viewer_is_seated = game.seats.iter().any(|seat| seat.user_id == user.id);
+        if spectate_intent {
+            if viewer_is_seated {
+                return Err(StoreError::Conflict);
+            }
+            if game.status != STATUS_STARTED && game.status != STATUS_FINISHED {
+                return Err(StoreError::Conflict);
+            }
+            return Ok(());
+        }
+
+        if viewer_is_seated {
+            return Ok(());
+        }
+        if game.status == STATUS_LOBBY {
+            return Err(StoreError::Conflict);
+        }
+        Ok(())
+    }
+
+    fn build_spectator_state_response(&self, game: &GameEntry) -> GameStateResponse {
+        let lobby = LobbyView {
+            seats: game
+                .seats
+                .iter()
+                .map(|seat| LobbySeatView {
+                    seat: seat.seat,
+                    user_id: seat.user_id,
+                    username: seat.username.clone(),
+                    ready: seat.ready,
+                })
+                .collect(),
+        };
+        let spectator_view = build_spectator_view(game);
+        let action_seat = match &game.engine.phase {
+            Phase::ResolvingSeven { seat, .. } => *seat,
+            _ => game.engine.turn,
+        };
+        let mut legal_actions = if game.status == STATUS_STARTED {
+            game.engine.legal_actions(action_seat)
+        } else {
+            Vec::new()
+        };
+        legal_actions.sort_by_key(format_action);
+        let log_tail = build_history_log_for_viewer(game, 0);
+        let tokenlog = redact_tokenlog_for_client(&game.tokenlog_full);
+        GameStateResponse {
+            version: game.version,
+            seat: 0,
+            status: game.status,
+            player_view: spectator_view.clone(),
+            spectator_view,
+            legal_actions,
+            lobby,
+            log_tail,
+            tokenlog,
+            is_spectator: true,
+            spectating_usernames: Self::active_spectator_usernames(game),
+        }
+    }
+
+    fn build_state_response_for_user(
+        &self,
+        game_id: i64,
+        user: &AuthUser,
+        spectate_intent: bool,
+    ) -> Result<GameStateResponse, StoreError> {
+        self.validate_viewer(game_id, user, spectate_intent)?;
+        let game = self.games.get(&game_id).ok_or(StoreError::NotFound)?;
+        let maybe_seat = game
+            .seats
             .iter()
             .find(|seat| seat.user_id == user.id)
-            .map(|seat| seat.seat)
-            .ok_or(StoreError::Forbidden)
+            .map(|seat| seat.seat);
+        if spectate_intent || maybe_seat.is_none() {
+            return Ok(self.build_spectator_state_response(game));
+        }
+        self.build_state_response(game_id, maybe_seat.unwrap_or(0))
     }
 
     fn build_state_response(
@@ -1130,7 +1410,44 @@ impl Store {
             lobby,
             log_tail,
             tokenlog,
+            is_spectator: false,
+            spectating_usernames: Self::active_spectator_usernames(game),
         })
+    }
+
+    fn spectator_connected(&mut self, game_id: i64, user: AuthUser) -> Result<(), StoreError> {
+        let game = self.games.get_mut(&game_id).ok_or(StoreError::NotFound)?;
+        if game.seats.iter().any(|seat| seat.user_id == user.id) {
+            return Err(StoreError::Conflict);
+        }
+        let entry = game
+            .active_spectators
+            .entry(user.id)
+            .or_insert((user.username, 0));
+        entry.1 += 1;
+        self.broadcast_game(game_id);
+        self.broadcast_lobbies();
+        Ok(())
+    }
+
+    fn spectator_disconnected(&mut self, game_id: i64, user_id: i64) {
+        let Some(game) = self.games.get_mut(&game_id) else {
+            return;
+        };
+        let mut changed = false;
+        if let Some((_, count)) = game.active_spectators.get_mut(&user_id) {
+            if *count > 1 {
+                *count -= 1;
+                changed = true;
+            } else {
+                game.active_spectators.remove(&user_id);
+                changed = true;
+            }
+        }
+        if changed {
+            self.broadcast_game(game_id);
+            self.broadcast_lobbies();
+        }
     }
 
     fn apply_action(
@@ -1139,7 +1456,7 @@ impl Store {
         user: AuthUser,
         expected_version: i64,
         action: Action,
-    ) -> Result<GameStateResponse, StoreError> {
+    ) -> Result<(GameStateResponse, Option<CompletedGameRecord>), StoreError> {
         let game = self.games.get_mut(&game_id).ok_or(StoreError::NotFound)?;
         if game.status != STATUS_STARTED {
             return Err(StoreError::Conflict);
@@ -1163,8 +1480,12 @@ impl Store {
             .map_err(|_| StoreError::BadRequest)?;
         game.last_event = Some(build_last_event(seat, &action, &phase_before));
         game.version += 1;
-        if game.engine.winner.is_some() {
+        let mut completed_record = None;
+        if game.engine.winner.is_some() && game.status != STATUS_FINISHED {
             game.status = STATUS_FINISHED;
+            let finished_at = Utc::now();
+            game.finished_at = Some(finished_at);
+            completed_record = Self::build_completed_record(game, finished_at);
         }
         if game.engine.scrap.len() > scrap_len_before && game.scrap_straightened {
             game.scrap_straightened = false;
@@ -1176,7 +1497,29 @@ impl Store {
         }
 
         self.broadcast_game(game_id);
-        self.build_state_response(game_id, seat)
+        let state = self.build_state_response(game_id, seat)?;
+        Ok((state, completed_record))
+    }
+
+    fn usernames_by_seat(game: &GameEntry) -> Option<[String; 3]> {
+        usernames_from_seats(&game.seats)
+    }
+
+    fn build_completed_record(
+        game: &GameEntry,
+        finished_at: DateTime<Utc>,
+    ) -> Option<CompletedGameRecord> {
+        let started_at = game.started_at?;
+        let [p0_username, p1_username, p2_username] = Self::usernames_by_seat(game)?;
+        Some(CompletedGameRecord {
+            rust_game_id: game.id,
+            tokenlog: game.tokenlog_full.clone(),
+            p0_username,
+            p1_username,
+            p2_username,
+            started_at,
+            finished_at,
+        })
     }
 
     fn toggle_scrap_straighten(
@@ -1267,6 +1610,21 @@ impl Store {
             n0, n1, n2, wins[0], wins[1], wins[2], stalemates
         )
     }
+}
+
+fn usernames_from_seats(seats: &[SeatEntry]) -> Option<[String; 3]> {
+    let mut usernames: [Option<String>; 3] = [None, None, None];
+    for seat in seats {
+        let idx = seat.seat as usize;
+        if idx < 3 {
+            usernames[idx] = Some(seat.username.clone());
+        }
+    }
+    Some([
+        usernames[0].clone()?,
+        usernames[1].clone()?,
+        usernames[2].clone()?,
+    ])
 }
 
 fn normal_lobby_name(seats: &[SeatEntry]) -> String {
@@ -1897,12 +2255,23 @@ enum Command {
     GetState {
         game_id: i64,
         user: AuthUser,
+        spectate_intent: bool,
         respond: oneshot::Sender<Result<GameStateResponse, StoreError>>,
     },
-    GetStateForSeat {
+    ValidateViewer {
         game_id: i64,
-        seat: Seat,
-        respond: oneshot::Sender<Result<GameStateResponse, StoreError>>,
+        user: AuthUser,
+        spectate_intent: bool,
+        respond: oneshot::Sender<Result<(), StoreError>>,
+    },
+    SpectatorConnected {
+        game_id: i64,
+        user: AuthUser,
+        respond: oneshot::Sender<Result<(), StoreError>>,
+    },
+    SpectatorDisconnected {
+        game_id: i64,
+        user_id: i64,
     },
     ApplyAction {
         game_id: i64,
@@ -1916,19 +2285,15 @@ enum Command {
         user: AuthUser,
         respond: oneshot::Sender<Result<ScrapStraightenUpdate, StoreError>>,
     },
-    SeatForUser {
-        game_id: i64,
-        user: AuthUser,
-        respond: oneshot::Sender<Result<Seat, StoreError>>,
-    },
     GetLobbyListForUser {
         user_id: i64,
-        respond: oneshot::Sender<Vec<LobbySummary>>,
+        respond: oneshot::Sender<LobbyListsResponse>,
     },
 }
 
 async fn store_task(
     mut rx: mpsc::Receiver<Command>,
+    persistence_tx: mpsc::Sender<CompletedGameRecord>,
     updates: broadcast::Sender<GameUpdate>,
     lobby_updates: broadcast::Sender<LobbyListUpdate>,
     scrap_straighten_updates: broadcast::Sender<ScrapStraightenUpdate>,
@@ -1980,19 +2345,31 @@ async fn store_task(
             Command::GetState {
                 game_id,
                 user,
+                spectate_intent,
                 respond,
             } => {
-                let seat = store.seat_for_user(game_id, &user);
-                let result = seat.and_then(|seat| store.build_state_response(game_id, seat));
+                let result = store.build_state_response_for_user(game_id, &user, spectate_intent);
                 let _ = respond.send(result);
             }
-            Command::GetStateForSeat {
+            Command::ValidateViewer {
                 game_id,
-                seat,
+                user,
+                spectate_intent,
                 respond,
             } => {
-                let result = store.build_state_response(game_id, seat);
+                let result = store.validate_viewer(game_id, &user, spectate_intent);
                 let _ = respond.send(result);
+            }
+            Command::SpectatorConnected {
+                game_id,
+                user,
+                respond,
+            } => {
+                let result = store.spectator_connected(game_id, user);
+                let _ = respond.send(result);
+            }
+            Command::SpectatorDisconnected { game_id, user_id } => {
+                store.spectator_disconnected(game_id, user_id);
             }
             Command::ApplyAction {
                 game_id,
@@ -2002,7 +2379,21 @@ async fn store_task(
                 respond,
             } => {
                 let result = store.apply_action(game_id, user, expected_version, action);
-                let _ = respond.send(result);
+                match result {
+                    Ok((state, completed_record)) => {
+                        if let Some(record) = completed_record
+                            && persistence_tx.try_send(record).is_err()
+                        {
+                            error!(
+                                "persistence worker channel full/closed; dropping completed game record"
+                            );
+                        }
+                        let _ = respond.send(Ok(state));
+                    }
+                    Err(err) => {
+                        let _ = respond.send(Err(err));
+                    }
+                }
             }
             Command::ToggleScrapStraighten {
                 game_id,
@@ -2012,17 +2403,69 @@ async fn store_task(
                 let result = store.toggle_scrap_straighten(game_id, user);
                 let _ = respond.send(result);
             }
-            Command::SeatForUser {
-                game_id,
-                user,
-                respond,
-            } => {
-                let result = store.seat_for_user(game_id, &user);
-                let _ = respond.send(result);
-            }
             Command::GetLobbyListForUser { user_id, respond } => {
                 let _ = respond.send(store.lobby_list_for_user(Some(user_id)));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SeatEntry, resolve_database_url_from, usernames_from_seats};
+
+    #[test]
+    fn resolve_database_url_prefers_cutthroat_specific_url() {
+        let resolved = resolve_database_url_from(
+            Some("postgres://cutthroat".to_string()),
+            Some("postgres://fallback".to_string()),
+        )
+        .expect("database url");
+        assert_eq!(resolved, "postgres://cutthroat");
+    }
+
+    #[test]
+    fn resolve_database_url_uses_fallback_when_primary_missing() {
+        let resolved = resolve_database_url_from(None, Some("postgres://fallback".to_string()))
+            .expect("database url");
+        assert_eq!(resolved, "postgres://fallback");
+    }
+
+    #[test]
+    fn resolve_database_url_requires_any_url() {
+        let err = resolve_database_url_from(None, None).expect_err("expected failure");
+        assert!(
+            err.to_string().contains("CUTTHROAT_DATABASE_URL"),
+            "error should explain required env vars"
+        );
+    }
+
+    #[test]
+    fn usernames_from_seats_maps_by_seat_index() {
+        let seats = vec![
+            SeatEntry {
+                seat: 2,
+                user_id: 12,
+                username: "carol".to_string(),
+                ready: true,
+            },
+            SeatEntry {
+                seat: 0,
+                user_id: 10,
+                username: "alice".to_string(),
+                ready: true,
+            },
+            SeatEntry {
+                seat: 1,
+                user_id: 11,
+                username: "bob".to_string(),
+                ready: true,
+            },
+        ];
+        let names = usernames_from_seats(&seats).expect("expected full seat map");
+        assert_eq!(
+            names,
+            ["alice".to_string(), "bob".to_string(), "carol".to_string()]
+        );
     }
 }

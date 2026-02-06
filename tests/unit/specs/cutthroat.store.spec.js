@@ -49,6 +49,7 @@ function buildStatePayload(version = 1) {
     version,
     seat: 1,
     status: 1,
+    is_spectator: false,
     player_view: playerView,
     spectator_view: {
       ...playerView,
@@ -200,6 +201,13 @@ describe('cutthroat store websocket behavior', () => {
     });
   });
 
+  it('connects spectator websocket path when requested', () => {
+    const store = useCutthroatStore();
+    store.connectWs(42, { spectateIntent: true });
+    const [ ws ] = FakeWebSocket.instances;
+    expect(ws.url).toContain('/cutthroat/ws/games/42/spectate');
+  });
+
   it('reconnects game websocket after unexpected close', () => {
     vi.useFakeTimers();
     try {
@@ -257,6 +265,22 @@ describe('cutthroat store websocket behavior', () => {
     store.connectLobbyWs();
 
     expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
+  it('stores lobby spectatable games from lobby websocket payload', () => {
+    const store = useCutthroatStore();
+    store.connectLobbyWs();
+    const [ ws ] = FakeWebSocket.instances;
+
+    ws.emitMessage({
+      type: 'lobbies',
+      lobbies: [ { id: 1, name: 'lobby', seat_count: 1, ready_count: 0, status: 0 } ],
+      spectatable_games: [ { id: 2, name: 'active', seat_count: 3, status: 1 } ],
+    });
+
+    expect(store.lobbies).toHaveLength(1);
+    expect(store.spectateGames).toHaveLength(1);
+    expect(store.spectateGames[0].id).toBe(2);
   });
 });
 
