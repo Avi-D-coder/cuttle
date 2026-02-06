@@ -182,11 +182,12 @@ async fn main() -> Result<(), anyhow::Error> {
         .unwrap_or_else(|_| "http://localhost:1337".to_string());
     let bind_addr = std::env::var("RUST_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:4000".to_string());
     let database_url = resolve_database_url()?;
+    let auto_run_migrations = resolve_auto_run_migrations();
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await?;
-    ensure_schema_ready(&pool).await?;
+    ensure_schema_ready(&pool, auto_run_migrations).await?;
 
     let http = reqwest::Client::new();
     let (updates, _) = broadcast::channel(128);
@@ -248,6 +249,17 @@ fn resolve_database_url() -> Result<String, anyhow::Error> {
         std::env::var("CUTTHROAT_DATABASE_URL").ok(),
         std::env::var("DATABASE_URL").ok(),
     )
+}
+
+fn resolve_auto_run_migrations() -> bool {
+    resolve_auto_run_migrations_from(std::env::var("CUTTHROAT_AUTO_RUN_MIGRATIONS").ok())
+}
+
+fn resolve_auto_run_migrations_from(value: Option<String>) -> bool {
+    value
+        .as_deref()
+        .map(|raw| raw.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 fn resolve_database_url_from(
@@ -2412,7 +2424,10 @@ async fn store_task(
 
 #[cfg(test)]
 mod tests {
-    use super::{SeatEntry, resolve_database_url_from, usernames_from_seats};
+    use super::{
+        SeatEntry, resolve_auto_run_migrations_from, resolve_database_url_from,
+        usernames_from_seats,
+    };
 
     #[test]
     fn resolve_database_url_prefers_cutthroat_specific_url() {
@@ -2438,6 +2453,19 @@ mod tests {
             err.to_string().contains("CUTTHROAT_DATABASE_URL"),
             "error should explain required env vars"
         );
+    }
+
+    #[test]
+    fn auto_run_migrations_defaults_to_false() {
+        assert!(!resolve_auto_run_migrations_from(None));
+    }
+
+    #[test]
+    fn auto_run_migrations_enabled_only_for_true() {
+        assert!(resolve_auto_run_migrations_from(Some("true".to_string())));
+        assert!(resolve_auto_run_migrations_from(Some(" TRUE ".to_string())));
+        assert!(!resolve_auto_run_migrations_from(Some("1".to_string())));
+        assert!(!resolve_auto_run_migrations_from(Some("false".to_string())));
     }
 
     #[test]

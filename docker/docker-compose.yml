@@ -25,6 +25,7 @@ services:
       - VITE_API_URL=http://localhost:1337
       - VITE_BUILD_OUTPUT=assets
       - CUTTLE_ENABLE_CUTTHROAT=true
+      - CUTTHROAT_AUTO_RUN_MIGRATIONS=true
       - RUST_BIND_ADDR=127.0.0.1:4000
       - JS_INTERNAL_BASE_URL=http://127.0.0.1:1337
       - CUTTLE_RUST_URL=http://127.0.0.1:4000

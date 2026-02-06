@@ -1,10 +1,12 @@
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use sqlx::migrate::Migrator;
 use tokio::sync::mpsc;
 use tracing::error;
 
 const TABLE_NAME: &str = "public.cutthroat_games";
+static MIGRATOR: Migrator = sqlx::migrate!();
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompletedGameRecord {
@@ -17,7 +19,10 @@ pub struct CompletedGameRecord {
     pub finished_at: DateTime<Utc>,
 }
 
-pub async fn ensure_schema_ready(pool: &PgPool) -> Result<(), anyhow::Error> {
+pub async fn ensure_schema_ready(
+    pool: &PgPool,
+    auto_run_migrations: bool,
+) -> Result<(), anyhow::Error> {
     let table_name: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)")
         .bind(TABLE_NAME)
         .fetch_one(pool)
@@ -27,10 +32,18 @@ pub async fn ensure_schema_ready(pool: &PgPool) -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
+    if auto_run_migrations {
+        MIGRATOR
+            .run(pool)
+            .await
+            .context("failed to auto-run sqlx migrations for cutthroat persistence")?;
+        return Ok(());
+    }
+
     let migrations_path = format!("{}/migrations", env!("CARGO_MANIFEST_DIR"));
     let command = format!("sqlx migrate run --source {}", migrations_path);
     Err(anyhow!(
-        "Required table `{TABLE_NAME}` not found.\nRun migration: `{command}`"
+        "Required table `{TABLE_NAME}` not found.\nRun migration: `{command}`\nOr set `CUTTHROAT_AUTO_RUN_MIGRATIONS=true` to auto-run migrations at startup."
     ))
 }
 
