@@ -690,6 +690,13 @@
         <div class="finished-subtitle">
           {{ gameResultText }}
         </div>
+        <div
+          v-if="!isSpectatorMode && rematchOfferPending"
+          class="finished-subtitle"
+          data-cy="cutthroat-rematch-waiting"
+        >
+          {{ t('game.dialogs.gameOverDialog.matchStatus.waitingForPlayers') }}
+        </div>
       </template>
       <template #actions>
         <div class="finished-actions">
@@ -699,11 +706,10 @@
             color="primary"
             variant="flat"
             :loading="rematchLoading"
-            :disabled="rematchLoading"
             data-cy="cutthroat-rematch-btn"
             @click="handleRematch"
           >
-            {{ t('game.dialogs.gameOverDialog.rematch') }}
+            {{ rematchButtonText }}
           </v-btn>
           <v-btn
             size="small"
@@ -721,7 +727,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useDisplay } from 'vuetify';
@@ -777,6 +783,9 @@ const showHistoryDrawer = ref(false);
 const logsContainerDesktop = ref(null);
 const logsContainerDrawer = ref(null);
 const rematchLoading = ref(false);
+const rematchLobbyId = ref(null);
+const rematchOfferPending = ref(false);
+let rematchLobbyWsConnected = false;
 
 const isMainPhase = computed(() => phaseType.value === 'Main');
 const isCounteringPhase = computed(() => phaseType.value === 'Countering');
@@ -785,6 +794,19 @@ const isResolvingFour = computed(() => phaseType.value === 'ResolvingFour');
 const isResolvingFive = computed(() => phaseType.value === 'ResolvingFive');
 const isResolvingSeven = computed(() => phaseType.value === 'ResolvingSeven');
 const isFinished = computed(() => isCutthroatGameFinished(store.status));
+const rematchButtonText = computed(() => {
+  return rematchOfferPending.value
+    ? t('cutthroat.lobby.unready')
+    : t('game.dialogs.gameOverDialog.rematch');
+});
+const rematchLobbyIsOpen = computed(() => {
+  if (!rematchLobbyId.value) {return false;}
+  return store.lobbies.some((lobby) => lobby.id === rematchLobbyId.value);
+});
+const rematchGameHasStarted = computed(() => {
+  if (!rematchLobbyId.value) {return false;}
+  return store.spectateGames.some((game) => game.id === rematchLobbyId.value);
+});
 
 const localHandActionTokens = computed(() => {
   const deduped = [];
@@ -1222,7 +1244,28 @@ function scrollHistoryLogs() {
   }
 }
 
-function goToHome() {
+function stopRematchLobbyWatch() {
+  if (!rematchLobbyWsConnected) {return;}
+  store.disconnectLobbyWs();
+  rematchLobbyWsConnected = false;
+}
+
+function startRematchLobbyWatch() {
+  if (rematchLobbyWsConnected) {return;}
+  store.connectLobbyWs();
+  rematchLobbyWsConnected = true;
+}
+
+async function goToHome() {
+  if (rematchOfferPending.value && rematchLobbyId.value) {
+    try {
+      await store.setReady(rematchLobbyId.value, false);
+    } catch (_) {
+      // ignore cancellation errors when leaving
+    }
+    rematchOfferPending.value = false;
+  }
+  stopRematchLobbyWatch();
   router.push('/');
 }
 
@@ -1231,14 +1274,59 @@ async function handleRematch() {
   if (rematchLoading.value) {return;}
   rematchLoading.value = true;
   try {
+    if (rematchOfferPending.value && rematchLobbyId.value) {
+      await store.setReady(rematchLobbyId.value, false);
+      rematchOfferPending.value = false;
+      stopRematchLobbyWatch();
+      return;
+    }
     const newGameId = await store.rematchGame(gameId.value);
-    await router.push(`/cutthroat/lobby/${newGameId}`);
+    rematchLobbyId.value = newGameId;
+    await store.setReady(newGameId, true);
+    rematchOfferPending.value = true;
+    startRematchLobbyWatch();
   } catch (err) {
     snackbarStore.alert(err?.message ?? t('cutthroat.game.actionFailed'));
   } finally {
     rematchLoading.value = false;
   }
 }
+
+watch(
+  () => rematchOfferPending.value,
+  (pending) => {
+    if (pending && !isSpectatorMode.value) {
+      startRematchLobbyWatch();
+      return;
+    }
+    stopRematchLobbyWatch();
+  },
+);
+
+watch(
+  () => rematchGameHasStarted.value,
+  async (started) => {
+    if (!started || !rematchOfferPending.value || !rematchLobbyId.value) {return;}
+    const nextGameId = rematchLobbyId.value;
+    rematchOfferPending.value = false;
+    rematchLobbyId.value = null;
+    stopRematchLobbyWatch();
+    store.disconnectWs();
+    await store.fetchState(nextGameId);
+    store.connectWs(nextGameId);
+    await router.push(`/cutthroat/game/${nextGameId}`);
+  },
+);
+
+watch(
+  () => rematchLobbyId.value,
+  (id) => {
+    if (!id || !rematchOfferPending.value) {return;}
+    if (rematchLobbyIsOpen.value || rematchGameHasStarted.value) {return;}
+    // Initial lobby snapshot can arrive asynchronously after rematch creation.
+    startRematchLobbyWatch();
+  },
+);
 
 useCutthroatLifecycle({
   store,
@@ -1265,6 +1353,10 @@ useCutthroatLifecycle({
   isResolvingSeven,
   selectedSource,
   isRevealSelectable,
+});
+
+onBeforeUnmount(() => {
+  stopRematchLobbyWatch();
 });
 </script>
 <style scoped lang="scss">

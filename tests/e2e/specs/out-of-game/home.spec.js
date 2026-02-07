@@ -16,6 +16,18 @@ function setup() {
   window.localStorage.setItem('announcement', announcementData.id);
 }
 
+function ensureCutthroatAvailable() {
+  cy.request('/cutthroat/api/v1/health')
+    .its('status')
+    .should('eq', 200);
+  cy.window()
+    .its('cuttle.capabilitiesStore')
+    .then((store) => store.refreshCutthroatAvailability({ force: true }));
+  cy.window()
+    .its('cuttle.capabilitiesStore.cutthroatAvailability', { timeout: 10000 })
+    .should('eq', 'available');
+}
+
 function assertSuccessfulJoin(gameState) {
   expect(gameState.id).to.not.eq(null);
   cy.url().should('include', '/lobby/');
@@ -175,7 +187,7 @@ describe('Home - Game List', () => {
     cy.vueRoute('/');
     cy.get('[data-cy-game-list-selector=spectate]').click();
     cy.get('@gameId').then((gameId) => {
-      cy.get(`[data-cy-join-game=${gameId}]`).click();
+      cy.get(`[data-cy-join-game=${gameId}]`, { timeout: 10000 }).click();
       cy.url().should('include', `/game/${gameId}`);
     });
   });
@@ -234,6 +246,7 @@ describe('Home - Game List', () => {
     });
 
     it('Shows active cutthroat games in the spectate list', () => {
+      ensureCutthroatAvailable();
       cy.window()
         .its('cuttle.cutthroatStore')
         .then((store) => {
@@ -467,6 +480,7 @@ describe('Home - Create Game', () => {
   });
 
   it('Creates a cutthroat game from the unified create controls', () => {
+    ensureCutthroatAvailable();
     selectCreateMode('3p');
     cy.get('[data-cy=create-game-unified-btn]').click();
     cy.location('pathname').should('contain', '/cutthroat/lobby/');
