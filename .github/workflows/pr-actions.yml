@@ -68,9 +68,20 @@ jobs:
       - name: detect changed paths
         id: detect
         run: |
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -q '^cuttle-rust/'; then
+
+          # checkout@v4 defaults to shallow history, so the base commit is often
+          # unavailable locally. Fetch the base branch tip and diff from merge-base.
+          git fetch --no-tags --depth=1 origin "${BASE_REF}"
+
+          BASE_POINT="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}" || true)"
+          if [ -z "${BASE_POINT}" ]; then
+            # Fallback for unusual histories where merge-base is unavailable.
+            BASE_POINT="origin/${BASE_REF}"
+          fi
+
+          if git diff --name-only "${BASE_POINT}" "${HEAD_SHA}" | grep -q '^cuttle-rust/'; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
           else
             echo "rust=false" >> "$GITHUB_OUTPUT"
