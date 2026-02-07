@@ -73,6 +73,46 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'assets',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return undefined;
+            }
+
+            if (id.includes('/node_modules/vuetify/')) {
+              return 'vuetify';
+            }
+
+            if (id.includes('/node_modules/vue/') || id.includes('/node_modules/vue-router/')) {
+              return 'vue-core';
+            }
+
+            if (id.includes('/node_modules/chart.js/')) {
+              return 'vendor-chartjs';
+            }
+
+            if (id.includes('/node_modules/lodash/')) {
+              return 'vendor-lodash';
+            }
+
+            if (id.includes('/node_modules/socket.io-client/')
+              || id.includes('/node_modules/engine.io-client/')) {
+              return 'vendor-socketio';
+            }
+
+            if (id.includes('/node_modules/marked/')) {
+              return 'vendor-marked';
+            }
+
+            if (id.includes('/node_modules/vue-i18n/')) {
+              return 'vendor-i18n';
+            }
+
+            return 'vendor';
+          },
+        },
+      },
     },
   };
 });

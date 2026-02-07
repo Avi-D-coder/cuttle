@@ -7,7 +7,9 @@
       <div class="d-flex align-center">
         <h1>{{ t('cutthroat.lobby.title') }}</h1>
       </div>
-      <h5>{{ lobbyName }}</h5>
+      <h5 v-if="lobbyName">
+        {{ lobbyName }}
+      </h5>
 
       <v-row>
         <v-col
@@ -84,7 +86,7 @@ const readying = ref(false);
 
 const gameId = computed(() => Number(route.params.gameId));
 const lobbyName = computed(() => {
-  return store.lobby?.name || `#${gameId.value}`;
+  return store.lobby?.name || '';
 });
 
 const seatViews = computed(() => {
@@ -116,7 +118,7 @@ async function ensureJoined() {
     store.connectWs(gameId.value);
     return;
   } catch (err) {
-    if (err?.status !== 403 && err?.status !== 404) {
+    if (err?.status !== 403 && err?.status !== 404 && err?.status !== 409) {
       snackbarStore.alert(err?.message ?? t('cutthroat.lobby.joinFailed'));
       router.push('/');
       return;

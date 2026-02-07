@@ -79,6 +79,9 @@ export default {
   emits: [ 'choose-move', 'cancel' ],
   computed: {
     cardWidth() {
+      if (this.$vuetify.display.smAndDown) {
+        return '100%';
+      }
       switch (this.moveChoices.length) {
         case 1:
           return '100%';

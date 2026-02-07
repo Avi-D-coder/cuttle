@@ -505,7 +505,7 @@
                 :key="card.key"
                 :card="card.card"
                 class="hand-card"
-                :clickable="isHandSourceSelectable(card)"
+                :clickable="card.isKnown && !isActionDisabled && !isFinished"
                 :is-selected="isHandSourceSelected(card)"
                 :is-frozen="isFrozenToken(card.token)"
                 :data-cutthroat-hand-card="card.token"
@@ -515,7 +515,7 @@
           </div>
         </div>
 
-        <details v-if="isDevMode" class="debug-actions">
+        <details v-if="showDebugActions" class="debug-actions">
           <summary>{{ t('cutthroat.game.debugActions') }}</summary>
           <div class="debug-actions-grid">
             <v-btn
@@ -721,7 +721,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useDisplay } from 'vuetify';
@@ -734,19 +734,16 @@ import CutthroatCard from '@/routes/cutthroat/components/CutthroatCard.vue';
 import CutthroatScrapPile from '@/routes/cutthroat/components/CutthroatScrapPile.vue';
 import CutthroatMoveChoiceOverlay from '@/routes/cutthroat/components/CutthroatMoveChoiceOverlay.vue';
 import CutthroatTargetSelectionOverlay from '@/routes/cutthroat/components/CutthroatTargetSelectionOverlay.vue';
-import { parseCardToken, publicCardToDisplay, formatCardToken } from '@/util/cutthroat-cards';
+import { parseCardToken, formatCardToken } from '@/util/cutthroat-cards';
 import {
-  deriveCounterDialogContextFromTokenlog,
-  deriveMoveChoicesForSource,
-  deriveTargetsForChoice,
-  deriveCutthroatDialogState,
   extractActionSource,
-  findMatchingAction,
   getCutthroatGameResult,
   isActionInteractionDisabled,
   isCutthroatGameFinished,
-  makeSeatLabel,
-} from '@/routes/cutthroat/cutthroat-view-helpers';
+} from '@/routes/cutthroat/helpers';
+import { useCutthroatSeatData } from '@/routes/cutthroat/composables/useCutthroatSeatData';
+import { useCutthroatInteractions } from '@/routes/cutthroat/composables/useCutthroatInteractions';
+import { useCutthroatLifecycle } from '@/routes/cutthroat/composables/useCutthroatLifecycle';
 
 const route = useRoute();
 const router = useRouter();
@@ -756,6 +753,10 @@ const store = useCutthroatStore();
 const snackbarStore = useSnackbarStore();
 
 const isDevMode = import.meta.env.DEV;
+const showDebugActions = computed(() => {
+  if (!isDevMode || typeof window === 'undefined') {return false;}
+  return window.CUTTHROAT_DEBUG_ACTIONS === true || window.cuttle?.showCutthroatDebugActions === true;
+});
 
 const gameId = computed(() => Number(route.params.gameId));
 const playerView = computed(() => store.playerView);
@@ -770,26 +771,12 @@ const isSpectatorMode = computed(() => store.isSpectator);
 const isSpectateRoute = computed(() => route.name === 'CutthroatSpectate');
 
 const mySeat = computed(() => store.seat ?? 0);
-const leftSeat = computed(() => (mySeat.value + 1) % 3);
-const rightSeat = computed(() => (mySeat.value + 2) % 3);
 const activeTurnSeat = computed(() => playerView.value?.turn ?? null);
-const isMyTurn = computed(() => !isFinished.value && activeTurnSeat.value === mySeat.value);
 
-const actionInFlight = ref(false);
-const actionInFlightKey = ref('');
-const selectedSource = ref(null);
-const selectedChoice = ref(null);
-const selectedResolveFourTokens = ref([]);
-const selectedResolveFiveToken = ref(null);
-const rematchLoading = ref(false);
 const showHistoryDrawer = ref(false);
 const logsContainerDesktop = ref(null);
 const logsContainerDrawer = ref(null);
-
-function setBrowserHeightVariable() {
-  const viewportHeight = window.innerHeight * 0.01;
-  document.documentElement.style.setProperty('--browserHeight', `${viewportHeight}px`);
-}
+const rematchLoading = ref(false);
 
 const isMainPhase = computed(() => phaseType.value === 'Main');
 const isCounteringPhase = computed(() => phaseType.value === 'Countering');
@@ -798,97 +785,6 @@ const isResolvingFour = computed(() => phaseType.value === 'ResolvingFour');
 const isResolvingFive = computed(() => phaseType.value === 'ResolvingFive');
 const isResolvingSeven = computed(() => phaseType.value === 'ResolvingSeven');
 const isFinished = computed(() => isCutthroatGameFinished(store.status));
-const isActionDisabled = computed(() => {
-  return isActionInteractionDisabled(store.status, actionInFlight.value, isSpectatorMode.value);
-});
-
-const isCounterTurn = computed(() => {
-  if (!isCounteringPhase.value) {return false;}
-  return hasCounterPassAction.value;
-});
-
-const isResolvingThreeTurn = computed(() => {
-  if (!isResolvingThree.value) {return false;}
-  return legalActions.value.some((action) => action?.type === 'ResolveThreePick');
-});
-
-const myFrozenTokens = computed(() => {
-  const player = playerForSeat(mySeat.value);
-  return new Set(player?.frozen ?? []);
-});
-
-const revealedCardEntries = computed(() => {
-  if (!isResolvingSeven.value) {return [];}
-  return (phaseData.value?.revealed_cards ?? []).map((token, index) => ({
-    token,
-    index,
-    key: `reveal-${index}-${token}`,
-    card: parseCardToken(token),
-  }));
-});
-
-const leftHandCards = computed(() => handFor(leftSeat.value));
-const rightHandCards = computed(() => handFor(rightSeat.value));
-const myHandCards = computed(() => handFor(mySeat.value));
-
-const leftPointStacks = computed(() => pointsFor(leftSeat.value));
-const rightPointStacks = computed(() => pointsFor(rightSeat.value));
-const myPointStacks = computed(() => pointsFor(mySeat.value));
-
-const leftRoyalStacks = computed(() => royalsFor(leftSeat.value));
-const rightRoyalStacks = computed(() => royalsFor(rightSeat.value));
-const myRoyalStacks = computed(() => royalsFor(mySeat.value));
-
-const myFrozenCards = computed(() => frozenFor(mySeat.value));
-
-const selectedSourceChoices = computed(() => {
-  return deriveMoveChoicesForSource(legalActions.value, selectedSource.value);
-});
-
-const selectedChoiceTargets = computed(() => {
-  if (!selectedSource.value || !selectedChoice.value) {return [];}
-  return deriveTargetsForChoice(legalActions.value, selectedSource.value, selectedChoice.value);
-});
-
-const targetKeySet = computed(() => {
-  return new Set(selectedChoiceTargets.value.map((target) => target.key));
-});
-
-const dialogState = computed(() => {
-  return deriveCutthroatDialogState({
-    phaseType: phaseType.value,
-    legalActions: legalActions.value,
-    selectedSource: selectedSource.value,
-    selectedChoice: selectedChoice.value,
-    targets: selectedChoiceTargets.value,
-  });
-});
-
-const isTargeting = computed(() => {
-  return !!selectedSource.value && !!selectedChoice.value && selectedChoiceTargets.value.length > 0;
-});
-
-const playerTargetChoices = computed(() => {
-  return dialogState.value.playerTargetSeats.map((seat) => ({
-    targetType: 'player',
-    seat,
-    key: `player:${seat}`,
-  }));
-});
-
-const showFourPlayerTargetDialog = computed(() => {
-  return isTargeting.value && dialogState.value.showFourPlayerTargetDialog;
-});
-
-const showMoveChoiceOverlay = computed(() => {
-  return !!selectedSource.value
-    && !selectedChoice.value
-    && selectedSourceChoices.value.length > 0;
-});
-
-const hasCounterPassAction = computed(() => {
-  return dialogState.value.hasCounterPass;
-});
 
 const localHandActionTokens = computed(() => {
   const deduped = [];
@@ -903,284 +799,30 @@ const localHandActionTokens = computed(() => {
   return deduped;
 });
 
-const counterTwoOptions = computed(() => {
-  return dialogState.value.counterTwoTokens;
+const {
+  leftSeat,
+  rightSeat,
+  myFrozenTokens,
+  revealedCardEntries,
+  leftHandCards,
+  rightHandCards,
+  myHandCards,
+  leftPointStacks,
+  rightPointStacks,
+  myPointStacks,
+  leftRoyalStacks,
+  rightRoyalStacks,
+  myRoyalStacks,
+  myFrozenCards,
+  seatLabel,
+} = useCutthroatSeatData({
+  playerView,
+  phaseData,
+  isResolvingSeven,
+  mySeat,
+  seatEntries,
+  localHandActionTokens,
 });
-
-const counterContext = computed(() => {
-  if (!isCounteringPhase.value) {return null;}
-  return deriveCounterDialogContextFromTokenlog(store.tokenlog);
-});
-
-const counterDialogOneOff = computed(() => {
-  return cardTokenToDialogCard(counterContext.value?.oneOffCardToken ?? null);
-});
-
-const counterDialogTarget = computed(() => {
-  const target = counterContext.value?.oneOffTarget ?? null;
-  if (!target) {return null;}
-  switch (target.type) {
-    case 'Point':
-    case 'Royal':
-    case 'Jack':
-    case 'Joker':
-      return cardTokenToDialogCard(target.token);
-    default:
-      return null;
-  }
-});
-
-const counterDialogTwosPlayed = computed(() => {
-  return (counterContext.value?.twosPlayed ?? [])
-    .map((token) => {
-      const card = cardTokenToDialogCard(token);
-      if (!card) {return null;}
-      return {
-        ...card,
-        id: token,
-      };
-    })
-    .filter(Boolean);
-});
-
-const counterDialogTwosInHand = computed(() => {
-  return counterTwoOptions.value
-    .map((token) => cardTokenToDialogCard(token))
-    .filter(Boolean);
-});
-
-const showCounterDialog = computed(() => {
-  return dialogState.value.showCounterDialog;
-});
-
-const showCannotCounterDialog = computed(() => {
-  return dialogState.value.showCannotCounterDialog;
-});
-
-const counterDialogInvariantError = computed(() => {
-  if (!isCounteringPhase.value) {return false;}
-  if (!showCounterDialog.value && !showCannotCounterDialog.value) {return false;}
-  return !counterContext.value || !counterDialogOneOff.value;
-});
-
-const canUseDeck = computed(() => {
-  if (isActionDisabled.value || isFinished.value || !isMainPhase.value) {return false;}
-  const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw');
-  const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass');
-  return !!(draw || pass);
-});
-
-const selectedSourceCard = computed(() => {
-  if (!selectedSource.value) {return null;}
-  if (selectedSource.value.zone === 'hand') {
-    const found = myHandCards.value.find((card) => card.token === selectedSource.value.token);
-    return found?.card ?? parseCardToken(selectedSource.value.token);
-  }
-  if (selectedSource.value.zone === 'reveal') {
-    const found = revealedCardEntries.value.find((entry) => entry.index === selectedSource.value.index);
-    return found?.card ?? null;
-  }
-  if (selectedSource.value.zone === 'scrap') {
-    return parseCardToken(selectedSource.value.token);
-  }
-  return null;
-});
-
-const selectedSourceIsFrozen = computed(() => {
-  if (!selectedSource.value || selectedSource.value.zone !== 'hand') {return false;}
-  return isFrozenToken(selectedSource.value.token);
-});
-
-const moveChoiceCards = computed(() => {
-  return selectedSourceChoices.value.map((choice) => ({
-    type: choice.type,
-    displayName: formatChoiceType(choice.type),
-    moveDescription: describeChoice(choice.type),
-  }));
-});
-
-const gameResultText = computed(() => {
-  if (!isFinished.value) {return '';}
-  const result = getCutthroatGameResult(store.status, playerView.value);
-  if (result.type === 'winner' && result.seat !== null && result.seat !== undefined) {
-    return t('cutthroat.game.gameOverWinner', {
-      player: seatLabel(result.seat),
-    });
-  }
-  if (result.type === 'draw') {
-    return t('cutthroat.game.gameOverDraw');
-  }
-  return t('cutthroat.game.gameOverGeneric');
-});
-
-const turnLabel = computed(() => {
-  if (!playerView.value) {return '';}
-  if (isFinished.value) {return t('cutthroat.game.gameOverTitle');}
-  if (isSpectatorMode.value) {return t('cutthroat.game.spectating');}
-  return playerView.value.turn === mySeat.value ? t('game.turn.yourTurn') : t('game.turn.opponentTurn');
-});
-
-function isActiveTurnSeat(seat) {
-  if (isFinished.value) {return false;}
-  return activeTurnSeat.value === seat;
-}
-
-const resolveFiveActions = computed(() => {
-  return legalActions.value.filter((action) => action?.type === 'ResolveFiveDiscard');
-});
-
-const resolveFourDiscardTokens = computed(() => {
-  return dialogState.value.resolveFourTokens;
-});
-
-const resolveFiveDiscardTokens = computed(() => {
-  return dialogState.value.resolveFiveTokens;
-});
-
-const showResolveFourDialog = computed(() => {
-  return dialogState.value.showResolveFourDialog;
-});
-
-const showResolveFiveDialog = computed(() => {
-  return dialogState.value.showResolveFiveDialog;
-});
-
-const resolveFourHandCards = computed(() => {
-  return resolveFourDiscardTokens.value.map((token, index) => ({
-    token,
-    key: `resolve-four-${token}-${index}`,
-    card: parseCardToken(token),
-  }));
-});
-
-const resolveFiveHandCards = computed(() => {
-  return resolveFiveDiscardTokens.value.map((token, index) => ({
-    token,
-    key: `resolve-five-${token}-${index}`,
-    card: parseCardToken(token),
-  }));
-});
-
-const canSubmitResolveFour = computed(() => {
-  if (resolveFourHandCards.value.length === 0) {return false;}
-  const maxSelectable = Math.min(2, resolveFourHandCards.value.length);
-  return selectedResolveFourTokens.value.length === maxSelectable;
-});
-
-const canSubmitResolveFive = computed(() => {
-  if (resolveFiveHandCards.value.length === 0) {return true;}
-  return !!selectedResolveFiveToken.value;
-});
-
-const resolveFiveDialogTitle = computed(() => {
-  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.discardAndDraw' : 'game.dialogs.five.nice');
-});
-
-const resolveFiveDialogBody = computed(() => {
-  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.resolveFive' : 'game.dialogs.five.resolveFiveNoCards');
-});
-
-const resolveFiveDialogButton = computed(() => {
-  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.discardAndDraw' : 'rules.draw');
-});
-
-function playerForSeat(seat) {
-  return playerView.value?.players?.find((player) => player.seat === seat);
-}
-
-function handFor(seat) {
-  const player = playerForSeat(seat);
-  if (!player) {return [];}
-  const entries = player.hand.map((card, index) => {
-    const token = card?.type === 'Known' ? card.data : null;
-    return {
-      token,
-      key: token ?? `hidden-${seat}-${index}`,
-      card: publicCardToDisplay(card),
-      isKnown: card?.type === 'Known',
-    };
-  });
-
-  if (seat !== mySeat.value) {
-    return entries;
-  }
-
-  const knownTokens = new Set(entries.filter((entry) => entry.isKnown && entry.token).map((entry) => entry.token));
-  const extraTokens = localHandActionTokens.value.filter((token) => !knownTokens.has(token));
-  if (extraTokens.length === 0) {
-    return entries;
-  }
-
-  const hydratedEntries = entries.map((entry, index) => {
-    if (entry.isKnown || extraTokens.length === 0) {return entry;}
-    const inferredToken = extraTokens.shift();
-    if (!inferredToken) {return entry;}
-    return {
-      token: inferredToken,
-      key: `inferred-${inferredToken}-${index}`,
-      card: parseCardToken(inferredToken),
-      isKnown: true,
-    };
-  });
-
-  extraTokens.forEach((token, index) => {
-    hydratedEntries.push({
-      token,
-      key: `inferred-extra-${token}-${index}`,
-      card: parseCardToken(token),
-      isKnown: true,
-    });
-  });
-
-  return hydratedEntries;
-}
-
-function frozenFor(seat) {
-  const player = playerForSeat(seat);
-  if (!player) {return [];}
-  return (player.frozen ?? []).map((token, index) => ({
-    token,
-    key: `${token}-${index}`,
-    card: parseCardToken(token),
-  }));
-}
-
-function pointsFor(seat) {
-  const player = playerForSeat(seat);
-  if (!player) {return [];}
-  return player.points.map((stack) => ({
-    baseToken: stack.base,
-    baseCard: parseCardToken(stack.base),
-    controller: stack.controller,
-    attachments: stack.jacks.map((token) => ({
-      token,
-      card: parseCardToken(token),
-    })),
-  }));
-}
-
-function royalsFor(seat) {
-  const player = playerForSeat(seat);
-  if (!player) {return [];}
-  return player.royals.map((stack) => ({
-    baseToken: stack.base,
-    baseCard: parseCardToken(stack.base),
-    isGlasses: stack.base?.startsWith('8'),
-    controller: stack.controller,
-    attachments: stack.jokers.map((token) => ({
-      token,
-      card: parseCardToken(token),
-    })),
-  }));
-}
-
-function seatLabel(seat) {
-  return makeSeatLabel(seat, seatEntries.value);
-}
-
-function actionKey(action) {
-  return JSON.stringify(action ?? {});
-}
 
 function cardNameForRankSuit(rank, suit) {
   const rankText = {
@@ -1232,362 +874,150 @@ function cardTokenToDialogCard(token) {
   };
 }
 
-function sameSource(a, b) {
-  if (!a || !b) {return false;}
-  return a.zone === b.zone
-    && a.token === b.token
-    && a.index === b.index;
-}
+const isActionDisabled = computed(() => {
+  return isActionInteractionDisabled(store.status, actionInFlight.value, isSpectatorMode.value);
+});
 
-function makeTargetKey(target) {
-  if (!target || !target.targetType) {return '';}
-  if (target.targetType === 'player') {
-    return `player:${target.seat}`;
-  }
-  if (target.token !== undefined && target.token !== null) {
-    return `${target.targetType}:${target.token}`;
-  }
-  return target.targetType;
-}
+const {
+  actionInFlight,
+  actionInFlightKey,
+  selectedSource,
+  selectedChoice,
+  selectedResolveFourTokens,
+  selectedResolveFiveToken,
+  selectedSourceChoices,
+  isTargeting,
+  playerTargetChoices,
+  showFourPlayerTargetDialog,
+  showMoveChoiceOverlay,
+  isResolvingThreeTurn,
+  counterDialogOneOff,
+  counterDialogTarget,
+  counterDialogTwosPlayed,
+  counterDialogTwosInHand,
+  showCounterDialog,
+  showCannotCounterDialog,
+  counterDialogInvariantError,
+  canUseDeck,
+  selectedSourceCard,
+  selectedSourceIsFrozen,
+  resolveFiveDiscardTokens,
+  showResolveFourDialog,
+  showResolveFiveDialog,
+  resolveFourHandCards,
+  resolveFiveHandCards,
+  canSubmitResolveFour,
+  canSubmitResolveFive,
+  isActionLoading,
+  clearInteractionState,
+  cancelTargeting,
+  syncInteractionState,
+  isFrozenToken,
+  isHandSourceSelected,
+  isRevealSelected,
+  isPointTarget,
+  isRoyalTarget,
+  isJackTarget,
+  isJokerTarget,
+  isPlayerTarget,
+  sendResolvedAction,
+  chooseMove,
+  handleDeckClick,
+  handleCounterPass,
+  handleCounterTwoFromDialog,
+  toggleResolveFourCard,
+  submitResolveFourDiscard,
+  submitResolveFiveDiscard,
+  handleHandCardClick,
+  handleRevealClick,
+  handleScrapCardClick,
+  handleRequestScrapStraighten,
+  handlePointTargetClick,
+  handleRoyalTargetClick,
+  handleJackTargetClick,
+  handleJokerTargetClick,
+  handlePlayerTargetClick,
+  isRevealSelectable,
+} = useCutthroatInteractions({
+  store,
+  snackbarStore,
+  t,
+  legalActions,
+  phaseType,
+  isActionDisabled,
+  isFinished,
+  isMainPhase,
+  isCounteringPhase,
+  isResolvingThree,
+  isResolvingFour,
+  isResolvingFive,
+  myHandCards,
+  myFrozenTokens,
+  revealedCardEntries,
+  isSpectatorMode,
+  localHandActionTokens,
+  cardTokenToDialogCard,
+});
 
-function isActionLoading(action) {
-  if (!actionInFlight.value) {return false;}
-  return actionInFlightKey.value === actionKey(action);
-}
+const isMyTurn = computed(() => !isFinished.value && activeTurnSeat.value === mySeat.value);
 
-function clearInteractionState() {
-  selectedSource.value = null;
-  selectedChoice.value = null;
-}
-
-function cancelTargeting() {
-  selectedChoice.value = null;
-}
-
-function syncInteractionState() {
-  if (!selectedSource.value) {return;}
-
-  const choices = deriveMoveChoicesForSource(legalActions.value, selectedSource.value);
-  if (choices.length === 0) {
-    clearInteractionState();
-    return;
-  }
-
-  if (!selectedChoice.value) {return;}
-
-  const matchingChoice = choices.some((choice) => choice.type === selectedChoice.value);
-  if (!matchingChoice) {
-    selectedChoice.value = null;
-    return;
-  }
-
-  const targets = deriveTargetsForChoice(legalActions.value, selectedSource.value, selectedChoice.value);
-  if (targets.length === 0) {
-    selectedChoice.value = null;
-  }
-}
-
-function isFrozenToken(token) {
-  if (!token) {return false;}
-  return myFrozenTokens.value.has(token);
-}
-
-function isHandSourceSelectable(handCard) {
-  if (!handCard?.isKnown || !handCard?.token || isActionDisabled.value || isFinished.value) {return false;}
-  const source = {
-    zone: 'hand',
-    token: handCard.token,
-  };
-  return deriveMoveChoicesForSource(legalActions.value, source).length > 0;
-}
-
-function isHandSourceSelected(handCard) {
-  if (!handCard?.token || !selectedSource.value) {return false;}
-  return selectedSource.value.zone === 'hand' && selectedSource.value.token === handCard.token;
-}
-
-function isRevealSelectable(index) {
-  const source = {
-    zone: 'reveal',
-    index,
-  };
-  return deriveMoveChoicesForSource(legalActions.value, source).length > 0;
-}
-
-function isRevealSelected(index) {
-  if (!selectedSource.value) {return false;}
-  return selectedSource.value.zone === 'reveal' && selectedSource.value.index === index;
-}
-
-function hasTarget(target) {
-  return targetKeySet.value.has(makeTargetKey(target));
-}
-
-function isPointTarget(token) {
-  return isTargeting.value && hasTarget({
-    targetType: 'point',
-    token,
-  });
-}
-
-function isRoyalTarget(token) {
-  return isTargeting.value && hasTarget({
-    targetType: 'royal',
-    token,
-  });
-}
-
-function isJackTarget(token) {
-  return isTargeting.value && hasTarget({
-    targetType: 'jack',
-    token,
-  });
-}
-
-function isJokerTarget(token) {
-  return isTargeting.value && hasTarget({
-    targetType: 'joker',
-    token,
-  });
-}
-
-function isPlayerTarget(seat) {
-  return isTargeting.value && hasTarget({
-    targetType: 'player',
-    seat,
-  });
-}
-
-async function sendResolvedAction(action) {
-  if (!action || isActionDisabled.value) {return false;}
-
-  actionInFlight.value = true;
-  actionInFlightKey.value = actionKey(action);
-  let succeeded = false;
-
-  try {
-    await store.sendAction(action);
-    succeeded = true;
-  } catch (err) {
-    if (!store.lastError) {
-      snackbarStore.alert(err?.message ?? t('cutthroat.game.actionFailed'));
-    }
-  } finally {
-    actionInFlight.value = false;
-    actionInFlightKey.value = '';
+const moveChoiceCards = computed(() => {
+  const legalChoices = selectedSourceChoices.value;
+  if (legalChoices.length > 0) {
+    return legalChoices.map((choice) => ({
+      type: choice.type,
+      displayName: formatChoiceType(choice.type),
+      moveDescription: describeChoice(choice.type),
+    }));
   }
 
-  if (succeeded) {
-    clearInteractionState();
-  } else {
-    syncInteractionState();
+  const fallbackTypes = fallbackChoiceTypesForSelectedCard();
+  const disabledExplanation = fallbackDisabledExplanation();
+  return fallbackTypes.map((choiceType) => ({
+    type: choiceType,
+    displayName: formatChoiceType(choiceType),
+    moveDescription: describeChoice(choiceType),
+    disabled: true,
+    disabledExplanation,
+  }));
+});
+
+const gameResultText = computed(() => {
+  if (!isFinished.value) {return '';}
+  const result = getCutthroatGameResult(store.status, playerView.value);
+  if (result.type === 'winner' && result.seat !== null && result.seat !== undefined) {
+    return t('cutthroat.game.gameOverWinner', {
+      player: seatLabel(result.seat),
+    });
   }
-
-  return succeeded;
-}
-
-async function executeSourceChoice(source, choiceType, target = null) {
-  const action = findMatchingAction(legalActions.value, source, choiceType, target);
-  if (!action) {return;}
-  await sendResolvedAction(action);
-}
-
-function chooseMove(choiceType) {
-  if (!selectedSource.value || isActionDisabled.value) {return;}
-
-  const targets = deriveTargetsForChoice(legalActions.value, selectedSource.value, choiceType);
-  if (targets.length === 0) {
-    executeSourceChoice(selectedSource.value, choiceType);
-    return;
+  if (result.type === 'draw') {
+    return t('cutthroat.game.gameOverDraw');
   }
+  return t('cutthroat.game.gameOverGeneric');
+});
 
-  selectedChoice.value = choiceType;
-}
+const turnLabel = computed(() => {
+  if (!playerView.value) {return '';}
+  if (isFinished.value) {return t('cutthroat.game.gameOverTitle');}
+  if (isSpectatorMode.value) {return t('cutthroat.game.spectating');}
+  return playerView.value.turn === mySeat.value ? t('game.turn.yourTurn') : t('game.turn.opponentTurn');
+});
 
-function resolveTargetSelection(target) {
-  if (!selectedSource.value || !selectedChoice.value || !isTargeting.value) {return;}
-  if (!hasTarget(target)) {return;}
-  executeSourceChoice(selectedSource.value, selectedChoice.value, target);
-}
+const resolveFiveDialogTitle = computed(() => {
+  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.discardAndDraw' : 'game.dialogs.five.nice');
+});
 
-async function handleDeckClick() {
-  if (!canUseDeck.value) {return;}
-  const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw');
-  const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass');
-  await sendResolvedAction(draw ?? pass);
-}
+const resolveFiveDialogBody = computed(() => {
+  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.resolveFive' : 'game.dialogs.five.resolveFiveNoCards');
+});
 
-async function handleCounterPass() {
-  if (isSpectatorMode.value) {return;}
-  const action = findMatchingAction(legalActions.value, { zone: 'counter', token: 'pass' }, 'counterPass');
-  await sendResolvedAction(action);
-}
+const resolveFiveDialogButton = computed(() => {
+  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.discardAndDraw' : 'rules.draw');
+});
 
-async function handleCounterTwo(twoToken) {
-  if (isSpectatorMode.value) {return;}
-  if (!twoToken) {return;}
-  const action = findMatchingAction(
-    legalActions.value,
-    { zone: 'hand', token: twoToken },
-    'counterTwo',
-  );
-  await sendResolvedAction(action);
-}
-
-async function handleCounterTwoFromDialog(twoId) {
-  if (!twoId) {return;}
-  await handleCounterTwo(twoId);
-}
-
-function toggleResolveFourCard(token) {
-  if (isSpectatorMode.value) {return;}
-  if (!token) {return;}
-  const selected = selectedResolveFourTokens.value;
-  if (selected.includes(token)) {
-    selectedResolveFourTokens.value = selected.filter((entry) => entry !== token);
-    return;
-  }
-  const maxSelectable = Math.min(2, resolveFourHandCards.value.length);
-  const next = [ ...selected, token ];
-  if (next.length > maxSelectable) {
-    next.shift();
-  }
-  selectedResolveFourTokens.value = next;
-}
-
-async function submitResolveFourDiscard() {
-  if (isSpectatorMode.value) {return;}
-  if (!canSubmitResolveFour.value) {return;}
-  const tokens = [ ...selectedResolveFourTokens.value ];
-  for (const token of tokens) {
-    const action = findMatchingAction(
-      legalActions.value,
-      { zone: 'hand', token },
-      'resolveFourDiscard',
-    );
-    if (!action) {continue;}
-    // Sequentially send actions so each discard respects server-side state/version updates.
-    await sendResolvedAction(action);
-  }
-  selectedResolveFourTokens.value = [];
-}
-
-async function submitResolveFiveDiscard() {
-  if (isSpectatorMode.value) {return;}
-  if (!canSubmitResolveFive.value) {return;}
-  let action = null;
-  if (selectedResolveFiveToken.value) {
-    action = findMatchingAction(
-      legalActions.value,
-      { zone: 'hand', token: selectedResolveFiveToken.value },
-      'resolveFiveDiscard',
-    );
-  } else {
-    action = resolveFiveActions.value[0] ?? null;
-  }
-  await sendResolvedAction(action);
-  selectedResolveFiveToken.value = null;
-}
-
-async function handleHandCardClick(handCard) {
-  if (!isHandSourceSelectable(handCard)) {return;}
-
-  const source = {
-    zone: 'hand',
-    token: handCard.token,
-  };
-  const choices = deriveMoveChoicesForSource(legalActions.value, source);
-
-  if (
-    isResolvingFour.value
-    || isResolvingFive.value
-    || (isCounterTurn.value && choices.length === 1 && choices[0].type === 'counterTwo')
-  ) {
-    await executeSourceChoice(source, choices[0].type);
-    return;
-  }
-
-  if (sameSource(selectedSource.value, source) && !selectedChoice.value) {
-    clearInteractionState();
-    return;
-  }
-
-  selectedSource.value = source;
-  selectedChoice.value = null;
-}
-
-function handleRevealClick(index) {
-  if (isActionDisabled.value) {return;}
-
-  const source = {
-    zone: 'reveal',
-    index,
-  };
-
-  if (deriveMoveChoicesForSource(legalActions.value, source).length === 0) {return;}
-
-  if (sameSource(selectedSource.value, source) && !selectedChoice.value) {
-    clearInteractionState();
-    return;
-  }
-
-  selectedSource.value = source;
-  selectedChoice.value = null;
-}
-
-async function handleScrapCardClick(token) {
-  if (!isResolvingThreeTurn.value || isActionDisabled.value) {return;}
-
-  await executeSourceChoice(
-    {
-      zone: 'scrap',
-      token,
-    },
-    'resolveThreePick',
-  );
-}
-
-function handleRequestScrapStraighten() {
-  try {
-    store.sendScrapStraighten();
-  } catch (err) {
-    snackbarStore.alert(err?.message ?? t('cutthroat.game.actionFailed'));
-  }
-}
-
-function handlePointTargetClick(token) {
-  resolveTargetSelection({
-    targetType: 'point',
-    token,
-  });
-}
-
-function handleRoyalTargetClick(token) {
-  resolveTargetSelection({
-    targetType: 'royal',
-    token,
-  });
-}
-
-function handleJackTargetClick(token) {
-  resolveTargetSelection({
-    targetType: 'jack',
-    token,
-  });
-}
-
-function handleJokerTargetClick(token) {
-  resolveTargetSelection({
-    targetType: 'joker',
-    token,
-  });
-}
-
-function handlePlayerTargetClick(seat) {
-  resolveTargetSelection({
-    targetType: 'player',
-    seat,
-  });
+function isActiveTurnSeat(seat) {
+  if (isFinished.value) {return false;}
+  return activeTurnSeat.value === seat;
 }
 
 function formatChoiceType(choiceType) {
@@ -1644,7 +1074,7 @@ function describeChoice(choiceType) {
     case 'jack':
       return t('game.moves.jack.description');
     case 'joker':
-      return t('cutthroat.game.playJoker');
+      return t('cutthroat.game.jokerDescription');
     case 'oneOff':
       if (rank) {
         return t(`game.moves.effects[${rank}]`);
@@ -1667,40 +1097,36 @@ function describeChoice(choiceType) {
   }
 }
 
-function formatAction(action) {
-  if (!action || !action.type) {return t('cutthroat.game.action');}
-  switch (action.type) {
-    case 'Draw':
-      return t('cutthroat.game.draw');
-    case 'Pass':
-      return t('cutthroat.game.pass');
-    case 'PlayPoints':
-      return `${t('cutthroat.game.playPoints')} ${formatCardToken(action.data?.card)}`;
-    case 'Scuttle':
-      return `${t('cutthroat.game.scuttle')} ${formatCardToken(action.data?.target_point_base)} ${t('cutthroat.game.with')} ${formatCardToken(action.data?.card)}`;
-    case 'PlayRoyal':
-      return `${t('cutthroat.game.playRoyal')} ${formatCardToken(action.data?.card)}`;
-    case 'PlayJack':
-      return `${t('cutthroat.game.playJack')} ${formatCardToken(action.data?.jack)} -> ${formatCardToken(action.data?.target_point_base)}`;
-    case 'PlayJoker':
-      return `${t('cutthroat.game.playJoker')} ${formatCardToken(action.data?.joker)} -> ${formatCardToken(action.data?.target_royal_card)}`;
-    case 'PlayOneOff':
-      return `${t('cutthroat.game.playOneOff')} ${formatCardToken(action.data?.card)} ${formatOneOffTarget(action.data?.target)}`;
-    case 'CounterTwo':
-      return `${t('cutthroat.game.counterTwo')} ${formatCardToken(action.data?.two_card)}`;
-    case 'CounterPass':
-      return t('cutthroat.game.counterPassAction');
-    case 'ResolveThreePick':
-      return `${t('cutthroat.game.pickFromScrap')} ${formatCardToken(action.data?.card_from_scrap)}`;
-    case 'ResolveFourDiscard':
-      return `${t('cutthroat.game.discard')} ${formatCardToken(action.data?.card)}`;
-    case 'ResolveFiveDiscard':
-      return `${t('cutthroat.game.discard')} ${formatCardToken(action.data?.card)}`;
-    case 'ResolveSevenChoose':
-      return `${t('cutthroat.game.play')} ${formatCardToken(revealToken(action.data?.source_index))} ${formatSevenPlay(action.data?.play)}`;
+function fallbackChoiceTypesForSelectedCard() {
+  if (selectedSource.value?.zone !== 'hand') {return [];}
+  const rank = selectedSourceCard.value?.rank;
+  switch (rank) {
+    case 1:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 2:
+    case 9:
+      return [ 'points', 'scuttle', 'oneOff' ];
+    case 8:
+      return [ 'points', 'scuttle', 'royal' ];
+    case 10:
+      return [ 'points', 'scuttle' ];
+    case 11:
+    case 12:
+    case 13:
+      return [ 'royal' ];
     default:
-      return action.type;
+      return [];
   }
+}
+
+function fallbackDisabledExplanation() {
+  if (!isMyTurn.value) {return t('game.moves.disabledMove.notTurn');}
+  if (selectedSourceIsFrozen.value) {return t('game.moves.disabledMove.frozenCard');}
+  return t('cutthroat.game.waiting');
 }
 
 function revealToken(index) {
@@ -1751,6 +1177,51 @@ function formatSevenPlay(play) {
   }
 }
 
+function formatAction(action) {
+  if (!action || !action.type) {return t('cutthroat.game.action');}
+  switch (action.type) {
+    case 'Draw':
+      return t('cutthroat.game.draw');
+    case 'Pass':
+      return t('cutthroat.game.pass');
+    case 'PlayPoints':
+      return `${t('cutthroat.game.playPoints')} ${formatCardToken(action.data?.card)}`;
+    case 'Scuttle':
+      return `${t('cutthroat.game.scuttle')} ${formatCardToken(action.data?.target_point_base)} ${t('cutthroat.game.with')} ${formatCardToken(action.data?.card)}`;
+    case 'PlayRoyal':
+      return `${t('cutthroat.game.playRoyal')} ${formatCardToken(action.data?.card)}`;
+    case 'PlayJack':
+      return `${t('cutthroat.game.playJack')} ${formatCardToken(action.data?.jack)} -> ${formatCardToken(action.data?.target_point_base)}`;
+    case 'PlayJoker':
+      return `${t('cutthroat.game.playJoker')} ${formatCardToken(action.data?.joker)} -> ${formatCardToken(action.data?.target_royal_card)}`;
+    case 'PlayOneOff':
+      return `${t('cutthroat.game.playOneOff')} ${formatCardToken(action.data?.card)} ${formatOneOffTarget(action.data?.target)}`;
+    case 'CounterTwo':
+      return `${t('cutthroat.game.counterTwo')} ${formatCardToken(action.data?.two_card)}`;
+    case 'CounterPass':
+      return t('cutthroat.game.counterPassAction');
+    case 'ResolveThreePick':
+      return `${t('cutthroat.game.pickFromScrap')} ${formatCardToken(action.data?.card_from_scrap)}`;
+    case 'ResolveFourDiscard':
+      return `${t('cutthroat.game.discard')} ${formatCardToken(action.data?.card)}`;
+    case 'ResolveFiveDiscard':
+      return `${t('cutthroat.game.discard')} ${formatCardToken(action.data?.card)}`;
+    case 'ResolveSevenChoose':
+      return `${t('cutthroat.game.play')} ${formatCardToken(revealToken(action.data?.source_index))} ${formatSevenPlay(action.data?.play)}`;
+    default:
+      return action.type;
+  }
+}
+
+function scrollHistoryLogs() {
+  if (logsContainerDesktop.value) {
+    logsContainerDesktop.value.scrollTop = logsContainerDesktop.value.scrollHeight;
+  }
+  if (logsContainerDrawer.value) {
+    logsContainerDrawer.value.scrollTop = logsContainerDrawer.value.scrollHeight;
+  }
+}
+
 function goToHome() {
   router.push('/');
 }
@@ -1769,159 +1240,35 @@ async function handleRematch() {
   }
 }
 
-function scrollHistoryLogs() {
-  if (logsContainerDesktop.value) {
-    logsContainerDesktop.value.scrollTop = logsContainerDesktop.value.scrollHeight;
-  }
-  if (logsContainerDrawer.value) {
-    logsContainerDrawer.value.scrollTop = logsContainerDrawer.value.scrollHeight;
-  }
-}
-
-onMounted(async () => {
-  setBrowserHeightVariable();
-  window.addEventListener('resize', setBrowserHeightVariable);
-  await nextTick();
-  scrollHistoryLogs();
-
-  try {
-    await store.fetchState(gameId.value, { spectateIntent: isSpectateRoute.value });
-    if (store.status === 0 && !isSpectatorMode.value) {
-      router.replace(`/cutthroat/lobby/${gameId.value}`);
-      return;
-    }
-    if (store.status === 0 && isSpectatorMode.value) {
-      snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
-      router.push('/');
-      return;
-    }
-    if (isSpectateRoute.value && !isSpectatorMode.value) {
-      snackbarStore.alert(t('cutthroat.game.cannotSpectateOwnGame'));
-      router.replace(`/cutthroat/game/${gameId.value}`);
-    } else if (!isSpectateRoute.value && isSpectatorMode.value) {
-      router.replace(`/cutthroat/spectate/${gameId.value}`);
-    }
-  } catch (err) {
-    if (isSpectateRoute.value && err?.status === 409) {
-      snackbarStore.alert(t('cutthroat.game.cannotSpectateOwnGame'));
-      await router.replace(`/cutthroat/game/${gameId.value}`);
-      await store.fetchState(gameId.value, { spectateIntent: false });
-      if (store.status === 0) {
-        router.replace(`/cutthroat/lobby/${gameId.value}`);
-        return;
-      }
-      store.connectWs(gameId.value, { spectateIntent: false });
-      return;
-    }
-    if (err?.status === 409) {
-      snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
-      router.push('/');
-      return;
-    }
-    try {
-      await store.joinGame(gameId.value);
-      await store.fetchState(gameId.value, { spectateIntent: false });
-      if (store.status === 0) {
-        router.replace(`/cutthroat/lobby/${gameId.value}`);
-        return;
-      }
-    } catch (joinErr) {
-      snackbarStore.alert(joinErr?.message ?? t('cutthroat.game.loadFailed'));
-      router.push('/');
-      return;
-    }
-  }
-
-  store.connectWs(gameId.value, { spectateIntent: isSpectatorMode.value });
-});
-
-watch(
-  () => store.status,
-  (status) => {
-    if (status === 0 && !isSpectatorMode.value) {
-      router.replace(`/cutthroat/lobby/${gameId.value}`);
-    } else if (status === 0 && isSpectatorMode.value) {
-      snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
-      router.push('/');
-    }
-    if (status === 2) {
-      clearInteractionState();
-    }
-  },
-);
-
-watch(
-  () => legalActions.value,
-  () => {
-    syncInteractionState();
-    const allowedFourTokens = new Set(resolveFourHandCards.value.map((entry) => entry.token));
-    selectedResolveFourTokens.value = selectedResolveFourTokens.value.filter((token) => allowedFourTokens.has(token));
-    if (selectedResolveFiveToken.value && !resolveFiveDiscardTokens.value.includes(selectedResolveFiveToken.value)) {
-      selectedResolveFiveToken.value = null;
-    }
-  },
-  { deep: true },
-);
-
-watch(
-  () => historyLines.value,
-  () => {
-    nextTick(() => {
-      scrollHistoryLogs();
-    });
-  },
-  { deep: true },
-);
-
-watch(
-  () => smAndDown.value,
-  (isCompact) => {
-    if (!isCompact) {
-      showHistoryDrawer.value = false;
-    }
-  },
-);
-
-watch(
-  () => store.lastError,
-  (error) => {
-    if (!error) {return;}
-    snackbarStore.alert(error.message ?? t('cutthroat.game.actionFailed'));
-    store.clearLastError();
-    actionInFlight.value = false;
-    actionInFlightKey.value = '';
-    syncInteractionState();
-  },
-);
-
-watch(
-  () => gameId.value,
-  (id) => {
-    if (!id) {
-      router.push('/');
-    }
-  },
-);
-
-watch(
-  () => phaseType.value,
-  () => {
-    if (isResolvingSeven.value && selectedSource.value?.zone === 'reveal') {
-      if (!isRevealSelectable(selectedSource.value.index)) {
-        clearInteractionState();
-      }
-    }
-  },
-);
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', setBrowserHeightVariable);
-  store.disconnectWs();
+useCutthroatLifecycle({
+  store,
+  router,
+  t,
+  snackbarStore,
+  gameId,
+  isSpectateRoute,
+  isSpectatorMode,
+  legalActions,
+  resolveFourHandCards,
+  selectedResolveFourTokens,
+  resolveFiveDiscardTokens,
+  selectedResolveFiveToken,
+  syncInteractionState,
+  historyLines,
+  scrollHistoryLogs,
+  smAndDown,
+  showHistoryDrawer,
+  clearInteractionState,
+  actionInFlight,
+  actionInFlightKey,
+  phaseType,
+  isResolvingSeven,
+  selectedSource,
+  isRevealSelectable,
 });
 </script>
-
 <style scoped lang="scss">
-@import '@/routes/game/styles/game-ux-shared.scss';
+@use '@/routes/game/styles/game-ux-shared.scss' as *;
 
 @function bh($quantity) {
   @return calc(var(--browserHeight, 1vh) * #{$quantity});
@@ -1997,18 +1344,22 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr) minmax(200px, 300px) minmax(0, 1fr);
   align-items: start;
   gap: 16px;
+  flex: 0 0 auto;
   min-height: 0;
 }
 
 .table-center {
   display: flex;
+  flex: 1 1 auto;
   justify-content: center;
   gap: 24px;
   align-items: center;
+  min-height: 0;
 }
 
 .table-bottom {
   display: flex;
+  flex: 0 0 auto;
   justify-content: center;
   min-height: 0;
 }
@@ -2021,6 +1372,10 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: none;
   transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.player-area.opponent {
+  align-self: start;
 }
 
 .player-area.me {
@@ -2384,8 +1739,8 @@ onBeforeUnmount(() => {
 }
 
 .mini-card :deep(.player-card) {
-  max-height: bh(6);
-  max-width: calc(bh(6) / 1.45);
+  max-height: 6vh;
+  max-width: calc(6vh / 1.45);
 }
 
 @media (max-width: 1280px) {
@@ -2448,8 +1803,8 @@ onBeforeUnmount(() => {
   }
 
   .mini-card :deep(.player-card) {
-    max-height: bh(5);
-    max-width: calc(bh(5) / 1.45);
+    max-height: 5vh;
+    max-width: calc(5vh / 1.45);
   }
 }
 
@@ -2470,14 +1825,14 @@ onBeforeUnmount(() => {
   .table {
     display: grid;
     height: 100%;
-    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 8px;
     align-content: stretch;
     overflow: hidden;
   }
 
   .table.compact-resolving-seven {
-    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
   }
 
   .table-top {
@@ -2600,8 +1955,8 @@ onBeforeUnmount(() => {
   }
 
   .mini-card :deep(.player-card) {
-    max-height: bh(3.8);
-    max-width: calc(bh(3.8) / 1.45);
+    max-height: 3.8vh;
+    max-width: calc(3.8vh / 1.45);
   }
 
   .debug-actions {
@@ -2615,12 +1970,12 @@ onBeforeUnmount(() => {
   }
 
   .table {
-    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 6px;
   }
 
   .table.compact-resolving-seven {
-    grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
   }
 
   .mobile-history-controls {
@@ -2787,8 +2142,8 @@ onBeforeUnmount(() => {
   }
 
   .mini-card :deep(.player-card) {
-    max-height: bh(2.8);
-    max-width: calc(bh(2.8) / 1.45);
+    max-height: 2.8vh;
+    max-width: calc(2.8vh / 1.45);
   }
 }
 </style>

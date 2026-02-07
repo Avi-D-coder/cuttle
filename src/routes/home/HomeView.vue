@@ -308,8 +308,15 @@ export default {
   },
   async created() {
     try {
-      await this.gameListStore.requestGameList();
-      await this.capabilitiesStore.refreshCutthroatAvailability();
+      // Keep Cutthroat capability probing independent from the 2P socket game list call.
+      // On transient socket failures, we still want to detect and expose 3P when Rust is up.
+      const [ gameListResult ] = await Promise.allSettled([
+        this.gameListStore.requestGameList(),
+        this.capabilitiesStore.refreshCutthroatAvailability({ force: true }),
+      ]);
+      if (gameListResult.status === 'rejected') {
+        console.log(gameListResult.reason);
+      }
       if (this.isCutthroatAvailable) {
         this.cutthroatStore.connectLobbyWs();
       }

@@ -1,8 +1,9 @@
 use crate::api::handlers::{
-    apply_action_internal, build_state_response_for_user, set_spectator_connected,
-    set_spectator_disconnected, toggle_scrap_straighten_internal, validate_viewer,
+    apply_action_internal, set_spectator_disconnected, subscribe_game_stream,
+    toggle_scrap_straighten_internal,
 };
 use crate::auth::authorize;
+use crate::game_runtime::GameAudience;
 use crate::state::AppState;
 use crate::ws::messages::{WsClientMessage, WsServerMessage};
 use axum::extract::ws::{Message, WebSocket};
@@ -11,6 +12,10 @@ use axum::{
     http::HeaderMap,
     response::IntoResponse,
 };
+use std::sync::Arc;
+use tokio::time::{Duration, timeout};
+
+const WS_SEND_TIMEOUT_SECS: u64 = 3;
 
 pub(crate) async fn ws_handler(
     State(state): State<AppState>,
@@ -40,6 +45,39 @@ pub(crate) async fn ws_spectate_handler(
     ws.on_upgrade(move |socket| handle_ws(socket, state, id, user, true))
 }
 
+async fn send_server_message(socket: &mut WebSocket, message: WsServerMessage) -> bool {
+    let payload = match serde_json::to_string(&message) {
+        Ok(payload) => payload,
+        Err(_) => return false,
+    };
+
+    matches!(
+        timeout(
+            Duration::from_secs(WS_SEND_TIMEOUT_SECS),
+            socket.send(Message::Text(payload.into())),
+        )
+        .await,
+        Ok(Ok(()))
+    )
+}
+
+async fn send_state(
+    socket: &mut WebSocket,
+    state: Arc<crate::api::handlers::GameStateResponse>,
+) -> bool {
+    send_server_message(
+        socket,
+        WsServerMessage::State {
+            state: Box::new((*state).clone()),
+        },
+    )
+    .await
+}
+
+async fn send_error(socket: &mut WebSocket, code: u16, message: String) {
+    let _ = send_server_message(socket, WsServerMessage::Error { code, message }).await;
+}
+
 async fn handle_ws(
     mut socket: WebSocket,
     state: AppState,
@@ -47,89 +85,40 @@ async fn handle_ws(
     user: crate::auth::AuthUser,
     spectate_intent: bool,
 ) {
-    let mut updates = state.updates.subscribe();
-    let mut scrap_straighten_updates = state.scrap_straighten_updates.subscribe();
-    let mut spectator_registered = false;
-    if let Err((code, message)) =
-        validate_viewer(&state, game_id, user.clone(), spectate_intent).await
-    {
-        let _ = socket
-            .send(Message::Text(
-                serde_json::to_string(&WsServerMessage::Error { code, message })
-                    .unwrap()
-                    .into(),
-            ))
-            .await;
-        return;
-    }
-
-    match build_state_response_for_user(&state, game_id, user.clone(), spectate_intent).await {
-        Ok(resp) => {
-            if resp.is_spectator {
-                if set_spectator_connected(&state, game_id, user.clone())
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-                spectator_registered = true;
-            }
-            if socket
-                .send(Message::Text(
-                    serde_json::to_string(&WsServerMessage::State(Box::new(resp)))
-                        .unwrap()
-                        .into(),
-                ))
-                .await
-                .is_err()
-            {
-                if spectator_registered {
-                    set_spectator_disconnected(&state, game_id, user.id).await;
-                }
+    let subscription =
+        match subscribe_game_stream(&state, game_id, user.clone(), spectate_intent).await {
+            Ok(subscription) => subscription,
+            Err((code, message)) => {
+                send_error(&mut socket, code, message).await;
                 return;
             }
+        };
+
+    let spectator_registered = matches!(subscription.audience, GameAudience::Spectator);
+    let mut state_rx = subscription.rx;
+
+    let initial_state = {
+        let borrowed = state_rx.borrow();
+        borrowed.clone()
+    };
+    if !send_state(&mut socket, initial_state).await {
+        if spectator_registered {
+            set_spectator_disconnected(&state, game_id, user.id).await;
         }
-        Err(_) => return,
+        return;
     }
 
     loop {
         tokio::select! {
-            update = updates.recv() => {
-                let Ok(update) = update else { break; };
-                if update.game_id != game_id {
-                    continue;
-                }
-                if let Ok(resp) = build_state_response_for_user(&state, game_id, user.clone(), spectate_intent).await
-                    && socket
-                        .send(Message::Text(
-                            serde_json::to_string(&WsServerMessage::State(Box::new(resp)))
-                                .unwrap()
-                                .into(),
-                        ))
-                        .await
-                        .is_err()
-                {
+            changed = state_rx.changed() => {
+                if changed.is_err() {
                     break;
                 }
-            }
-            update = scrap_straighten_updates.recv() => {
-                let Ok(update) = update else { break; };
-                if update.game_id != game_id {
-                    continue;
-                }
-                if socket
-                    .send(Message::Text(
-                        serde_json::to_string(&WsServerMessage::ScrapStraighten {
-                            game_id: update.game_id,
-                            straightened: update.straightened,
-                            actor_seat: update.actor_seat,
-                        })
-                        .unwrap()
-                        .into(),
-                    ))
-                    .await
-                    .is_err()
-                {
+                let latest = {
+                    let borrowed = state_rx.borrow_and_update();
+                    borrowed.clone()
+                };
+                if !send_state(&mut socket, latest).await {
                     break;
                 }
             }
@@ -140,40 +129,25 @@ async fn handle_ws(
                     Message::Text(text) => {
                         match serde_json::from_str::<WsClientMessage>(&text) {
                             Ok(WsClientMessage::Action { expected_version, action }) => {
-                                let result = apply_action_internal(&state, game_id, user.clone(), expected_version, action).await;
+                                let result = apply_action_internal(
+                                    &state,
+                                    game_id,
+                                    user.clone(),
+                                    expected_version,
+                                    action,
+                                ).await;
                                 if let Err((code, message)) = result {
-                                    let _ = socket
-                                        .send(Message::Text(
-                                            serde_json::to_string(&WsServerMessage::Error { code, message })
-                                                .unwrap()
-                                                .into(),
-                                        ))
-                                        .await;
+                                    send_error(&mut socket, code, message).await;
                                 }
                             }
                             Ok(WsClientMessage::ScrapStraighten) => {
                                 let result = toggle_scrap_straighten_internal(&state, game_id, user.clone()).await;
                                 if let Err((code, message)) = result {
-                                    let _ = socket
-                                        .send(Message::Text(
-                                            serde_json::to_string(&WsServerMessage::Error { code, message })
-                                                .unwrap()
-                                                .into(),
-                                        ))
-                                        .await;
+                                    send_error(&mut socket, code, message).await;
                                 }
                             }
                             Err(err) => {
-                                let _ = socket
-                                    .send(Message::Text(
-                                        serde_json::to_string(&WsServerMessage::Error {
-                                            code: 400,
-                                            message: format!("invalid message: {}", err),
-                                        })
-                                        .unwrap()
-                                        .into(),
-                                    ))
-                                    .await;
+                                send_error(&mut socket, 400, format!("invalid message: {}", err)).await;
                             }
                         }
                     }
@@ -183,6 +157,7 @@ async fn handle_ws(
             }
         }
     }
+
     if spectator_registered {
         set_spectator_disconnected(&state, game_id, user.id).await;
     }

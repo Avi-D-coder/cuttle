@@ -1,17 +1,15 @@
+use crate::game_runtime::{Command, GameRuntime};
 use crate::persistence::CompletedGameRecord;
-use crate::state::{GameUpdate, LobbyListUpdate, ScrapStraightenUpdate};
-use crate::store::{Command, Store};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tracing::error;
 
-pub(crate) async fn store_task(
+pub(crate) async fn runtime_task(
     mut rx: mpsc::Receiver<Command>,
     persistence_tx: mpsc::Sender<CompletedGameRecord>,
-    updates: broadcast::Sender<GameUpdate>,
-    lobby_updates: broadcast::Sender<LobbyListUpdate>,
-    scrap_straighten_updates: broadcast::Sender<ScrapStraightenUpdate>,
+    initial_next_game_id: i64,
 ) {
-    let mut store = Store::new(updates, lobby_updates, scrap_straighten_updates);
+    let mut store = GameRuntime::new(initial_next_game_id);
+
     while let Some(cmd) = rx.recv().await {
         match cmd {
             Command::CreateGame { user, respond } => {
@@ -64,22 +62,17 @@ pub(crate) async fn store_task(
                 let result = store.build_state_response_for_user(game_id, &user, spectate_intent);
                 let _ = respond.send(result);
             }
-            Command::ValidateViewer {
+            Command::SubscribeGameStream {
                 game_id,
                 user,
                 spectate_intent,
                 respond,
             } => {
-                let result = store.validate_viewer(game_id, &user, spectate_intent);
+                let result = store.subscribe_game_stream(game_id, user, spectate_intent);
                 let _ = respond.send(result);
             }
-            Command::SpectatorConnected {
-                game_id,
-                user,
-                respond,
-            } => {
-                let result = store.spectator_connected(game_id, user);
-                let _ = respond.send(result);
+            Command::SubscribeLobbyStream { respond } => {
+                let _ = respond.send(store.subscribe_lobby_stream());
             }
             Command::SpectatorDisconnected { game_id, user_id } => {
                 store.spectator_disconnected(game_id, user_id);
@@ -116,8 +109,10 @@ pub(crate) async fn store_task(
                 let result = store.toggle_scrap_straighten(game_id, user);
                 let _ = respond.send(result);
             }
-            Command::GetLobbyListForUser { user_id, respond } => {
-                let _ = respond.send(store.lobby_list_for_user(Some(user_id)));
+            #[cfg(feature = "e2e-seed")]
+            Command::SeedGameFromTokenlog { seed, respond } => {
+                let result = store.seed_game_from_tokenlog(seed);
+                let _ = respond.send(result);
             }
         }
     }

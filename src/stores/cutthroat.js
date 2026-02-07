@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useCapabilitiesStore } from '@/stores/capabilities';
+import { resolveCutthroatHttpPath, resolveCutthroatWsUrl } from '@/util/cutthroat-url';
 
 const ACTION_ACK_TIMEOUT_MS = 5000;
 const WS_RECONNECT_INITIAL_DELAY_MS = 1000;
@@ -10,6 +11,130 @@ function createHttpError(message, status) {
   const err = new Error(`${message}: ${status}`);
   err.status = status;
   return err;
+}
+
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isValidPublicCard(card) {
+  if (card === 'Hidden') {return true;}
+  return isObject(card) && typeof card.Known === 'string';
+}
+
+function isValidPointStack(stack) {
+  return isObject(stack)
+    && typeof stack.base === 'string'
+    && isFiniteNumber(stack.controller)
+    && isStringArray(stack.jacks);
+}
+
+function isValidRoyalStack(stack) {
+  return isObject(stack)
+    && typeof stack.base === 'string'
+    && isFiniteNumber(stack.controller)
+    && isStringArray(stack.jokers);
+}
+
+function isValidPlayerView(player) {
+  return isObject(player)
+    && isFiniteNumber(player.seat)
+    && Array.isArray(player.hand)
+    && player.hand.every((card) => isValidPublicCard(card))
+    && Array.isArray(player.points)
+    && player.points.every((stack) => isValidPointStack(stack))
+    && Array.isArray(player.royals)
+    && player.royals.every((stack) => isValidRoyalStack(stack))
+    && isStringArray(player.frozen);
+}
+
+function isValidPublicView(view) {
+  return isObject(view)
+    && isFiniteNumber(view.seat)
+    && isFiniteNumber(view.turn)
+    && isObject(view.phase)
+    && typeof view.phase.type === 'string'
+    && isFiniteNumber(view.deck_count)
+    && isStringArray(view.scrap)
+    && Array.isArray(view.players)
+    && view.players.every((player) => isValidPlayerView(player));
+}
+
+function isValidLobbySeat(seat) {
+  return isObject(seat)
+    && isFiniteNumber(seat.seat)
+    && isFiniteNumber(seat.user_id)
+    && typeof seat.username === 'string'
+    && typeof seat.ready === 'boolean';
+}
+
+function isValidLobbyView(view) {
+  return isObject(view)
+    && Array.isArray(view.seats)
+    && view.seats.every((seat) => isValidLobbySeat(seat));
+}
+
+function isValidGameStatePayload(payload) {
+  return isObject(payload)
+    && isFiniteNumber(payload.version)
+    && isFiniteNumber(payload.seat)
+    && isFiniteNumber(payload.status)
+    && isValidPublicView(payload.player_view)
+    && isValidPublicView(payload.spectator_view)
+    && Array.isArray(payload.legal_actions)
+    && isValidLobbyView(payload.lobby)
+    && isStringArray(payload.log_tail)
+    && typeof payload.tokenlog === 'string'
+    && typeof payload.is_spectator === 'boolean'
+    && isStringArray(payload.spectating_usernames)
+    && typeof payload.scrap_straightened === 'boolean';
+}
+
+function isValidLobbySummary(lobbyEntry) {
+  return isObject(lobbyEntry)
+    && isFiniteNumber(lobbyEntry.id)
+    && typeof lobbyEntry.name === 'string'
+    && isFiniteNumber(lobbyEntry.seat_count)
+    && isFiniteNumber(lobbyEntry.ready_count)
+    && isFiniteNumber(lobbyEntry.status);
+}
+
+function isValidSpectatableGame(gameEntry) {
+  return isObject(gameEntry)
+    && isFiniteNumber(gameEntry.id)
+    && typeof gameEntry.name === 'string'
+    && isFiniteNumber(gameEntry.seat_count)
+    && isFiniteNumber(gameEntry.status)
+    && isStringArray(gameEntry.spectating_usernames);
+}
+
+function isValidLobbyMessage(payload) {
+  return isObject(payload)
+    && payload.type === 'lobbies'
+    && isFiniteNumber(payload.version)
+    && Array.isArray(payload.lobbies)
+    && payload.lobbies.every((entry) => isValidLobbySummary(entry))
+    && Array.isArray(payload.spectatable_games)
+    && payload.spectatable_games.every((entry) => isValidSpectatableGame(entry));
+}
+
+function isValidErrorMessage(payload) {
+  return isObject(payload)
+    && payload.type === 'error'
+    && isFiniteNumber(payload.code)
+    && typeof payload.message === 'string';
+}
+
+function protocolError(reason) {
+  return `Cutthroat protocol violation: ${reason}`;
 }
 
 export const useCutthroatStore = defineStore('cutthroat', () => {
@@ -31,6 +156,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const lobbySocket = ref(null);
   const lobbies = ref([]);
   const spectateGames = ref([]);
+  const lobbyVersion = ref(0);
   const lastError = ref(null);
   const pendingAction = ref(null);
   const isScrapStraightened = ref(false);
@@ -109,8 +235,51 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     }, lobbySocketReconnectDelayMs);
   }
 
+  function failGameProtocol(ws, reason) {
+    const message = protocolError(reason);
+    setLastError({ code: 1002, message });
+    gameSocketShouldReconnect = false;
+    activeGameSocketId = null;
+    activeGameSocket = null;
+    activeGameSocketSpectateIntent = false;
+    clearGameReconnectTimer();
+    gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
+    if (socket.value === ws) {
+      socket.value = null;
+    }
+    rejectPendingAction(new Error(message));
+    try {
+      ws.close();
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function failLobbyProtocol(ws, reason) {
+    const message = protocolError(reason);
+    setLastError({ code: 1002, message });
+    lobbySocketShouldReconnect = false;
+    activeLobbySocket = null;
+    clearLobbyReconnectTimer();
+    lobbySocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
+    if (lobbySocket.value === ws) {
+      lobbySocket.value = null;
+    }
+    try {
+      ws.close();
+    } catch (_) {
+      // ignore
+    }
+  }
+
   function updateFromPayload(payload) {
-    if (!payload) {return;}
+    if (
+      typeof payload.version === 'number'
+      && typeof version.value === 'number'
+      && payload.version < version.value
+    ) {
+      return;
+    }
     if (
       pendingAction.value
       && typeof payload.version === 'number'
@@ -121,28 +290,39 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     version.value = payload.version;
     seat.value = payload.seat;
     status.value = payload.status;
-    isSpectator.value = Boolean(payload.is_spectator);
-    playerView.value = isSpectator.value ? (payload.spectator_view ?? payload.player_view ?? null) : (payload.player_view ?? null);
-    spectatorView.value = payload.spectator_view ?? null;
-    legalActions.value = payload.legal_actions ?? [];
-    lobby.value = payload.lobby ?? { seats: [] };
-    spectatingUsers.value = payload.spectating_usernames ?? [];
-    logTail.value = payload.log_tail ?? [];
-    tokenlog.value = payload.tokenlog ?? '';
+    isSpectator.value = payload.is_spectator;
+    playerView.value = isSpectator.value
+      ? payload.spectator_view
+      : payload.player_view;
+    spectatorView.value = payload.spectator_view;
+    legalActions.value = payload.legal_actions;
+    lobby.value = payload.lobby;
+    spectatingUsers.value = payload.spectating_usernames;
+    logTail.value = payload.log_tail;
+    tokenlog.value = payload.tokenlog;
+    isScrapStraightened.value = payload.scrap_straightened;
     lastEvent.value = playerView.value?.last_event ?? null;
   }
 
   async function fetchState(id, { spectateIntent = false } = {}) {
     ensureCutthroatAvailable();
     isScrapStraightened.value = false;
+    if (gameId.value !== id) {
+      version.value = 0;
+    }
     const statePath = spectateIntent ? `/cutthroat/api/v1/games/${id}/spectate/state` : `/cutthroat/api/v1/games/${id}/state`;
-    const res = await fetch(statePath, {
+    const res = await fetch(resolveCutthroatHttpPath(statePath), {
       credentials: 'include',
     });
     if (!res.ok) {
       throw createHttpError('Failed to fetch state', res.status);
     }
     const data = await res.json();
+    if (!isValidGameStatePayload(data)) {
+      const message = protocolError('invalid HTTP game state payload');
+      setLastError({ code: 1002, message });
+      throw new Error(message);
+    }
     gameId.value = id;
     updateFromPayload(data);
     return data;
@@ -150,7 +330,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function createGame() {
     ensureCutthroatAvailable();
-    const res = await fetch('/cutthroat/api/v1/games', {
+    const res = await fetch(resolveCutthroatHttpPath('/cutthroat/api/v1/games'), {
       method: 'POST',
       credentials: 'include',
     });
@@ -163,7 +343,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function joinGame(id) {
     ensureCutthroatAvailable();
-    const res = await fetch(`/cutthroat/api/v1/games/${id}/join`, {
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/join`), {
       method: 'POST',
       credentials: 'include',
     });
@@ -175,7 +355,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function leaveGame(id) {
     ensureCutthroatAvailable();
-    const res = await fetch(`/cutthroat/api/v1/games/${id}/leave`, {
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/leave`), {
       method: 'POST',
       credentials: 'include',
     });
@@ -186,7 +366,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function rematchGame(id) {
     ensureCutthroatAvailable();
-    const res = await fetch(`/cutthroat/api/v1/games/${id}/rematch`, {
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/rematch`), {
       method: 'POST',
       credentials: 'include',
     });
@@ -199,7 +379,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function setReady(id, ready = true) {
     ensureCutthroatAvailable();
-    const res = await fetch(`/cutthroat/api/v1/games/${id}/ready`, {
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/ready`), {
       method: 'POST',
       headers: new Headers({
         'Content-Type': 'application/json',
@@ -214,7 +394,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function startGame(id) {
     ensureCutthroatAvailable();
-    const res = await fetch(`/cutthroat/api/v1/games/${id}/start`, {
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/start`), {
       method: 'POST',
       credentials: 'include',
     });
@@ -226,6 +406,10 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   function connectWs(id, { replace = true, spectateIntent = false } = {}) {
     if (capabilitiesStore.cutthroatAvailability === 'unavailable') {return;}
     if (!Number.isInteger(id)) {return;}
+    if (gameId.value !== id) {
+      version.value = 0;
+      gameId.value = id;
+    }
     if (replace) {
       disconnectWs();
     }
@@ -234,9 +418,8 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     activeGameSocketId = id;
     activeGameSocketSpectateIntent = spectateIntent;
     isScrapStraightened.value = false;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsPath = spectateIntent ? `/cutthroat/ws/games/${id}/spectate` : `/cutthroat/ws/games/${id}`;
-    const ws = new WebSocket(`${protocol}://${window.location.host}${wsPath}`);
+    const ws = new WebSocket(resolveCutthroatWsUrl(wsPath));
     activeGameSocket = ws;
     ws.onopen = () => {
       gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
@@ -245,21 +428,37 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (!isObject(msg) || typeof msg.type !== 'string') {
+          failGameProtocol(ws, 'invalid game WS message envelope');
+          return;
+        }
         if (msg.type === 'state') {
-          updateFromPayload(msg.data ?? msg.state ?? msg);
+          if (!isObject(msg.state) || !isValidGameStatePayload(msg.state)) {
+            failGameProtocol(ws, 'invalid game state payload');
+            return;
+          }
+          updateFromPayload(msg.state);
           clearLastError();
-        } else if (msg.type === 'scrap_straighten') {
-          isScrapStraightened.value = Boolean(msg.straightened);
-        } else if (msg.type === 'error') {
-          const err = new Error(msg.message ?? 'WebSocket error');
+          return;
+        }
+        if (msg.type === 'error') {
+          if (!isValidErrorMessage(msg)) {
+            failGameProtocol(ws, 'invalid game error payload');
+            return;
+          }
+          const err = new Error(msg.message);
           err.status = msg.code;
           setLastError({
             code: msg.code,
-            message: msg.message ?? 'WebSocket error',
+            message: msg.message,
           });
           rejectPendingAction(err);
+          return;
         }
-      } catch (_) {/* ignore */}
+        failGameProtocol(ws, `unexpected game message type "${msg.type}"`);
+      } catch (_) {
+        failGameProtocol(ws, 'non-JSON game WS payload');
+      }
     };
     ws.onclose = () => {
       if (activeGameSocket === ws) {
@@ -293,8 +492,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     clearLobbyReconnectTimer();
     lobbySocketShouldReconnect = true;
     if (lobbySocket.value) {return;}
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://${window.location.host}/cutthroat/ws/lobbies`);
+    const ws = new WebSocket(resolveCutthroatWsUrl('/cutthroat/ws/lobbies'));
     activeLobbySocket = ws;
     ws.onopen = () => {
       lobbySocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
@@ -303,16 +501,38 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (!isObject(msg) || typeof msg.type !== 'string') {
+          failLobbyProtocol(ws, 'invalid lobby WS message envelope');
+          return;
+        }
         if (msg.type === 'lobbies') {
-          lobbies.value = msg.lobbies ?? [];
-          spectateGames.value = msg.spectatable_games ?? [];
-        } else if (msg.type === 'error') {
+          if (!isValidLobbyMessage(msg)) {
+            failLobbyProtocol(ws, 'invalid lobby payload');
+            return;
+          }
+          if (msg.version < lobbyVersion.value) {
+            return;
+          }
+          lobbyVersion.value = msg.version;
+          lobbies.value = msg.lobbies;
+          spectateGames.value = msg.spectatable_games;
+          return;
+        }
+        if (msg.type === 'error') {
+          if (!isValidErrorMessage(msg)) {
+            failLobbyProtocol(ws, 'invalid lobby error payload');
+            return;
+          }
           setLastError({
             code: msg.code,
-            message: msg.message ?? 'WebSocket error',
+            message: msg.message,
           });
+          return;
         }
-      } catch (_) {/* ignore */}
+        failLobbyProtocol(ws, `unexpected lobby message type "${msg.type}"`);
+      } catch (_) {
+        failLobbyProtocol(ws, 'non-JSON lobby WS payload');
+      }
     };
     ws.onclose = () => {
       if (activeLobbySocket === ws) {
@@ -335,6 +555,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     }
     lobbies.value = [];
     spectateGames.value = [];
+    lobbyVersion.value = 0;
   }
 
   async function sendAction(action) {
@@ -367,7 +588,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
       });
       return;
     }
-    const res = await fetch(`/cutthroat/api/v1/games/${gameId.value}/action`, {
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${gameId.value}/action`), {
       method: 'POST',
       headers: new Headers({
         'Content-Type': 'application/json',
@@ -382,6 +603,11 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
       throw createHttpError('Failed to send action', res.status);
     }
     const data = await res.json();
+    if (!isValidGameStatePayload(data)) {
+      const message = protocolError('invalid HTTP action response payload');
+      setLastError({ code: 1002, message });
+      throw new Error(message);
+    }
     updateFromPayload(data);
   }
 

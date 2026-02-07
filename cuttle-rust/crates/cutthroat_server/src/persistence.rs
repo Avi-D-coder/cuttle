@@ -23,7 +23,7 @@ pub async fn ensure_schema_ready(
     pool: &PgPool,
     auto_run_migrations: bool,
 ) -> Result<(), anyhow::Error> {
-    let table_name: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)")
+    let table_name: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
         .bind(TABLE_NAME)
         .fetch_one(pool)
         .await
@@ -45,6 +45,16 @@ pub async fn ensure_schema_ready(
     Err(anyhow!(
         "Required table `{TABLE_NAME}` not found.\nRun migration: `{command}`\nOr set `CUTTHROAT_AUTO_RUN_MIGRATIONS=true` to auto-run migrations at startup."
     ))
+}
+
+/// Reads the largest persisted Rust Cutthroat game ID from Postgres for startup seeding only.
+/// Runtime game ID allocation remains in-memory in the store while the server is running.
+pub async fn fetch_max_cutthroat_game_id_in_db(pool: &PgPool) -> Result<i64, anyhow::Error> {
+    let max_id: Option<i64> = sqlx::query_scalar("SELECT MAX(rust_game_id) FROM cutthroat_games")
+        .fetch_one(pool)
+        .await
+        .context("failed to query max rust_game_id from cutthroat_games")?;
+    Ok(max_id.unwrap_or(0))
 }
 
 pub async fn run_persistence_worker(mut rx: mpsc::Receiver<CompletedGameRecord>, pool: PgPool) {

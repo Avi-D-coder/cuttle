@@ -614,6 +614,7 @@
       "playRoyal": "Jugar figura",
       "playJack": "Jota",
       "playJoker": "Comodín",
+      "jokerDescription": "Jugar comodín sobre una figura objetivo",
       "playOneOff": "Única",
       "counter": "Contrarrestar",
       "counterPass": "Pasar",

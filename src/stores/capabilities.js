@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { resolveCutthroatHttpPath } from '@/util/cutthroat-url';
 
-const CUTTHROAT_HEALTH_URL = '/cutthroat/api/v1/health';
+const CUTTHROAT_HEALTH_PATH = '/cutthroat/api/v1/health';
 const CUTTHROAT_HEALTH_TIMEOUT_MS = 1200;
 const AVAILABLE_CACHE_TTL_MS = 30000;
 const UNAVAILABLE_RETRY_INITIAL_MS = 1000;
@@ -62,7 +63,8 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
     cutthroatProbePromise = (async () => {
       const controller = new AbortController();
       try {
-        const response = await withTimeout(fetch(CUTTHROAT_HEALTH_URL, {
+        const healthUrl = resolveCutthroatHttpPath(CUTTHROAT_HEALTH_PATH);
+        const response = await withTimeout(fetch(healthUrl, {
           method: 'GET',
           credentials: 'include',
           signal: controller.signal,

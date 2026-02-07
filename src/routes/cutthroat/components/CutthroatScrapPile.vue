@@ -104,7 +104,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { onLongPress } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import { orderBy } from 'lodash';
@@ -140,6 +140,7 @@ const emit = defineEmits([ 'pick-scrap-card', 'request-scrap-straighten' ]);
 const { t } = useI18n();
 
 const showDialog = ref(false);
+const hasAutoOpenedResolveThreeDialog = ref(false);
 
 const scrapCards = computed(() => mapScrapEntriesToCards(props.scrapTokens));
 
@@ -177,6 +178,22 @@ function openDialog(event) {
   event.stopPropagation();
   isLongPressing.value = false;
 }
+
+watch(
+  () => props.isResolvingThreeTurn,
+  (isResolvingThreeTurn) => {
+    if (!isResolvingThreeTurn) {
+      hasAutoOpenedResolveThreeDialog.value = false;
+      showDialog.value = false;
+      return;
+    }
+
+    if (props.isActionDisabled || hasAutoOpenedResolveThreeDialog.value) {return;}
+
+    showDialog.value = true;
+    hasAutoOpenedResolveThreeDialog.value = true;
+  },
+);
 </script>
 
 <style scoped lang="scss">

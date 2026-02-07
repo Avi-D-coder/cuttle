@@ -49,11 +49,18 @@ export function formatCardToken(token) {
   return `${rank}${suitIcon}`;
 }
 
+export function publicCardToken(card) {
+  if (!card || typeof card !== 'object') {return null;}
+  if (typeof card.Known === 'string') {return card.Known;}
+  return null;
+}
+
 export function publicCardToDisplay(card) {
-  if (!card || !card.type) {return { kind: 'hidden' };}
-  if (card.type === 'Hidden') {return { kind: 'hidden' };}
-  if (card.type === 'Known') {
-    return parseCardToken(card.data) ?? { kind: 'hidden' };
+  if (card === 'Hidden') {return { kind: 'hidden' };}
+  if (!card) {return { kind: 'hidden' };}
+  const token = publicCardToken(card);
+  if (token) {
+    return parseCardToken(token) ?? { kind: 'hidden' };
   }
   return { kind: 'hidden' };
 }

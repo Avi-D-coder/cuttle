@@ -1056,7 +1056,7 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-@import '@/routes/game/styles/game-ux-shared.scss';
+@use '@/routes/game/styles/game-ux-shared.scss' as *;
 
 ////////////
 // Styles //

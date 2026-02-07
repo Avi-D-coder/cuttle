@@ -614,6 +614,7 @@
       "playRoyal": "Königliche ausspielen",
       "playJack": "Bube",
       "playJoker": "Joker",
+      "jokerDescription": "Joker auf eine Ziel-Königliche spielen",
       "playOneOff": "Einmalig",
       "counter": "Konter",
       "counterPass": "Passen",

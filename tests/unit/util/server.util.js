@@ -1,13 +1,39 @@
 const Sails = require('sails').constructor;
+const net = require('node:net');
 
-export function bootServer() {
+function getAvailablePort() {
   return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : null;
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!Number.isInteger(port) || port <= 0) {
+          reject(new Error('Failed to determine available test port.'));
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
 
+export async function bootServer() {
+  const configuredPort = Number(process.env.TEST_SAILS_PORT ?? 0);
+  const port = Number.isInteger(configuredPort) && configuredPort > 0
+    ? configuredPort
+    : await getAvailablePort();
+  return new Promise((resolve, reject) => {
     const sailsApp = new Sails();
     sailsApp.lift(
       {
         environment: 'development',
-        port: 1337,
+        port,
         log: {
           level: 'error',
         },

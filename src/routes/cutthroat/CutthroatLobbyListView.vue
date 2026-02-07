@@ -1,6 +1,8 @@
 <template>
   <v-container>
-    <h1 class="mb-4">{{ t('cutthroat.lobby.listTitle') }}</h1>
+    <h1 class="mb-4">
+      {{ t('cutthroat.lobby.listTitle') }}
+    </h1>
     <v-btn
       class="px-16"
       color="primary"
@@ -12,7 +14,9 @@
       {{ t('cutthroat.lobby.createButton') }}
     </v-btn>
     <v-divider class="my-6" />
-    <p v-if="lobbies.length === 0">{{ t('cutthroat.lobby.noLobbies') }}</p>
+    <p v-if="lobbies.length === 0">
+      {{ t('cutthroat.lobby.noLobbies') }}
+    </p>
     <CutthroatLobbyListItem
       v-for="lobby in lobbies"
       :key="lobby.id"

@@ -614,6 +614,7 @@
       "playRoyal": "Play royal",
       "playJack": "Jack",
       "playJoker": "Joker",
+      "jokerDescription": "Play Joker on target royal",
       "playOneOff": "One-off",
       "counter": "Counter",
       "counterPass": "Pass",

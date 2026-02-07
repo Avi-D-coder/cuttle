@@ -42,10 +42,31 @@ function buildStatePayload(version = 1) {
     phase: { type: 'Main' },
     deck_count: 10,
     scrap: [],
-    players: [],
+    players: [
+      {
+        seat: 0,
+        hand: [ 'Hidden' ],
+        points: [],
+        royals: [],
+        frozen: [],
+      },
+      {
+        seat: 1,
+        hand: [ { Known: '9C' } ],
+        points: [],
+        royals: [],
+        frozen: [],
+      },
+      {
+        seat: 2,
+        hand: [ 'Hidden' ],
+        points: [],
+        royals: [],
+        frozen: [],
+      },
+    ],
   };
   return {
-    type: 'state',
     version,
     seat: 1,
     status: 1,
@@ -56,7 +77,10 @@ function buildStatePayload(version = 1) {
       deck_count: 0,
     },
     tokenlog: 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK',
+    log_tail: [],
     legal_actions: [ { type: 'Draw' } ],
+    spectating_usernames: [],
+    scrap_straightened: false,
     lobby: {
       seats: [ { seat: 1, user_id: 10, username: 'avi', ready: true } ],
     },
@@ -85,7 +109,7 @@ describe('cutthroat store websocket behavior', () => {
     const store = useCutthroatStore();
     store.connectWs(42);
     const [ ws ] = FakeWebSocket.instances;
-    ws.emitMessage(buildStatePayload(3));
+    ws.emitMessage({ type: 'state', state: buildStatePayload(3) });
 
     expect(store.version).toBe(3);
     expect(store.seat).toBe(1);
@@ -95,32 +119,37 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.tokenlog).toBe('V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK');
   });
 
-  it('only uses player_view for local player state', () => {
+  it('uses spectator_view when spectator flag is true', () => {
     const store = useCutthroatStore();
     store.connectWs(42);
     const [ ws ] = FakeWebSocket.instances;
     const payload = buildStatePayload(5);
-    payload.player_view = null;
-    payload.public_view = {
-      seat: 1,
-      turn: 1,
-      phase: { type: 'Main' },
-      deck_count: 999,
-      scrap: [],
-      players: [
-        {
-          seat: 1,
-          hand: [ { type: 'Hidden' } ],
-          points: [],
-          royals: [],
-          frozen: [],
-        },
-      ],
-    };
-    ws.emitMessage(payload);
+    payload.is_spectator = true;
+    payload.player_view.deck_count = 99;
+    payload.spectator_view.deck_count = 0;
+    ws.emitMessage({ type: 'state', state: payload });
 
-    expect(store.playerView).toBeNull();
+    expect(store.isSpectator).toBe(true);
+    expect(store.playerView.deck_count).toBe(0);
     expect(store.spectatorView.deck_count).toBe(0);
+  });
+
+  it('fails protocol on malformed game state message and does not reconnect automatically', () => {
+    vi.useFakeTimers();
+    try {
+      const store = useCutthroatStore();
+      store.connectWs(42);
+      const [ ws ] = FakeWebSocket.instances;
+
+      ws.emitMessage({ type: 'state' });
+      vi.advanceTimersByTime(5000);
+
+      expect(store.lastError.message).toContain('Cutthroat protocol violation');
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('handles ws error payload updates', () => {
@@ -135,25 +164,19 @@ describe('cutthroat store websocket behavior', () => {
     });
   });
 
-  it('handles scrap straighten websocket updates', () => {
+  it('derives scrap straighten state from state payload', () => {
     const store = useCutthroatStore();
     store.connectWs(42);
     const [ ws ] = FakeWebSocket.instances;
 
-    ws.emitMessage({
-      type: 'scrap_straighten',
-      game_id: 42,
-      straightened: true,
-      actor_seat: 1,
-    });
+    const first = buildStatePayload(2);
+    first.scrap_straightened = true;
+    ws.emitMessage({ type: 'state', state: first });
     expect(store.isScrapStraightened).toBe(true);
 
-    ws.emitMessage({
-      type: 'scrap_straighten',
-      game_id: 42,
-      straightened: false,
-      actor_seat: 2,
-    });
+    const second = buildStatePayload(3);
+    second.scrap_straightened = false;
+    ws.emitMessage({ type: 'state', state: second });
     expect(store.isScrapStraightened).toBe(false);
   });
 
@@ -182,10 +205,23 @@ describe('cutthroat store websocket behavior', () => {
     store.version = 7;
 
     const actionPromise = store.sendAction({ type: 'Draw' });
-    ws.emitMessage(buildStatePayload(8));
+    ws.emitMessage({ type: 'state', state: buildStatePayload(8) });
 
     await expect(actionPromise).resolves.toBeUndefined();
     expect(store.version).toBe(8);
+  });
+
+  it('sendAction rejects when websocket receives malformed state payload', async () => {
+    const store = useCutthroatStore();
+    store.connectWs(99);
+    const [ ws ] = FakeWebSocket.instances;
+    store.version = 7;
+
+    const actionPromise = store.sendAction({ type: 'Draw' });
+    ws.emitMessage({ type: 'state', state: { version: 8 } });
+
+    await expect(actionPromise).rejects.toThrow('Cutthroat protocol violation');
+    expect(store.lastError.message).toContain('Cutthroat protocol violation');
   });
 
   it('sendScrapStraighten sends websocket message', () => {
@@ -206,6 +242,35 @@ describe('cutthroat store websocket behavior', () => {
     store.connectWs(42, { spectateIntent: true });
     const [ ws ] = FakeWebSocket.instances;
     expect(ws.url).toContain('/cutthroat/ws/games/42/spectate');
+  });
+
+  it('resets version when switching to another game websocket', () => {
+    const store = useCutthroatStore();
+    store.gameId = 10;
+    store.version = 20;
+
+    store.connectWs(11);
+    const [ ws ] = FakeWebSocket.instances;
+    ws.emitMessage({ type: 'state', state: buildStatePayload(3) });
+
+    expect(store.gameId).toBe(11);
+    expect(store.version).toBe(3);
+    expect(store.playerView).not.toBeNull();
+  });
+
+  it('routes lobby websocket through vite proxy when app is served on localhost:1337', () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        host: 'localhost:1337',
+        hostname: 'localhost',
+        port: '1337',
+      },
+    });
+    const store = useCutthroatStore();
+    store.connectLobbyWs();
+    const [ ws ] = FakeWebSocket.instances;
+    expect(ws.url).toBe('ws://localhost:8080/cutthroat/ws/lobbies');
   });
 
   it('reconnects game websocket after unexpected close', () => {
@@ -274,13 +339,61 @@ describe('cutthroat store websocket behavior', () => {
 
     ws.emitMessage({
       type: 'lobbies',
+      version: 1,
       lobbies: [ { id: 1, name: 'lobby', seat_count: 1, ready_count: 0, status: 0 } ],
-      spectatable_games: [ { id: 2, name: 'active', seat_count: 3, status: 1 } ],
+      spectatable_games: [
+        { id: 2, name: 'active', seat_count: 3, status: 1, spectating_usernames: [] },
+      ],
     });
 
     expect(store.lobbies).toHaveLength(1);
     expect(store.spectateGames).toHaveLength(1);
     expect(store.spectateGames[0].id).toBe(2);
+  });
+
+  it('ignores stale lobby versions', () => {
+    const store = useCutthroatStore();
+    store.connectLobbyWs();
+    const [ ws ] = FakeWebSocket.instances;
+
+    ws.emitMessage({
+      type: 'lobbies',
+      version: 2,
+      lobbies: [ { id: 10, name: 'new', seat_count: 1, ready_count: 0, status: 0 } ],
+      spectatable_games: [],
+    });
+    ws.emitMessage({
+      type: 'lobbies',
+      version: 1,
+      lobbies: [ { id: 9, name: 'old', seat_count: 1, ready_count: 0, status: 0 } ],
+      spectatable_games: [],
+    });
+
+    expect(store.lobbies).toHaveLength(1);
+    expect(store.lobbies[0].id).toBe(10);
+  });
+
+  it('fails protocol on malformed lobby payload and does not reconnect automatically', () => {
+    vi.useFakeTimers();
+    try {
+      const store = useCutthroatStore();
+      store.connectLobbyWs();
+      const [ ws ] = FakeWebSocket.instances;
+
+      ws.emitMessage({
+        type: 'lobbies',
+        version: '2',
+        lobbies: [],
+        spectatable_games: [],
+      });
+      vi.advanceTimersByTime(5000);
+
+      expect(store.lastError.message).toContain('Cutthroat protocol violation');
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -332,5 +445,52 @@ describe('cutthroat store http methods', () => {
       method: 'POST',
       credentials: 'include',
     });
+  });
+
+  it('routes cutthroat http calls through vite proxy when app is served on localhost:1337', async () => {
+    vi.stubGlobal('window', {
+      location: {
+        protocol: 'http:',
+        host: 'localhost:1337',
+        hostname: 'localhost',
+        port: '1337',
+      },
+    });
+    const store = useCutthroatStore();
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: 999 }),
+    });
+
+    await expect(store.createGame()).resolves.toBe(999);
+    expect(fetch).toHaveBeenCalledWith('http://localhost:8080/cutthroat/api/v1/games', {
+      method: 'POST',
+      credentials: 'include',
+    });
+  });
+
+  it('fetchState expects bare GameStateResponse payloads', async () => {
+    const store = useCutthroatStore();
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(buildStatePayload(6)),
+    });
+
+    await store.fetchState(77);
+
+    expect(store.version).toBe(6);
+    expect(store.playerView).not.toBeNull();
+    expect(store.status).toBe(1);
+  });
+
+  it('fetchState throws when payload does not match game state contract', async () => {
+    const store = useCutthroatStore();
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: 6 }),
+    });
+
+    await expect(store.fetchState(77)).rejects.toThrow('Cutthroat protocol violation');
+    expect(store.lastError.message).toContain('Cutthroat protocol violation');
   });
 });

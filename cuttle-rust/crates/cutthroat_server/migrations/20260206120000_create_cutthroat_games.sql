@@ -1,6 +1,6 @@
 CREATE TABLE cutthroat_games (
     id BIGSERIAL PRIMARY KEY,
-    rust_game_id BIGINT NOT NULL,
+    rust_game_id BIGINT NOT NULL UNIQUE,
     tokenlog TEXT NOT NULL,
     p0_username TEXT NOT NULL,
     p1_username TEXT NOT NULL,

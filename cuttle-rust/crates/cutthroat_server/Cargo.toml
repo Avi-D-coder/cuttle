@@ -3,6 +3,10 @@ name = "cutthroat_server"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+e2e-seed = []
+
 [dependencies]
 axum = { version = "0.8.8", features = ["ws", "macros"] }
 tokio = { version = "1.49.0", features = ["full"] }

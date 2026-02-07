@@ -1,4 +1,4 @@
-use crate::store::{GameEntry, SeatEntry};
+use crate::game_runtime::{GameEntry, SeatEntry};
 use cutthroat_engine::state::PublicCard;
 use cutthroat_engine::{
     Action, LastEventView, OneOffTarget, Phase, PublicView, Seat, SevenPlay, append_action,

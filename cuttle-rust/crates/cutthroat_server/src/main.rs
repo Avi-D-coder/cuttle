@@ -2,9 +2,9 @@ mod api;
 mod app;
 mod auth;
 mod config;
+mod game_runtime;
 mod persistence;
 mod state;
-mod store;
 mod view;
 mod ws;
 
@@ -12,12 +12,12 @@ use app::build_router;
 use config::{resolve_auto_run_migrations, resolve_database_url};
 #[cfg(test)]
 use config::{resolve_auto_run_migrations_from, resolve_database_url_from};
-use persistence::{ensure_schema_ready, run_persistence_worker};
+use persistence::{ensure_schema_ready, fetch_max_cutthroat_game_id_in_db, run_persistence_worker};
 use sqlx::postgres::PgPoolOptions;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::sync::{Mutex, mpsc};
 use tracing::info;
 
 #[tokio::main]
@@ -29,44 +29,60 @@ async fn main() -> Result<(), anyhow::Error> {
     let js_base = std::env::var("JS_INTERNAL_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:1337".to_string());
     let bind_addr = std::env::var("RUST_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:4000".to_string());
-    let database_url = resolve_database_url()?;
-    let auto_run_migrations = resolve_auto_run_migrations();
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-    ensure_schema_ready(&pool, auto_run_migrations).await?;
 
     let http = reqwest::Client::new();
-    let (updates, _) = broadcast::channel(128);
-    let (lobby_updates, _) = broadcast::channel(128);
-    let (scrap_straighten_updates, _) = broadcast::channel(128);
     let auth_cache = Arc::new(Mutex::new(HashMap::new()));
-    let (store_tx, store_rx) = mpsc::channel(256);
+    let (runtime_tx, runtime_rx) = mpsc::channel(256);
     let (persistence_tx, persistence_rx) = mpsc::channel(256);
 
-    tokio::spawn(store::store_task(
-        store_rx,
+    let (initial_next_game_id, persistence_pool) = match resolve_database_url() {
+        Ok(database_url) => {
+            let auto_run_migrations = resolve_auto_run_migrations();
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .connect(&database_url)
+                .await?;
+            ensure_schema_ready(&pool, auto_run_migrations).await?;
+            let max_persisted_cutthroat_game_id = fetch_max_cutthroat_game_id_in_db(&pool).await?;
+            (max_persisted_cutthroat_game_id.saturating_add(1).max(1), Some(pool))
+        }
+        #[cfg(feature = "e2e-seed")]
+        Err(_) => {
+            info!(
+                "no database URL set; running cutthroat server without persistence because `e2e-seed` is enabled"
+            );
+            (1_i64, None)
+        }
+        #[cfg(not(feature = "e2e-seed"))]
+        Err(err) => return Err(err),
+    };
+
+    tokio::spawn(game_runtime::runtime_task(
+        runtime_rx,
         persistence_tx,
-        updates.clone(),
-        lobby_updates.clone(),
-        scrap_straighten_updates.clone(),
+        initial_next_game_id,
     ));
-    tokio::spawn(run_persistence_worker(persistence_rx, pool));
+    if let Some(pool) = persistence_pool {
+        tokio::spawn(run_persistence_worker(persistence_rx, pool));
+    } else {
+        drop(persistence_rx);
+    }
 
     let state = AppState {
         js_base,
         http,
-        updates,
-        lobby_updates,
-        scrap_straighten_updates,
         auth_cache,
-        store_tx,
+        runtime_tx,
     };
 
     let app = build_router(state);
 
-    info!("cutthroat server listening on {}", bind_addr);
+    info!(
+        "cutthroat server listening on {} (initial_next_game_id={})",
+        bind_addr, initial_next_game_id
+    );
+    #[cfg(feature = "e2e-seed")]
+    info!("cutthroat e2e seed endpoint enabled at /cutthroat/api/test/games/seed-tokenlog");
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -75,7 +91,7 @@ async fn main() -> Result<(), anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::{resolve_auto_run_migrations_from, resolve_database_url_from};
-    use crate::store::SeatEntry;
+    use crate::game_runtime::SeatEntry;
     use crate::view::response::usernames_from_seats;
 
     #[test]

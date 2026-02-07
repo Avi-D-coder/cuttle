@@ -2,48 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveMoveChoicesForSource,
   deriveCutthroatDialogState,
-  deriveCounterDialogContextFromTokenlog,
   deriveTargetsForChoice,
   extractActionSource,
   filterVisibleActions,
   findMatchingAction,
-  findActiveCounterChain,
-  formatTokenlogForHistory,
-  getCutthroatGameResult,
   groupActions,
-  isActionInteractionDisabled,
-  isCutthroatGameFinished,
-  makeSeatLabel,
-  parseTokenlogActions,
-  shouldRedirectToCutthroatGame,
-} from '@/routes/cutthroat/cutthroat-view-helpers';
+} from '@/routes/cutthroat/helpers/action-resolution';
 
-describe('CutthroatLobbyView logic', () => {
-  it('redirects to game when status is started', () => {
-    expect(shouldRedirectToCutthroatGame(1)).toBe(true);
-    expect(shouldRedirectToCutthroatGame(0)).toBe(false);
-    expect(shouldRedirectToCutthroatGame(2)).toBe(false);
-  });
-});
-
-describe('CutthroatGameView helper logic', () => {
-  it('marks finished status and disables action interactions', () => {
-    expect(isCutthroatGameFinished(2)).toBe(true);
-    expect(isActionInteractionDisabled(2, false)).toBe(true);
-    expect(isActionInteractionDisabled(1, true)).toBe(true);
-    expect(isActionInteractionDisabled(1, false)).toBe(false);
-  });
-
-  it('builds seat labels with usernames when available', () => {
-    const seats = [
-      { seat: 0, username: 'avi' },
-      { seat: 1, username: '' },
-    ];
-    expect(makeSeatLabel(0, seats)).toBe('avi');
-    expect(makeSeatLabel(1, seats)).toBe('Player 2');
-    expect(makeSeatLabel(2, seats)).toBe('Player 3');
-  });
-
+describe('cutthroat action resolution helpers', () => {
   it('extracts normalized action sources for deck, hand, counter, scrap, and reveal', () => {
     expect(extractActionSource({ type: 'Draw' })).toEqual({ zone: 'deck' });
     expect(extractActionSource({ type: 'PlayPoints', data: { card: '7C' } })).toEqual({
@@ -197,40 +163,6 @@ describe('CutthroatGameView helper logic', () => {
     expect(grouped.other).toEqual([]);
   });
 
-  it('derives winner and draw from finished public view', () => {
-    const winnerView = {
-      players: [
-        {
-          seat: 0,
-          points: [ { base: 'KC' }, { base: 'AH' } ],
-          royals: [ { base: 'KH' } ],
-        },
-        {
-          seat: 1,
-          points: [],
-          royals: [],
-        },
-      ],
-    };
-
-    expect(getCutthroatGameResult(2, winnerView)).toEqual({
-      type: 'winner',
-      seat: 0,
-    });
-
-    const drawView = {
-      players: [
-        { seat: 0, points: [], royals: [] },
-        { seat: 1, points: [ { base: '4C' } ], royals: [] },
-      ],
-    };
-
-    expect(getCutthroatGameResult(2, drawView)).toEqual({
-      type: 'draw',
-      seat: null,
-    });
-  });
-
   it('derives action-driven counter dialog state', () => {
     const withCounterTwo = deriveCutthroatDialogState({
       phaseType: 'Countering',
@@ -296,80 +228,5 @@ describe('CutthroatGameView helper logic', () => {
       targets: [ { targetType: 'player', seat: 1, key: 'player:1' } ],
     });
     expect(hide.showFourPlayerTargetDialog).toBe(false);
-  });
-
-  it('parses tokenlog actions and derives counter context chain', () => {
-    const tokenlog = [
-      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
-      'P0 MT_ONEOFF 4C TGT_P P2',
-      'P1 MT_C2 2H',
-      'P2 MT_CPASS',
-    ].join(' ');
-
-    const parsed = parseTokenlogActions(tokenlog);
-    expect(parsed[0]).toEqual({
-      type: 'ONEOFF',
-      seat: 0,
-      cardToken: '4C',
-      target: {
-        type: 'Player',
-        seat: 2,
-      },
-    });
-    expect(parsed[1]).toEqual({
-      type: 'COUNTER_TWO',
-      seat: 1,
-      cardToken: '2H',
-    });
-    expect(parsed[2]).toEqual({
-      type: 'COUNTER_PASS',
-      seat: 2,
-    });
-
-    expect(findActiveCounterChain(parsed)).toEqual({
-      oneOffCardToken: '4C',
-      oneOffTarget: {
-        type: 'Player',
-        seat: 2,
-      },
-      twosPlayed: [ '2H' ],
-    });
-    expect(deriveCounterDialogContextFromTokenlog(tokenlog)).toEqual({
-      oneOffCardToken: '4C',
-      oneOffTarget: {
-        type: 'Player',
-        seat: 2,
-      },
-      twosPlayed: [ '2H' ],
-    });
-  });
-
-  it('supports R7 one-off parsing and target extraction', () => {
-    const tokenlog = [
-      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
-      'P1 MT_R7 SRC 0 AS ONEOFF TGT_POINT 9C',
-      'P2 MT_CPASS',
-    ].join(' ');
-    const parsed = parseTokenlogActions(tokenlog);
-
-    expect(parsed[0]).toEqual({
-      type: 'ONEOFF',
-      seat: 1,
-      cardToken: null,
-      sourceIndex: 0,
-      target: {
-        type: 'Point',
-        token: '9C',
-      },
-    });
-    expect(deriveCounterDialogContextFromTokenlog(tokenlog)).toBeNull();
-  });
-
-  it('returns tokenlog line for history and throws on malformed tokenlog', () => {
-    const line = 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK P0 MT_CPASS';
-    expect(formatTokenlogForHistory(line)).toEqual([ line ]);
-    expect(formatTokenlogForHistory('')).toEqual([]);
-    expect(() => parseTokenlogActions('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toThrow('Invalid card token');
-    expect(deriveCounterDialogContextFromTokenlog('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toBeNull();
   });
 });

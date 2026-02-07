@@ -31,4 +31,25 @@ describe('capabilities store', () => {
     await expect(store.refreshCutthroatAvailability()).resolves.toBe('unavailable');
     expect(store.cutthroatAvailability).toBe('unavailable');
   });
+
+  it('uses vite proxy cutthroat health URL when running on localhost:1337', async () => {
+    vi.stubGlobal('window', {
+      location: {
+        hostname: 'localhost',
+        port: '1337',
+        protocol: 'http:',
+      },
+    });
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ alive: true, service: 'cutthroat', version: '0.1.0' }),
+    });
+    const store = useCapabilitiesStore();
+
+    await expect(store.refreshCutthroatAvailability()).resolves.toBe('available');
+    expect(fetch).toHaveBeenCalledWith('http://localhost:8080/cutthroat/api/v1/health', expect.objectContaining({
+      method: 'GET',
+      credentials: 'include',
+    }));
+  });
 });
