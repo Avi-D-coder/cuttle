@@ -187,7 +187,9 @@ describe('Home - Game List', () => {
     cy.vueRoute('/');
     cy.get('[data-cy-game-list-selector=spectate]').click();
     cy.get('@gameId').then((gameId) => {
-      cy.get(`[data-cy-join-game=${gameId}]`, { timeout: 10000 }).click();
+      cy.get(`[data-cy-spectate-game=${gameId}]`, { timeout: 20000 })
+        .should('be.visible')
+        .click();
       cy.url().should('include', `/game/${gameId}`);
     });
   });
