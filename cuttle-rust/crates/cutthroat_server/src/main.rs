@@ -44,7 +44,10 @@ async fn main() -> Result<(), anyhow::Error> {
                 .await?;
             ensure_schema_ready(&pool, auto_run_migrations).await?;
             let max_persisted_cutthroat_game_id = fetch_max_cutthroat_game_id_in_db(&pool).await?;
-            (max_persisted_cutthroat_game_id.saturating_add(1).max(1), Some(pool))
+            (
+                max_persisted_cutthroat_game_id.saturating_add(1).max(1),
+                Some(pool),
+            )
         }
         #[cfg(feature = "e2e-seed")]
         Err(_) => {

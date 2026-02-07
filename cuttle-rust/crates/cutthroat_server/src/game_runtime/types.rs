@@ -327,7 +327,9 @@ impl GameRuntime {
         let engine = replay_tokenlog(&parsed).map_err(|_| RuntimeError::BadRequest)?;
 
         let status = match seed.status {
-            Some(STATUS_LOBBY | STATUS_STARTED | STATUS_FINISHED) => seed.status.unwrap_or(STATUS_STARTED),
+            Some(STATUS_LOBBY | STATUS_STARTED | STATUS_FINISHED) => {
+                seed.status.unwrap_or(STATUS_STARTED)
+            }
             Some(_) => return Err(RuntimeError::BadRequest),
             None => {
                 if engine.winner.is_some() {
@@ -415,7 +417,10 @@ impl GameRuntime {
         self.publish_lobby_watch();
         self.publish_game_watch(seed.game_id);
 
-        let game = self.games.get(&seed.game_id).ok_or(RuntimeError::NotFound)?;
+        let game = self
+            .games
+            .get(&seed.game_id)
+            .ok_or(RuntimeError::NotFound)?;
         let seat_user_ids = game
             .seats
             .iter()

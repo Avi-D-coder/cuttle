@@ -1,9 +1,9 @@
+#[cfg(feature = "e2e-seed")]
+use crate::api::handlers::seed_game_from_tokenlog;
 use crate::api::handlers::{
     create_game, get_health, get_spectate_state, get_state, join_game, leave_game, post_action,
     rematch_game, set_ready, start_game,
 };
-#[cfg(feature = "e2e-seed")]
-use crate::api::handlers::seed_game_from_tokenlog;
 use crate::state::AppState;
 use crate::ws::{ws_handler, ws_lobbies_handler, ws_spectate_handler};
 use axum::{

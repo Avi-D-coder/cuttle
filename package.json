@@ -62,7 +62,8 @@
   "main": "app.js",
   "private": true,
   "scripts": {
-    "docker:build": "docker compose -f ./docker/docker-compose.yml build --no-cache",
+    "docker:build": "docker compose -f ./docker/docker-compose.yml build",
+    "docker:build:no-cache": "docker compose -f ./docker/docker-compose.yml build --no-cache",
     "docker:clean:containers": "docker rm $(docker ps -qa --no-trunc --filter \"status=exited\") || true",
     "docker:clean:images": "docker rmi $(docker images --filter \"dangling=true\" -q --no-trunc) || true",
     "docker:clean:volumes": "docker volume rm $(docker volume ls -qf dangling=true) || true",
