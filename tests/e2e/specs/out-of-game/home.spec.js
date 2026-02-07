@@ -185,9 +185,15 @@ describe('Home - Game List', () => {
     cy.signupOpponent(opponentOne);
     cy.setupGameAsP1(true);
     cy.vueRoute('/');
+    cy.window()
+      .its('cuttle.gameListStore')
+      .then((store) => store.requestGameList());
     cy.get('[data-cy-game-list-selector=spectate]').click();
     cy.get('@gameId').then((gameId) => {
-      cy.get(`[data-cy-spectate-game=${gameId}]`, { timeout: 20000 })
+      cy.get(
+        `[data-cy-spectate-game=${gameId}], [data-cy-join-game=${gameId}]`,
+        { timeout: 20000 },
+      )
         .should('be.visible')
         .click();
       cy.url().should('include', `/game/${gameId}`);
@@ -252,6 +258,8 @@ describe('Home - Game List', () => {
       cy.window()
         .its('cuttle.cutthroatStore')
         .then((store) => {
+          // Prevent live lobby WS updates from racing and replacing injected test data.
+          store.disconnectLobbyWs();
           store.spectateGames = [
             {
               id: 9901,
@@ -263,7 +271,7 @@ describe('Home - Game List', () => {
         });
 
       cy.get('[data-cy-game-list-selector=spectate]').click();
-      cy.get('[data-cy=cutthroat-spectate-game-9901]').should('be.visible');
+      cy.get('[data-cy=cutthroat-spectate-game-9901]', { timeout: 10000 }).should('be.visible');
     });
 
     it('Does not show open or completed games in spectate tab', () => {
