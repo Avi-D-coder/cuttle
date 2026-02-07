@@ -6,7 +6,9 @@ const cypressConfig = {
   projectId: 'i8bxr8',
   // https://docs.cypress.io/guides/references/configuration#e2e
   e2e: {
-    baseUrl: process.env.VITE_API_URL || 'http://localhost:8080',
+    // Keep Cypress base URL configurable independently from Vite API URL.
+    // CI uses this to serve app via Vite proxy while app sockets still target Sails directly.
+    baseUrl: process.env.CYPRESS_BASE_URL || process.env.VITE_API_URL || 'http://localhost:8080',
     specPattern: [ 'tests/e2e/specs/**/*.spec.js' ],
     // Exclude playground specs from headless mode
     excludeSpecPattern: isRunMode ? [] : [ 'tests/e2e/specs/playground/**/*.js' ],
