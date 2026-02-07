@@ -11,3 +11,4 @@ CREATE TABLE cutthroat_games (
 );
 
 CREATE INDEX cutthroat_games_id_desc_idx ON cutthroat_games (id DESC);
+CREATE INDEX cutthroat_games_started_at_desc_idx ON cutthroat_games (started_at DESC);
