@@ -12,9 +12,9 @@ static MIGRATOR: Migrator = sqlx::migrate!();
 pub struct CompletedGameRecord {
     pub rust_game_id: i64,
     pub tokenlog: String,
-    pub p0_username: String,
-    pub p1_username: String,
-    pub p2_username: String,
+    pub p0_user_id: i64,
+    pub p1_user_id: i64,
+    pub p2_user_id: i64,
     pub started_at: DateTime<Utc>,
     pub finished_at: DateTime<Utc>,
 }
@@ -78,9 +78,9 @@ async fn persist_completed_game(
         INSERT INTO cutthroat_games (
             rust_game_id,
             tokenlog,
-            p0_username,
-            p1_username,
-            p2_username,
+            p0_user_id,
+            p1_user_id,
+            p2_user_id,
             started_at,
             finished_at
         )
@@ -89,9 +89,9 @@ async fn persist_completed_game(
     )
     .bind(record.rust_game_id)
     .bind(&record.tokenlog)
-    .bind(&record.p0_username)
-    .bind(&record.p1_username)
-    .bind(&record.p2_username)
+    .bind(record.p0_user_id)
+    .bind(record.p1_user_id)
+    .bind(record.p2_user_id)
     .bind(record.started_at)
     .bind(record.finished_at)
     .execute(pool)

@@ -20,6 +20,31 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
+wait_for_sails() {
+  local url="${JS_INTERNAL_BASE_URL%/}/api/user/status"
+  local max_tries=120
+  local tries=1
+
+  echo "Waiting for Sails to become ready at ${url}"
+  while (( tries <= max_tries )); do
+    if curl --silent --show-error --output /dev/null --max-time 2 "${url}"; then
+      echo "Sails is ready"
+      return 0
+    fi
+    sleep 1
+    tries=$((tries + 1))
+  done
+
+  echo "WARN: Sails did not become ready within ${max_tries}s; continuing startup anyway."
+  return 1
+}
+
+echo "Starting Sails server"
+npm run start:server &
+SERVER_PID=$!
+
+wait_for_sails || true
+
 if [[ "${RUST_ENABLED}" == "true" ]]; then
   if [[ -x /usr/local/bin/cutthroat_server ]]; then
     echo "Starting Cutthroat Rust server on ${RUST_BIND_ADDR}"
@@ -34,10 +59,6 @@ if [[ "${RUST_ENABLED}" == "true" ]]; then
     echo "WARN: /usr/local/bin/cutthroat_server not found; continuing with JS services only."
   fi
 fi
-
-echo "Starting Sails server"
-npm run start:server &
-SERVER_PID=$!
 
 echo "Starting Vite client with proxy"
 CUTTLE_RUST_URL="${CUTTLE_RUST_URL}" npm run start:client &

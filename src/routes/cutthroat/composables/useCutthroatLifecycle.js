@@ -64,7 +64,9 @@ export function useCutthroatLifecycle({
             router.replace(`/cutthroat/lobby/${gameId.value}`);
             return;
           }
-          store.connectWs(gameId.value, { spectateIntent: false });
+          if (!store.isArchived) {
+            store.connectWs(gameId.value, { spectateIntent: false });
+          }
           return;
         } catch (_) {
           snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
@@ -86,7 +88,9 @@ export function useCutthroatLifecycle({
       }
     }
 
-    store.connectWs(gameId.value, { spectateIntent: isSpectatorMode.value });
+    if (!store.isArchived) {
+      store.connectWs(gameId.value, { spectateIntent: isSpectatorMode.value });
+    }
   });
 
   watch(

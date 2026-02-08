@@ -39,7 +39,7 @@
         </p>
       </v-col>
       <v-col cols="6" class="text-right">
-        <router-link :to="`/spectate/${gameId}`" data-cy="replay-link">
+        <router-link :to="replayRoute" data-cy="replay-link">
           <v-btn variant="outlined" color="surface-1">
             <v-icon icon="mdi-play-circle-outline" class="mr-2" />
             {{ t('profile.replay') }}
@@ -72,8 +72,8 @@ const props = defineProps({
     type: String,
     required: true
   },
-  gameId: {
-    type: [ String, Number ],
+  replayRoute: {
+    type: String,
     required: true
   }
 });

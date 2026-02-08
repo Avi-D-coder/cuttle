@@ -9,7 +9,7 @@ use crate::persistence::CompletedGameRecord;
 use crate::view::history::build_history_log_for_viewer;
 use crate::view::response::{
     build_last_event, build_spectator_view, format_action, normal_lobby_name,
-    redact_tokenlog_for_client, usernames_from_seats,
+    redact_tokenlog_for_client,
 };
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
@@ -646,7 +646,7 @@ impl GameRuntime {
         let game = self.games.get(&game_id).ok_or(RuntimeError::NotFound)?;
         let viewer_is_seated = game.seats.iter().any(|seat| seat.user_id == user.id);
         if spectate_intent {
-            if viewer_is_seated {
+            if viewer_is_seated && game.status != STATUS_FINISHED {
                 return Err(RuntimeError::Conflict);
             }
             if game.status != STATUS_STARTED && game.status != STATUS_FINISHED {
@@ -753,6 +753,7 @@ impl GameRuntime {
             is_spectator: true,
             spectating_usernames: Self::active_spectator_usernames(game),
             scrap_straightened: game.scrap_straightened,
+            archived: false,
         }
     }
 
@@ -817,6 +818,7 @@ impl GameRuntime {
             is_spectator: false,
             spectating_usernames: Self::active_spectator_usernames(game),
             scrap_straightened: game.scrap_straightened,
+            archived: false,
         })
     }
 
@@ -902,8 +904,15 @@ impl GameRuntime {
         Ok((state, completed_record))
     }
 
-    fn usernames_by_seat(game: &GameEntry) -> Option<[String; 3]> {
-        usernames_from_seats(&game.seats)
+    fn user_ids_by_seat(game: &GameEntry) -> Option<[i64; 3]> {
+        let mut user_ids: [Option<i64>; 3] = [None, None, None];
+        for seat in &game.seats {
+            let idx = seat.seat as usize;
+            if idx < 3 {
+                user_ids[idx] = Some(seat.user_id);
+            }
+        }
+        Some([user_ids[0]?, user_ids[1]?, user_ids[2]?])
     }
 
     fn build_completed_record(
@@ -911,13 +920,13 @@ impl GameRuntime {
         finished_at: DateTime<Utc>,
     ) -> Option<CompletedGameRecord> {
         let started_at = game.started_at?;
-        let [p0_username, p1_username, p2_username] = Self::usernames_by_seat(game)?;
+        let [p0_user_id, p1_user_id, p2_user_id] = Self::user_ids_by_seat(game)?;
         Some(CompletedGameRecord {
             rust_game_id: game.id,
             tokenlog: game.tokenlog_full.clone(),
-            p0_username,
-            p1_username,
-            p2_username,
+            p0_user_id,
+            p1_user_id,
+            p2_user_id,
             started_at,
             finished_at,
         })

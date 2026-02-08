@@ -60,6 +60,8 @@ async fn main() -> Result<(), anyhow::Error> {
         Err(err) => return Err(err),
     };
 
+    let state_db = persistence_pool.clone();
+
     tokio::spawn(game_runtime::runtime_task(
         runtime_rx,
         persistence_tx,
@@ -74,6 +76,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let state = AppState {
         js_base,
         http,
+        db: state_db,
         auth_cache,
         runtime_tx,
     };

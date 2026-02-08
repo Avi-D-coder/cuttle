@@ -25,6 +25,10 @@ function isStringArray(value) {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
+function isOptionalBoolean(value) {
+  return value === undefined || typeof value === 'boolean';
+}
+
 function isValidPublicCard(card) {
   if (card === 'Hidden') {return true;}
   return isObject(card) && typeof card.Known === 'string';
@@ -95,7 +99,8 @@ function isValidGameStatePayload(payload) {
     && typeof payload.tokenlog === 'string'
     && typeof payload.is_spectator === 'boolean'
     && isStringArray(payload.spectating_usernames)
-    && typeof payload.scrap_straightened === 'boolean';
+    && typeof payload.scrap_straightened === 'boolean'
+    && isOptionalBoolean(payload.archived);
 }
 
 function isValidLobbySummary(lobbyEntry) {
@@ -160,6 +165,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const lastError = ref(null);
   const pendingAction = ref(null);
   const isScrapStraightened = ref(false);
+  const isArchived = ref(false);
   let gameSocketShouldReconnect = false;
   let gameSocketReconnectTimer = null;
   let gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
@@ -301,6 +307,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     logTail.value = payload.log_tail;
     tokenlog.value = payload.tokenlog;
     isScrapStraightened.value = payload.scrap_straightened;
+    isArchived.value = payload.archived === true;
     lastEvent.value = playerView.value?.last_event ?? null;
   }
 
@@ -639,6 +646,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     spectateGames,
     lastError,
     isScrapStraightened,
+    isArchived,
     clearLastError,
     fetchState,
     createGame,
