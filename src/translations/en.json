@@ -614,7 +614,7 @@
       "playRoyal": "Play royal",
       "playJack": "Jack",
       "playJoker": "Joker",
-      "jokerDescription": "Play Joker on target royal",
+      "jokerDescription": "Play on an opponent's Royal to steal control of it. The Royal returns to its previous controller if the Joker is scrapped or if another Joker steals it back.",
       "playOneOff": "One-off",
       "counter": "Counter",
       "counterPass": "Pass",

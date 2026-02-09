@@ -272,11 +272,15 @@ export function findActiveCounterChain(parsedActions = []) {
   };
 }
 
-export function deriveCounterDialogContextFromTokenlog(tokenlog = '') {
+export function deriveCounterDialogContextFromTokenlog(tokenlog = '', maxActions = null) {
   if (!tokenlog || typeof tokenlog !== 'string') {return null;}
   try {
     const parsedActions = parseTokenlogActions(tokenlog);
-    return findActiveCounterChain(parsedActions);
+    if (!Number.isInteger(maxActions) || maxActions < 0) {
+      return findActiveCounterChain(parsedActions);
+    }
+    const actionLimit = Math.min(maxActions, parsedActions.length);
+    return findActiveCounterChain(parsedActions.slice(0, actionLimit));
   } catch (_) {
     return null;
   }

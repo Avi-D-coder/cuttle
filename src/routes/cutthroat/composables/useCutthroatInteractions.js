@@ -47,6 +47,7 @@ export function useCutthroatInteractions({
   myFrozenTokens,
   revealedCardEntries,
   isSpectatorMode,
+  replayStateIndex,
   localHandActionTokens,
   cardTokenToDialogCard,
 }) {
@@ -120,9 +121,15 @@ export function useCutthroatInteractions({
     return dialogState.value.counterTwoTokens;
   });
 
+  const replayActionLimit = computed(() => {
+    const index = Number(replayStateIndex?.value);
+    if (!Number.isInteger(index) || index < 0) {return null;}
+    return index;
+  });
+
   const counterContext = computed(() => {
     if (!isCounteringPhase.value) {return null;}
-    return deriveCounterDialogContextFromTokenlog(store.tokenlog);
+    return deriveCounterDialogContextFromTokenlog(store.tokenlog, replayActionLimit.value);
   });
 
   const counterDialogOneOff = computed(() => {
@@ -294,7 +301,9 @@ export function useCutthroatInteractions({
   }
 
   function isHandSourceSelectable(handCard) {
-    if (!handCard?.isKnown || !handCard?.token || isActionDisabled.value || isFinished.value) {return false;}
+    if (!handCard?.isKnown || !handCard?.token) {return false;}
+    if (isSpectatorMode.value) {return true;}
+    if (isActionDisabled.value || isFinished.value) {return false;}
     return true;
   }
 

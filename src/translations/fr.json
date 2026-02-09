@@ -614,7 +614,7 @@
       "playRoyal": "Jouer une figure",
       "playJack": "Valet",
       "playJoker": "Joker",
-      "jokerDescription": "Jouer un joker sur une figure ciblée",
+      "jokerDescription": "Jouez sur une figure adverse pour en prendre le contrôle. La figure revient à son contrôleur précédent si le joker est défaussé ou si un autre joker la récupère.",
       "playOneOff": "Capacité tactique",
       "counter": "Contrer",
       "counterPass": "Passer",

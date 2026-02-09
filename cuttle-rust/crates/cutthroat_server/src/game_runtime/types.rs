@@ -6,7 +6,7 @@ use crate::auth::AuthUser;
 use crate::game_runtime::commands::{SeedGameInput, SeedGameResult, SeedSeatInput};
 use crate::game_runtime::{STATUS_FINISHED, STATUS_LOBBY, STATUS_STARTED};
 use crate::persistence::CompletedGameRecord;
-use crate::view::history::build_history_log_for_viewer;
+use crate::view::history::{build_history_log_for_viewer, build_history_log_for_viewer_with_limit};
 use crate::view::response::{
     build_last_event, build_spectator_view, format_action, normal_lobby_name,
     redact_tokenlog_for_client,
@@ -15,9 +15,8 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use cutthroat_engine::{
     Action, CutthroatState, LastEventView, Phase, Seat, Winner, append_action, encode_header,
+    parse_tokenlog, replay_tokenlog,
 };
-#[cfg(feature = "e2e-seed")]
-use cutthroat_engine::{parse_tokenlog, replay_tokenlog};
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 #[cfg(feature = "e2e-seed")]
@@ -152,6 +151,17 @@ impl GameRuntime {
             .collect();
         names.sort();
         names
+    }
+
+    fn action_seat_for_phase(game: &GameEntry) -> Seat {
+        match &game.engine.phase {
+            Phase::Countering(counter) => counter.next_seat,
+            Phase::ResolvingThree { seat, .. }
+            | Phase::ResolvingFour { seat, .. }
+            | Phase::ResolvingFive { seat, .. }
+            | Phase::ResolvingSeven { seat, .. } => *seat,
+            _ => game.engine.turn,
+        }
     }
 
     fn build_lobby_snapshot(&self, version: u64) -> LobbySnapshotInternal {
@@ -728,10 +738,7 @@ impl GameRuntime {
                 .collect(),
         };
         let spectator_view = build_spectator_view(game);
-        let action_seat = match &game.engine.phase {
-            Phase::ResolvingSeven { seat, .. } => *seat,
-            _ => game.engine.turn,
-        };
+        let action_seat = Self::action_seat_for_phase(game);
         let mut legal_actions = if game.status == STATUS_STARTED {
             game.engine.legal_actions(action_seat)
         } else {
@@ -774,6 +781,52 @@ impl GameRuntime {
             return Ok(self.build_spectator_state_response(game));
         }
         self.build_state_response(game_id, maybe_seat.unwrap_or(0))
+    }
+
+    pub(crate) fn build_spectator_replay_state_for_user(
+        &self,
+        game_id: i64,
+        user: &AuthUser,
+        game_state_index: i64,
+    ) -> Result<GameStateResponse, RuntimeError> {
+        self.validate_viewer(game_id, user, true)?;
+        let game = self.games.get(&game_id).ok_or(RuntimeError::NotFound)?;
+
+        if game_state_index < 0 {
+            return Ok(self.build_spectator_state_response(game));
+        }
+
+        // Only finished games should be replayed through indexed snapshots.
+        if game.status != STATUS_FINISHED {
+            return Ok(self.build_spectator_state_response(game));
+        }
+
+        let replay_index = usize::try_from(game_state_index).map_err(|_| RuntimeError::BadRequest)?;
+        let parsed = parse_tokenlog(&game.tokenlog_full).map_err(|_| RuntimeError::BadRequest)?;
+        if replay_index > parsed.actions.len() {
+            return Err(RuntimeError::NotFound);
+        }
+
+        let mut truncated = parsed.clone();
+        truncated.actions.truncate(replay_index);
+        let replayed = replay_tokenlog(&truncated).map_err(|_| RuntimeError::BadRequest)?;
+
+        let mut replay_game = game.clone();
+        replay_game.engine = replayed;
+        replay_game.version = replay_index as i64;
+        replay_game.last_event = None;
+        replay_game.scrap_straightened = false;
+        replay_game.status = if replay_index < parsed.actions.len() {
+            STATUS_STARTED
+        } else {
+            STATUS_FINISHED
+        };
+
+        let mut response = self.build_spectator_state_response(&replay_game);
+        // Keep full redacted tokenlog so the client can derive the full replay range.
+        response.tokenlog = redact_tokenlog_for_client(&game.tokenlog_full);
+        response.log_tail = build_history_log_for_viewer_with_limit(&replay_game, 0, Some(replay_index));
+        Ok(response)
     }
 
     fn build_state_response(
@@ -939,12 +992,15 @@ impl GameRuntime {
     ) -> Result<(), RuntimeError> {
         {
             let game = self.games.get_mut(&game_id).ok_or(RuntimeError::NotFound)?;
-            let _seat = game
-                .seats
-                .iter()
-                .find(|seat| seat.user_id == user.id)
-                .map(|seat| seat.seat)
-                .ok_or(RuntimeError::Forbidden)?;
+            let viewer_is_seated = game.seats.iter().any(|seat| seat.user_id == user.id);
+            let viewer_is_active_spectator = game
+                .active_spectators
+                .get(&user.id)
+                .map(|(_, count)| *count > 0)
+                .unwrap_or(false);
+            if !viewer_is_seated && !viewer_is_active_spectator {
+                return Err(RuntimeError::Forbidden);
+            }
 
             game.scrap_straightened = !game.scrap_straightened;
         }
@@ -1017,5 +1073,79 @@ impl GameRuntime {
             "{} VS {} VS {} {}-{}-{}-{}",
             n0, n1, n2, wins[0], wins[1], wins[2], stalemates
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GameAudience, GameRuntime, RuntimeError};
+    use crate::auth::AuthUser;
+
+    fn user(id: i64, username: &str) -> AuthUser {
+        AuthUser {
+            id,
+            username: username.to_string(),
+        }
+    }
+
+    fn create_started_game(runtime: &mut GameRuntime) -> (i64, AuthUser, AuthUser, AuthUser) {
+        let p0 = user(1, "p0");
+        let p1 = user(2, "p1");
+        let p2 = user(3, "p2");
+
+        let game_id = runtime.create_game(p0.clone());
+        runtime
+            .join_game(game_id, p1.clone())
+            .expect("player 2 should join");
+        runtime
+            .join_game(game_id, p2.clone())
+            .expect("player 3 should join");
+
+        runtime
+            .set_ready(game_id, p0.clone(), true)
+            .expect("player 1 should ready");
+        runtime
+            .set_ready(game_id, p1.clone(), true)
+            .expect("player 2 should ready");
+        runtime
+            .set_ready(game_id, p2.clone(), true)
+            .expect("player 3 should ready");
+
+        (game_id, p0, p1, p2)
+    }
+
+    #[test]
+    fn spectator_can_toggle_scrap_straighten_when_subscribed() {
+        let mut runtime = GameRuntime::new(1);
+        let (game_id, _, _, _) = create_started_game(&mut runtime);
+        let spectator = user(99, "spectator");
+
+        let subscription = runtime
+            .subscribe_game_stream(game_id, spectator.clone(), true)
+            .expect("spectator should be allowed to subscribe");
+        assert!(matches!(subscription.audience, GameAudience::Spectator));
+
+        runtime
+            .toggle_scrap_straighten(game_id, spectator)
+            .expect("subscribed spectator should be allowed to toggle scrap straightening");
+        assert!(
+            runtime
+                .games
+                .get(&game_id)
+                .expect("game should exist")
+                .scrap_straightened
+        );
+    }
+
+    #[test]
+    fn non_viewer_cannot_toggle_scrap_straighten() {
+        let mut runtime = GameRuntime::new(1);
+        let (game_id, _, _, _) = create_started_game(&mut runtime);
+        let outsider = user(100, "outsider");
+
+        let err = runtime
+            .toggle_scrap_straighten(game_id, outsider)
+            .expect_err("outsider should be forbidden");
+        assert!(matches!(err, RuntimeError::Forbidden));
     }
 }

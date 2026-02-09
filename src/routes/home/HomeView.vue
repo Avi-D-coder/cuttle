@@ -318,7 +318,7 @@ export default {
         console.log(gameListResult.reason);
       }
       if (this.isCutthroatAvailable) {
-        this.cutthroatStore.connectLobbyWs();
+        this.cutthroatStore.connectLobbyWs({ replace: false });
       }
     } catch (err) {
       console.log(err);

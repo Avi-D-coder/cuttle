@@ -56,7 +56,7 @@ export const useMyGamesStore = defineStore('myGames', () => {
       isRanked: false,
       winnerLabel: game.viewer_won === undefined ? null : game.viewer_won,
       opponentName,
-      replayRoute: `/cutthroat/spectate/${game.rust_game_id}`,
+      replayRoute: `/cutthroat/spectate/${game.rust_game_id}?gameStateIndex=0`,
       playedAt: game.finished_at,
     };
   }

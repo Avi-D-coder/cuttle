@@ -52,6 +52,7 @@ function buildLifecycleArgs(overrides = {}) {
     gameId: overrides.gameId ?? { value: 1 },
     isSpectateRoute: overrides.isSpectateRoute ?? { value: false },
     isSpectatorMode: overrides.isSpectatorMode ?? { value: false },
+    replayStateIndex: overrides.replayStateIndex ?? { value: -1 },
     legalActions: overrides.legalActions ?? { value: [] },
     resolveFourHandCards: overrides.resolveFourHandCards ?? { value: [] },
     selectedResolveFourTokens: overrides.selectedResolveFourTokens ?? { value: [] },

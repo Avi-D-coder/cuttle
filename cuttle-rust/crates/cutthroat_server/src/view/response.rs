@@ -5,6 +5,7 @@ use cutthroat_engine::{
     encode_header, parse_tokenlog,
 };
 
+#[cfg(test)]
 pub(crate) fn usernames_from_seats(seats: &[SeatEntry]) -> Option<[String; 3]> {
     let mut usernames: [Option<String>; 3] = [None, None, None];
     for seat in seats {

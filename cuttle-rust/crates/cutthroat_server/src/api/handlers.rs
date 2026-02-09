@@ -1,19 +1,20 @@
 use crate::auth::{AuthUser, authorize};
 use crate::game_runtime::{
-    Command, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED, SeatEntry,
+    Command, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED,
+    STATUS_STARTED, SeatEntry,
 };
 #[cfg(feature = "e2e-seed")]
 use crate::game_runtime::{SeedGameInput, SeedGameResult, SeedSeatInput};
 use crate::state::AppState;
-use crate::view::history::build_history_log_for_viewer;
-use crate::view::response::{build_spectator_view, redact_tokenlog_for_client};
+use crate::view::history::build_history_log_for_viewer_with_limit;
+use crate::view::response::{build_spectator_view, format_action, redact_tokenlog_for_client};
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Utc};
-use cutthroat_engine::{Action, PublicView, Seat, Winner, parse_tokenlog, replay_tokenlog};
+use cutthroat_engine::{Action, Phase, PublicView, Seat, Winner, parse_tokenlog, replay_tokenlog};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::PgPool;
@@ -92,6 +93,23 @@ pub(crate) struct HistoryQuery {
     pub(crate) limit: Option<usize>,
     pub(crate) before_finished_at: Option<String>,
     pub(crate) before_rust_game_id: Option<i64>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub(crate) struct SpectateStateQuery {
+    #[serde(rename = "gameStateIndex")]
+    pub(crate) game_state_index: Option<i64>,
+}
+
+fn action_seat_for_phase(phase: &Phase, turn: Seat) -> Seat {
+    match phase {
+        Phase::Countering(counter) => counter.next_seat,
+        Phase::ResolvingThree { seat, .. }
+        | Phase::ResolvingFour { seat, .. }
+        | Phase::ResolvingFive { seat, .. }
+        | Phase::ResolvingSeven { seat, .. } => *seat,
+        _ => turn,
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -445,15 +463,16 @@ pub(crate) async fn get_state(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Json<GameStateResponse>, StatusCode> {
-    get_state_inner(state, id, headers, false).await
+    get_state_inner(state, id, headers, false, None).await
 }
 
 pub(crate) async fn get_spectate_state(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
+    Query(query): Query<SpectateStateQuery>,
 ) -> Result<Json<GameStateResponse>, StatusCode> {
-    get_state_inner(state, id, headers, true).await
+    get_state_inner(state, id, headers, true, query.game_state_index).await
 }
 
 async fn get_state_inner(
@@ -461,30 +480,49 @@ async fn get_state_inner(
     id: i64,
     headers: HeaderMap,
     spectate_intent: bool,
+    game_state_index: Option<i64>,
 ) -> Result<Json<GameStateResponse>, StatusCode> {
     let user = authorize(&state, &headers).await?;
     let user_for_fallback = user.clone();
+    let normalized_game_state_index = game_state_index.unwrap_or(-1).max(-1);
     let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::GetState {
-            game_id: id,
-            user,
-            spectate_intent,
-            respond: tx,
-        })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if spectate_intent && normalized_game_state_index >= 0 {
+        state
+            .runtime_tx
+            .send(Command::GetSpectateReplayState {
+                game_id: id,
+                user,
+                game_state_index: normalized_game_state_index,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    } else {
+        state
+            .runtime_tx
+            .send(Command::GetState {
+                game_id: id,
+                user,
+                spectate_intent,
+                respond: tx,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     let runtime_result = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     match runtime_result {
         Ok(resp) => Ok(Json(resp)),
         Err(err) => {
-            if spectate_intent && err.status_code() == StatusCode::NOT_FOUND {
-                if let Some(resp) =
-                    load_archived_spectate_state(&state, id, &user_for_fallback).await?
-                {
-                    return Ok(Json(resp));
-                }
+            if spectate_intent && err.status_code() == StatusCode::NOT_FOUND
+                && let Some(resp) = load_archived_spectate_state(
+                    &state,
+                    id,
+                    &user_for_fallback,
+                    normalized_game_state_index,
+                )
+                .await?
+            {
+                return Ok(Json(resp));
             }
             Err(err.status_code())
         }
@@ -495,6 +533,7 @@ async fn load_archived_spectate_state(
     state: &AppState,
     id: i64,
     user: &AuthUser,
+    game_state_index: i64,
 ) -> Result<Option<GameStateResponse>, StatusCode> {
     let pool = db_pool(state)?;
     let row = sqlx::query_as::<_, PersistedCutthroatGameRow>(
@@ -527,16 +566,48 @@ async fn load_archived_spectate_state(
     }
 
     let game = build_game_entry_from_row(&row).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let spectator_view = build_spectator_view(&game);
-    let log_tail = build_history_log_for_viewer(&game, 0);
+    let parsed = parse_tokenlog(&game.tokenlog_full).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let replay_index = if game_state_index < 0 {
+        parsed.actions.len()
+    } else {
+        usize::try_from(game_state_index).map_err(|_| StatusCode::BAD_REQUEST)?
+    };
+    if replay_index > parsed.actions.len() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let mut truncated = parsed.clone();
+    truncated.actions.truncate(replay_index);
+    let replayed = replay_tokenlog(&truncated).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut replay_game = game.clone();
+    replay_game.engine = replayed;
+    replay_game.version = replay_index as i64;
+    replay_game.last_event = None;
+    replay_game.scrap_straightened = false;
+    replay_game.status = if replay_index < parsed.actions.len() {
+        STATUS_STARTED
+    } else {
+        STATUS_FINISHED
+    };
+
+    let spectator_view = build_spectator_view(&replay_game);
+    let log_tail = build_history_log_for_viewer_with_limit(&replay_game, 0, Some(replay_index));
+    let action_seat = action_seat_for_phase(&replay_game.engine.phase, replay_game.engine.turn);
+    let mut legal_actions = if replay_game.status == STATUS_STARTED {
+        replay_game.engine.legal_actions(action_seat)
+    } else {
+        Vec::new()
+    };
+    legal_actions.sort_by_key(format_action);
     let tokenlog = redact_tokenlog_for_client(&game.tokenlog_full);
     Ok(Some(GameStateResponse {
-        version: game.version,
+        version: replay_game.version,
         seat: 0,
-        status: STATUS_FINISHED,
+        status: replay_game.status,
         player_view: spectator_view.clone(),
         spectator_view,
-        legal_actions: Vec::new(),
+        legal_actions,
         lobby: LobbyView {
             seats: game
                 .seats

@@ -134,6 +134,17 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.spectatorView.deck_count).toBe(0);
   });
 
+  it('ignores stale websocket game state versions', () => {
+    const store = useCutthroatStore();
+    store.connectWs(42);
+    const [ ws ] = FakeWebSocket.instances;
+
+    ws.emitMessage({ type: 'state', state: buildStatePayload(5) });
+    ws.emitMessage({ type: 'state', state: buildStatePayload(4) });
+
+    expect(store.version).toBe(5);
+  });
+
   it('fails protocol on malformed game state message and does not reconnect automatically', () => {
     vi.useFakeTimers();
     try {
@@ -481,6 +492,46 @@ describe('cutthroat store http methods', () => {
     expect(store.version).toBe(6);
     expect(store.playerView).not.toBeNull();
     expect(store.status).toBe(1);
+  });
+
+  it('fetchState includes replay index query in spectate mode', async () => {
+    const store = useCutthroatStore();
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(buildStatePayload(9)),
+    });
+
+    await store.fetchState(77, {
+      spectateIntent: true,
+      gameStateIndex: 3,
+    });
+
+    expect(fetch).toHaveBeenCalledWith('/cutthroat/api/v1/games/77/spectate/state?gameStateIndex=3', {
+      credentials: 'include',
+    });
+  });
+
+  it('fetchState applies older versions for indexed replay snapshots', async () => {
+    const store = useCutthroatStore();
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(buildStatePayload(6)),
+    });
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(buildStatePayload(2)),
+    });
+
+    await store.fetchState(77, {
+      spectateIntent: true,
+      gameStateIndex: 4,
+    });
+    await store.fetchState(77, {
+      spectateIntent: true,
+      gameStateIndex: 0,
+    });
+
+    expect(store.version).toBe(2);
   });
 
   it('fetchState throws when payload does not match game state contract', async () => {

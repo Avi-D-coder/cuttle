@@ -76,6 +76,12 @@ pub(crate) enum Command {
         spectate_intent: bool,
         respond: oneshot::Sender<Result<GameStateResponse, RuntimeError>>,
     },
+    GetSpectateReplayState {
+        game_id: i64,
+        user: AuthUser,
+        game_state_index: i64,
+        respond: oneshot::Sender<Result<GameStateResponse, RuntimeError>>,
+    },
     SubscribeGameStream {
         game_id: i64,
         user: AuthUser,

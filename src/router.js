@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useGameStore } from '@/stores/game';
 import { useAuthStore } from '@/stores/auth';
 import { useCapabilitiesStore } from '@/stores/capabilities';
+import { useCutthroatStore } from '@/stores/cutthroat';
 import { useSnackbarStore } from '@/stores/snackbar';
 import i18n from '@/plugins/i18n';
 import GameStatus from '_/utils/GameStatus.json';
@@ -21,6 +22,15 @@ export const ROUTE_NAME_CUTTHROAT_LOBBY = 'CutthroatLobby';
 export const ROUTE_NAME_CUTTHROAT_LOBBY_GAME = 'CutthroatLobbyGame';
 export const ROUTE_NAME_CUTTHROAT_GAME = 'CutthroatGame';
 export const ROUTE_NAME_CUTTHROAT_SPECTATE = 'CutthroatSpectate';
+
+const LOBBY_WS_ALLOWED_ROUTES = new Set([
+  ROUTE_NAME_HOME,
+  ROUTE_NAME_SPECTATE_LIST,
+  ROUTE_NAME_CUTTHROAT_LOBBY,
+  ROUTE_NAME_CUTTHROAT_LOBBY_GAME,
+  ROUTE_NAME_CUTTHROAT_GAME,
+  ROUTE_NAME_CUTTHROAT_SPECTATE,
+]);
 
 const mustBeAuthenticated = async (to, from, next) => {
   if ([ 'discord', 'google' ].includes(to.query.oauthsignup)){
@@ -338,11 +348,16 @@ const router = createRouter({
   },
 });
 
-router.beforeEach(async (_to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore();
   // Make sure we try and reestablish a player's session if one exists
   // We do this before the route resolves to preempt the reauth/logout logic
   await authStore.requestStatus();
+
+  if (!LOBBY_WS_ALLOWED_ROUTES.has(to.name)) {
+    const cutthroatStore = useCutthroatStore();
+    cutthroatStore.disconnectLobbyWs();
+  }
 
   next();
 });

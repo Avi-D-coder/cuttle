@@ -81,4 +81,31 @@ describe('cutthroat tokenlog helpers', () => {
     expect(() => parseTokenlogActions('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toThrow('Invalid card token');
     expect(deriveCounterDialogContextFromTokenlog('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toBeNull();
   });
+
+  it('supports replay-scoped counter context by limiting actions', () => {
+    const tokenlog = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P0 MT_ONEOFF 4C TGT_P P2',
+      'P1 MT_C2 2H',
+      'P2 MT_CPASS',
+    ].join(' ');
+
+    expect(deriveCounterDialogContextFromTokenlog(tokenlog, 0)).toBeNull();
+    expect(deriveCounterDialogContextFromTokenlog(tokenlog, 1)).toEqual({
+      oneOffCardToken: '4C',
+      oneOffTarget: {
+        type: 'Player',
+        seat: 2,
+      },
+      twosPlayed: [],
+    });
+    expect(deriveCounterDialogContextFromTokenlog(tokenlog, 2)).toEqual({
+      oneOffCardToken: '4C',
+      oneOffTarget: {
+        type: 'Player',
+        seat: 2,
+      },
+      twosPlayed: [ '2H' ],
+    });
+  });
 });

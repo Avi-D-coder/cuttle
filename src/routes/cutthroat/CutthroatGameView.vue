@@ -5,8 +5,14 @@
     </div>
 
     <template v-else>
-      <div v-if="smAndDown" class="mobile-history-controls">
+      <div
+        id="game-menu-wrapper"
+        class="cutthroat-top-controls d-flex align-center justify-end"
+        :style="menuWrapperStyle"
+      >
+        <CutthroatGameMenu :is-spectating="isSpectatorMode" @go-home="goToHome" />
         <v-icon
+          v-if="smAndDown"
           class="history-toggle-icon"
           color="white"
           icon="mdi-account-clock"
@@ -505,7 +511,7 @@
                 :key="card.key"
                 :card="card.card"
                 class="hand-card"
-                :clickable="card.isKnown && !isActionDisabled && !isFinished"
+                :clickable="card.isKnown && (!isActionDisabled || isSpectatorMode)"
                 :is-selected="isHandSourceSelected(card)"
                 :is-frozen="isFrozenToken(card.token)"
                 :data-cutthroat-hand-card="card.token"
@@ -681,7 +687,7 @@
 
     <BaseDialog
       id="cutthroat-game-over-dialog"
-      :model-value="isFinished"
+      :model-value="showGameOverDialog"
       :title="t('cutthroat.game.gameOverTitle')"
       :persistent="true"
       :max-width="560"
@@ -723,6 +729,12 @@
         </div>
       </template>
     </BaseDialog>
+
+    <CutthroatPlaybackControls
+      v-if="showPlaybackControls"
+      :game-id="gameId"
+      :state-count="replayStateCount"
+    />
   </div>
 </template>
 
@@ -740,12 +752,17 @@ import CutthroatCard from '@/routes/cutthroat/components/CutthroatCard.vue';
 import CutthroatScrapPile from '@/routes/cutthroat/components/CutthroatScrapPile.vue';
 import CutthroatMoveChoiceOverlay from '@/routes/cutthroat/components/CutthroatMoveChoiceOverlay.vue';
 import CutthroatTargetSelectionOverlay from '@/routes/cutthroat/components/CutthroatTargetSelectionOverlay.vue';
+import CutthroatPlaybackControls from '@/routes/cutthroat/components/CutthroatPlaybackControls.vue';
+import CutthroatGameMenu from '@/routes/cutthroat/components/CutthroatGameMenu.vue';
 import { parseCardToken, formatCardToken } from '@/util/cutthroat-cards';
 import {
+  deriveFallbackChoiceTypesForSelectedCard,
   extractActionSource,
   getCutthroatGameResult,
   isActionInteractionDisabled,
   isCutthroatGameFinished,
+  parseTokenlogActions,
+  shouldShowCutthroatGameOverDialog,
 } from '@/routes/cutthroat/helpers';
 import { useCutthroatSeatData } from '@/routes/cutthroat/composables/useCutthroatSeatData';
 import { useCutthroatInteractions } from '@/routes/cutthroat/composables/useCutthroatInteractions';
@@ -775,6 +792,30 @@ const seatEntries = computed(() => store.lobby?.seats ?? []);
 const spectatorNames = computed(() => store.spectatingUsers ?? []);
 const isSpectatorMode = computed(() => store.isSpectator);
 const isSpectateRoute = computed(() => route.name === 'CutthroatSpectate');
+const replayStateIndex = computed(() => {
+  const raw = Number(route.query.gameStateIndex);
+  return Number.isInteger(raw) && raw >= -1 ? raw : -1;
+});
+const hasReplayStateIndexQuery = computed(() => {
+  return Object.prototype.hasOwnProperty.call(route.query, 'gameStateIndex');
+});
+const replayStateCount = computed(() => {
+  try {
+    return parseTokenlogActions(store.tokenlog).length + 1;
+  } catch (_) {
+    return 1;
+  }
+});
+const showPlaybackControls = computed(() => {
+  return isSpectateRoute.value
+    && replayStateCount.value > 1
+    && (isCutthroatGameFinished(store.status) || replayStateIndex.value >= 0);
+});
+const menuWrapperStyle = computed(() => {
+  return {
+    zIndex: isSpectatorMode.value ? 2411 : 3,
+  };
+});
 
 const mySeat = computed(() => store.seat ?? 0);
 const activeTurnSeat = computed(() => playerView.value?.turn ?? null);
@@ -794,6 +835,15 @@ const isResolvingFour = computed(() => phaseType.value === 'ResolvingFour');
 const isResolvingFive = computed(() => phaseType.value === 'ResolvingFive');
 const isResolvingSeven = computed(() => phaseType.value === 'ResolvingSeven');
 const isFinished = computed(() => isCutthroatGameFinished(store.status));
+const showGameOverDialog = computed(() => {
+  return shouldShowCutthroatGameOverDialog({
+    status: store.status,
+    isSpectateRoute: isSpectateRoute.value,
+    hasReplayStateIndexQuery: hasReplayStateIndexQuery.value,
+    replayStateIndex: replayStateIndex.value,
+    replayStateCount: replayStateCount.value,
+  });
+});
 const rematchButtonText = computed(() => {
   return rematchOfferPending.value
     ? t('cutthroat.lobby.unready')
@@ -809,6 +859,12 @@ const rematchGameHasStarted = computed(() => {
 });
 
 const localHandActionTokens = computed(() => {
+  // Spectator/replay already has full hand visibility in spectator_view.
+  // Avoid inferring cards from legal actions because those actions can be
+  // generated from another seat's replay perspective.
+  if (isSpectatorMode.value) {
+    return [];
+  }
   const deduped = [];
   const seen = new Set();
   legalActions.value.forEach((action) => {
@@ -977,6 +1033,7 @@ const {
   myFrozenTokens,
   revealedCardEntries,
   isSpectatorMode,
+  replayStateIndex,
   localHandActionTokens,
   cardTokenToDialogCard,
 });
@@ -984,7 +1041,7 @@ const {
 const isMyTurn = computed(() => !isFinished.value && activeTurnSeat.value === mySeat.value);
 
 const moveChoiceCards = computed(() => {
-  const legalChoices = selectedSourceChoices.value;
+  const legalChoices = isSpectatorMode.value ? [] : selectedSourceChoices.value;
   if (legalChoices.length > 0) {
     return legalChoices.map((choice) => ({
       type: choice.type,
@@ -993,7 +1050,10 @@ const moveChoiceCards = computed(() => {
     }));
   }
 
-  const fallbackTypes = fallbackChoiceTypesForSelectedCard();
+  const fallbackTypes = deriveFallbackChoiceTypesForSelectedCard(
+    selectedSource.value,
+    selectedSourceCard.value,
+  );
   const disabledExplanation = fallbackDisabledExplanation();
   return fallbackTypes.map((choiceType) => ({
     type: choiceType,
@@ -1116,32 +1176,6 @@ function describeChoice(choiceType) {
       return t('cutthroat.game.discard');
     default:
       return '';
-  }
-}
-
-function fallbackChoiceTypesForSelectedCard() {
-  if (selectedSource.value?.zone !== 'hand') {return [];}
-  const rank = selectedSourceCard.value?.rank;
-  switch (rank) {
-    case 1:
-    case 3:
-    case 4:
-    case 5:
-    case 6:
-    case 7:
-    case 2:
-    case 9:
-      return [ 'points', 'scuttle', 'oneOff' ];
-    case 8:
-      return [ 'points', 'scuttle', 'royal' ];
-    case 10:
-      return [ 'points', 'scuttle' ];
-    case 11:
-    case 12:
-    case 13:
-      return [ 'royal' ];
-    default:
-      return [];
   }
 }
 
@@ -1336,6 +1370,7 @@ useCutthroatLifecycle({
   gameId,
   isSpectateRoute,
   isSpectatorMode,
+  replayStateIndex,
   legalActions,
   resolveFourHandCards,
   selectedResolveFourTokens,
@@ -1396,8 +1431,9 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-.mobile-history-controls {
-  display: none;
+.cutthroat-top-controls {
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .history-toggle-icon {

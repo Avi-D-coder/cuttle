@@ -614,7 +614,7 @@
       "playRoyal": "Königliche ausspielen",
       "playJack": "Bube",
       "playJoker": "Joker",
-      "jokerDescription": "Joker auf eine Ziel-Königliche spielen",
+      "jokerDescription": "Spiele auf eine gegnerische Königliche, um die Kontrolle darüber zu stehlen. Die Königliche geht an den vorherigen Spieler zurück, wenn der Joker abgeworfen wird oder ein anderer Joker sie zurückholt.",
       "playOneOff": "Einmalig",
       "counter": "Konter",
       "counterPass": "Passen",

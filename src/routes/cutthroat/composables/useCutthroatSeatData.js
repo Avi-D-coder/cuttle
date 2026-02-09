@@ -16,6 +16,23 @@ export function useCutthroatSeatData({
 }) {
   const leftSeat = computed(() => (mySeat.value + 1) % 3);
   const rightSeat = computed(() => (mySeat.value + 2) % 3);
+  const loggedHydrationMismatches = new Set();
+
+  function logHydrationMismatchOnce(seat, visibleTokens, inferredTokens) {
+    const sortedVisible = visibleTokens.slice().sort();
+    const sortedInferred = inferredTokens.slice().sort();
+    const key = `${seat}|${sortedVisible.join(',')}|${sortedInferred.join(',')}`;
+    if (loggedHydrationMismatches.has(key)) {return;}
+    loggedHydrationMismatches.add(key);
+    console.error(
+      '[cutthroat] hand token mismatch: legal actions referenced hand tokens not present in visible hand',
+      {
+        seat,
+        visibleTokens,
+        inferredTokens,
+      },
+    );
+  }
 
   function playerForSeat(seat) {
     return playerView.value?.players?.find((player) => player.seat === seat);
@@ -40,32 +57,11 @@ export function useCutthroatSeatData({
 
     const knownTokens = new Set(entries.filter((entry) => entry.isKnown && entry.token).map((entry) => entry.token));
     const extraTokens = localHandActionTokens.value.filter((token) => !knownTokens.has(token));
-    if (extraTokens.length === 0) {
-      return entries;
+    if (extraTokens.length > 0) {
+      const visibleTokens = entries.filter((entry) => entry.isKnown && entry.token).map((entry) => entry.token);
+      logHydrationMismatchOnce(seat, visibleTokens, extraTokens);
     }
-
-    const hydratedEntries = entries.map((entry, index) => {
-      if (entry.isKnown || extraTokens.length === 0) {return entry;}
-      const inferredToken = extraTokens.shift();
-      if (!inferredToken) {return entry;}
-      return {
-        token: inferredToken,
-        key: `inferred-${inferredToken}-${index}`,
-        card: parseCardToken(inferredToken),
-        isKnown: true,
-      };
-    });
-
-    extraTokens.forEach((token, index) => {
-      hydratedEntries.push({
-        token,
-        key: `inferred-extra-${token}-${index}`,
-        card: parseCardToken(token),
-        isKnown: true,
-      });
-    });
-
-    return hydratedEntries;
+    return entries;
   }
 
   function frozenFor(seat) {

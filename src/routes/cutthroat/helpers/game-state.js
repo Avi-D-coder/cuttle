@@ -72,6 +72,28 @@ export function getCutthroatGameResult(status, publicView) {
   };
 }
 
+export function shouldShowCutthroatGameOverDialog({
+  status,
+  isSpectateRoute,
+  hasReplayStateIndexQuery,
+  replayStateIndex,
+  replayStateCount,
+}) {
+  if (!isCutthroatGameFinished(status)) {
+    return false;
+  }
+  if (!isSpectateRoute) {
+    return true;
+  }
+  if (!hasReplayStateIndexQuery) {
+    return false;
+  }
+  if (replayStateIndex === -1) {
+    return true;
+  }
+  return replayStateIndex >= replayStateCount - 1;
+}
+
 export function makeSeatLabel(seat, seats = []) {
   const found = seats.find((entry) => entry.seat === seat);
   const username = found?.username?.trim();

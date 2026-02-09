@@ -278,8 +278,10 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     }
   }
 
-  function updateFromPayload(payload) {
+  function updateFromPayload(payload, { allowOlderVersion = false } = {}) {
     if (
+      !allowOlderVersion
+      &&
       typeof payload.version === 'number'
       && typeof version.value === 'number'
       && payload.version < version.value
@@ -311,13 +313,16 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     lastEvent.value = playerView.value?.last_event ?? null;
   }
 
-  async function fetchState(id, { spectateIntent = false } = {}) {
+  async function fetchState(id, { spectateIntent = false, gameStateIndex = -1 } = {}) {
     ensureCutthroatAvailable();
     isScrapStraightened.value = false;
     if (gameId.value !== id) {
       version.value = 0;
     }
-    const statePath = spectateIntent ? `/cutthroat/api/v1/games/${id}/spectate/state` : `/cutthroat/api/v1/games/${id}/state`;
+    let statePath = spectateIntent ? `/cutthroat/api/v1/games/${id}/spectate/state` : `/cutthroat/api/v1/games/${id}/state`;
+    if (spectateIntent && Number.isInteger(gameStateIndex)) {
+      statePath = `${statePath}?gameStateIndex=${gameStateIndex}`;
+    }
     const res = await fetch(resolveCutthroatHttpPath(statePath), {
       credentials: 'include',
     });
@@ -331,7 +336,8 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
       throw new Error(message);
     }
     gameId.value = id;
-    updateFromPayload(data);
+    const allowOlderVersion = spectateIntent && Number.isInteger(gameStateIndex) && gameStateIndex >= 0;
+    updateFromPayload(data, { allowOlderVersion });
     return data;
   }
 

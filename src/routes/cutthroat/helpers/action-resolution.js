@@ -238,6 +238,39 @@ function rankFromToken(token = '') {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export function deriveFallbackChoiceTypesForSelectedCard(source = null, selectedCard = null) {
+  if (source?.zone !== 'hand') {return [];}
+  if (!selectedCard || typeof selectedCard !== 'object') {return [];}
+
+  if (selectedCard.kind === 'joker') {
+    return [ 'joker' ];
+  }
+
+  if (selectedCard.kind !== 'standard') {return [];}
+
+  switch (selectedCard.rank) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 9:
+      return [ 'points', 'scuttle', 'oneOff' ];
+    case 8:
+      return [ 'points', 'scuttle', 'royal' ];
+    case 10:
+      return [ 'points', 'scuttle' ];
+    case 11:
+    case 12:
+    case 13:
+      return [ 'royal' ];
+    default:
+      return [];
+  }
+}
+
 export function extractActionSource(action) {
   if (!action || !action.type) {return null;}
   switch (action.type) {

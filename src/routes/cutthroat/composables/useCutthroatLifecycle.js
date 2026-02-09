@@ -8,6 +8,7 @@ export function useCutthroatLifecycle({
   gameId,
   isSpectateRoute,
   isSpectatorMode,
+  replayStateIndex,
   legalActions,
   resolveFourHandCards,
   selectedResolveFourTokens,
@@ -38,7 +39,10 @@ export function useCutthroatLifecycle({
     scrollHistoryLogs();
 
     try {
-      await store.fetchState(gameId.value, { spectateIntent: isSpectateRoute.value });
+      await store.fetchState(gameId.value, {
+        spectateIntent: isSpectateRoute.value,
+        gameStateIndex: replayStateIndex.value,
+      });
       if (store.status === 0 && !isSpectatorMode.value) {
         router.replace(`/cutthroat/lobby/${gameId.value}`);
         return;
@@ -54,10 +58,22 @@ export function useCutthroatLifecycle({
       } else if (!isSpectateRoute.value && isSpectatorMode.value) {
         router.replace(`/cutthroat/spectate/${gameId.value}`);
       }
+
+      const currentRoute = router.currentRoute.value;
+      const hasReplayIndex = Object.prototype.hasOwnProperty.call(currentRoute.query, 'gameStateIndex');
+      if (isSpectateRoute.value && !hasReplayIndex && store.status === 2) {
+        await router.replace({
+          ...currentRoute,
+          query: {
+            ...currentRoute.query,
+            gameStateIndex: 0,
+          },
+        });
+      }
     } catch (err) {
       if (isSpectateRoute.value && err?.status === 409) {
         try {
-          await store.fetchState(gameId.value, { spectateIntent: false });
+          await store.fetchState(gameId.value, { spectateIntent: false, gameStateIndex: -1 });
           snackbarStore.alert(t('cutthroat.game.cannotSpectateOwnGame'));
           await router.replace(`/cutthroat/game/${gameId.value}`);
           if (store.status === 0) {
@@ -76,7 +92,7 @@ export function useCutthroatLifecycle({
       }
       try {
         await store.joinGame(gameId.value);
-        await store.fetchState(gameId.value, { spectateIntent: false });
+        await store.fetchState(gameId.value, { spectateIntent: false, gameStateIndex: -1 });
         if (store.status === 0) {
           router.replace(`/cutthroat/lobby/${gameId.value}`);
           return;
@@ -92,6 +108,22 @@ export function useCutthroatLifecycle({
       store.connectWs(gameId.value, { spectateIntent: isSpectatorMode.value });
     }
   });
+
+  watch(
+    () => replayStateIndex.value,
+    async (newIndex, oldIndex) => {
+      if (newIndex === oldIndex || !isSpectateRoute.value) {return;}
+      try {
+        await store.fetchState(gameId.value, {
+          spectateIntent: true,
+          gameStateIndex: newIndex,
+        });
+      } catch (_) {
+        snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
+        router.push('/');
+      }
+    },
+  );
 
   watch(
     () => store.status,

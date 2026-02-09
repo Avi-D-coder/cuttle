@@ -614,7 +614,7 @@
       "playRoyal": "Jugar figura",
       "playJack": "Jota",
       "playJoker": "Comodín",
-      "jokerDescription": "Jugar comodín sobre una figura objetivo",
+      "jokerDescription": "Juega sobre una figura rival para robar su control. La figura vuelve a su controlador anterior si el comodín se descarta o si otro comodín la recupera.",
       "playOneOff": "Única",
       "counter": "Contrarrestar",
       "counterPass": "Pasar",

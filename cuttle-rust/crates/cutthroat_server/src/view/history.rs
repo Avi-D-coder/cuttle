@@ -8,14 +8,26 @@ use std::collections::{HashMap, HashSet};
 const LOG_TAIL_LIMIT: usize = 60;
 
 pub(crate) fn build_history_log_for_viewer(game: &GameEntry, viewer: Seat) -> Vec<String> {
+    build_history_log_for_viewer_with_limit(game, viewer, None)
+}
+
+pub(crate) fn build_history_log_for_viewer_with_limit(
+    game: &GameEntry,
+    viewer: Seat,
+    max_actions: Option<usize>,
+) -> Vec<String> {
     let Ok(parsed) = parse_tokenlog(&game.tokenlog_full) else {
         return Vec::new();
     };
     let mut state = CutthroatState::new_with_deck(parsed.dealer, parsed.deck);
     let seat_names = seat_name_map(&game.seats);
     let mut lines = Vec::new();
+    let action_limit = max_actions.unwrap_or(usize::MAX);
 
-    for (actor_seat, action) in parsed.actions {
+    for (idx, (actor_seat, action)) in parsed.actions.into_iter().enumerate() {
+        if idx >= action_limit {
+            break;
+        }
         if state.apply(actor_seat, action.clone()).is_err() {
             break;
         }

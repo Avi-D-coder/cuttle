@@ -4,6 +4,7 @@ import {
   isActionInteractionDisabled,
   isCutthroatGameFinished,
   makeSeatLabel,
+  shouldShowCutthroatGameOverDialog,
   shouldRedirectToCutthroatGame,
 } from '@/routes/cutthroat/helpers/game-state';
 
@@ -63,5 +64,47 @@ describe('cutthroat game-state helpers', () => {
       type: 'draw',
       seat: null,
     });
+  });
+
+  it('shows game over dialog only at replay end when spectating', () => {
+    expect(shouldShowCutthroatGameOverDialog({
+      status: 2,
+      isSpectateRoute: false,
+      hasReplayStateIndexQuery: false,
+      replayStateIndex: -1,
+      replayStateCount: 10,
+    })).toBe(true);
+
+    expect(shouldShowCutthroatGameOverDialog({
+      status: 2,
+      isSpectateRoute: true,
+      hasReplayStateIndexQuery: false,
+      replayStateIndex: -1,
+      replayStateCount: 10,
+    })).toBe(false);
+
+    expect(shouldShowCutthroatGameOverDialog({
+      status: 2,
+      isSpectateRoute: true,
+      hasReplayStateIndexQuery: true,
+      replayStateIndex: 0,
+      replayStateCount: 10,
+    })).toBe(false);
+
+    expect(shouldShowCutthroatGameOverDialog({
+      status: 2,
+      isSpectateRoute: true,
+      hasReplayStateIndexQuery: true,
+      replayStateIndex: 9,
+      replayStateCount: 10,
+    })).toBe(true);
+
+    expect(shouldShowCutthroatGameOverDialog({
+      status: 2,
+      isSpectateRoute: true,
+      hasReplayStateIndexQuery: true,
+      replayStateIndex: -1,
+      replayStateCount: 10,
+    })).toBe(true);
   });
 });

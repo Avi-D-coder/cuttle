@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deriveFallbackChoiceTypesForSelectedCard,
   deriveMoveChoicesForSource,
   deriveCutthroatDialogState,
   deriveTargetsForChoice,
@@ -52,6 +53,27 @@ describe('cutthroat action resolution helpers', () => {
     expect(deriveMoveChoicesForSource(actions, { zone: 'hand', token: 'KC' })).toEqual([
       { type: 'royal' },
     ]);
+  });
+
+  it('derives joker fallback move choice for selected joker hand card', () => {
+    expect(deriveFallbackChoiceTypesForSelectedCard(
+      { zone: 'hand', token: 'J0' },
+      { kind: 'joker', id: 0 },
+    )).toEqual([ 'joker' ]);
+  });
+
+  it('derives existing standard-rank fallback move choices for selected hand card', () => {
+    expect(deriveFallbackChoiceTypesForSelectedCard(
+      { zone: 'hand', token: '4C' },
+      { kind: 'standard', rank: 4, suit: 0 },
+    )).toEqual([ 'points', 'scuttle', 'oneOff' ]);
+  });
+
+  it('returns no fallback choices for non-hand sources', () => {
+    expect(deriveFallbackChoiceTypesForSelectedCard(
+      { zone: 'reveal', index: 0 },
+      { kind: 'joker', id: 0 },
+    )).toEqual([]);
   });
 
   it('derives unique targets for targeted choices', () => {

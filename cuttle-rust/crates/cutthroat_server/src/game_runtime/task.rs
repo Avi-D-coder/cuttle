@@ -62,6 +62,16 @@ pub(crate) async fn runtime_task(
                 let result = store.build_state_response_for_user(game_id, &user, spectate_intent);
                 let _ = respond.send(result);
             }
+            Command::GetSpectateReplayState {
+                game_id,
+                user,
+                game_state_index,
+                respond,
+            } => {
+                let result =
+                    store.build_spectator_replay_state_for_user(game_id, &user, game_state_index);
+                let _ = respond.send(result);
+            }
             Command::SubscribeGameStream {
                 game_id,
                 user,
