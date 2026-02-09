@@ -49,8 +49,12 @@ pub(crate) async fn runtime_task(
                 let result = store.set_ready(game_id, user, ready);
                 let _ = respond.send(result);
             }
-            Command::StartGame { game_id, respond } => {
-                let result = store.start_game(game_id);
+            Command::StartGame {
+                game_id,
+                user,
+                respond,
+            } => {
+                let result = store.start_game(game_id, user);
                 let _ = respond.send(result);
             }
             Command::GetState {

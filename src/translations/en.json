@@ -585,6 +585,7 @@
       "readyUp": "Ready Up",
       "autoStart": "Game starts automatically when all three players are ready.",
       "joinFailed": "Could not join Cutthroat lobby.",
+      "createFailed": "Could not create Cutthroat lobby.",
       "readyFailed": "Could not update ready status.",
       "listTitle": "Cutthroat Lobbies",
       "noLobbies": "No Cutthroat lobbies are open.",
@@ -660,7 +661,12 @@
       "actionFailed": "Action failed.",
       "loadFailed": "Could not load cutthroat game.",
       "cannotSpectateOwnGame": "Cannot spectate your own active game.",
-      "spectateUnavailable": "Cutthroat game is not available to spectate yet."
+      "spectateUnavailable": "Cutthroat game is not available to spectate yet.",
+      "playbackControls": "Replay controls",
+      "playbackFirst": "Go to first move",
+      "playbackPrevious": "Go to previous move",
+      "playbackNext": "Go to next move",
+      "playbackLatest": "Go to latest move"
     }
   },
   "profile": {

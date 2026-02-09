@@ -585,6 +585,7 @@
       "readyUp": "Готовий",
       "autoStart": "Гра почнеться автоматично, коли всі троє гравців будуть готові.",
       "joinFailed": "Не вдалося приєднатися до лобі Cutthroat.",
+      "createFailed": "Не вдалося створити лобі Cutthroat.",
       "readyFailed": "Не вдалося оновити статус готовності.",
       "listTitle": "Лобі Cutthroat",
       "noLobbies": "Немає відкритих лобі Cutthroat.",
@@ -660,6 +661,11 @@
       "actionFailed": "Не вдалося виконати дію.",
       "loadFailed": "Не вдалося завантажити гру cutthroat.",
       "cannotSpectateOwnGame": "Ви не можете спостерігати за власною активною грою.",
+      "playbackControls": "Елементи керування відтворенням",
+      "playbackFirst": "Перейти до першого ходу",
+      "playbackPrevious": "Перейти до попереднього ходу",
+      "playbackNext": "Перейти до наступного ходу",
+      "playbackLatest": "Перейти до найновішого ходу",
       "spectateUnavailable": "Ця гра cutthroat ще недоступна для спостереження."
     }
   },

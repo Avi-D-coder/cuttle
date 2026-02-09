@@ -44,7 +44,7 @@ async function createCutthroatGame() {
     const gameId = await store.createGame();
     router.push(`/cutthroat/lobby/${gameId}`);
   } catch (err) {
-    snackbarStore.alert(err?.message ?? t('cutthroat.lobby.joinFailed'));
+    snackbarStore.alert(err?.message ?? t('cutthroat.lobby.createFailed'));
   }
 }
 

@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { parseCardToken } from '@/util/cutthroat-cards';
 import {
+  deriveCounterDialogContextFromPhase,
   deriveCounterDialogContextFromTokenlog,
   deriveCutthroatDialogState,
   deriveMoveChoicesForSource,
@@ -129,6 +130,10 @@ export function useCutthroatInteractions({
 
   const counterContext = computed(() => {
     if (!isCounteringPhase.value) {return null;}
+    const phaseContext = deriveCounterDialogContextFromPhase(store.playerView?.phase ?? null);
+    if (phaseContext) {
+      return phaseContext;
+    }
     return deriveCounterDialogContextFromTokenlog(store.tokenlog, replayActionLimit.value);
   });
 
@@ -503,11 +508,13 @@ export function useCutthroatInteractions({
     };
     const choices = deriveMoveChoicesForSource(legalActions.value, source);
 
-    if (
-      isResolvingFour.value
-      || isResolvingFive.value
-      || (isCounterTurn.value && choices.length === 1 && choices[0].type === 'counterTwo')
-    ) {
+    if (isResolvingFour.value || isResolvingFive.value) {
+      if (choices.length === 0) {return;}
+      await executeSourceChoice(source, choices[0].type);
+      return;
+    }
+
+    if (isCounterTurn.value && choices.length === 1 && choices[0].type === 'counterTwo') {
       await executeSourceChoice(source, choices[0].type);
       return;
     }

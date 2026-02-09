@@ -272,6 +272,47 @@ export function findActiveCounterChain(parsedActions = []) {
   };
 }
 
+function normalizePhaseOneOffTarget(target = null) {
+  if (!target || typeof target !== 'object') {
+    return { type: 'None' };
+  }
+  switch (target.type) {
+    case 'Player':
+      return {
+        type: 'Player',
+        seat: target.data?.seat,
+      };
+    case 'Point':
+      return {
+        type: 'Point',
+        token: target.data?.base ?? null,
+      };
+    case 'Royal':
+    case 'Jack':
+    case 'Joker':
+      return {
+        type: target.type,
+        token: target.data?.card ?? null,
+      };
+    default:
+      return { type: 'None' };
+  }
+}
+
+export function deriveCounterDialogContextFromPhase(phase = null) {
+  if (!phase || phase.type !== 'Countering') {return null;}
+  const data = phase.data ?? {};
+  const oneoff = data.oneoff ?? null;
+  if (!oneoff || oneoff.type !== 'PlayOneOff') {return null;}
+  return {
+    oneOffCardToken: oneoff.data?.card ?? null,
+    oneOffTarget: normalizePhaseOneOffTarget(oneoff.data?.target),
+    twosPlayed: Array.isArray(data.twos)
+      ? data.twos.map((entry) => entry?.card).filter((token) => typeof token === 'string')
+      : [],
+  };
+}
+
 export function deriveCounterDialogContextFromTokenlog(tokenlog = '', maxActions = null) {
   if (!tokenlog || typeof tokenlog !== 'string') {return null;}
   try {

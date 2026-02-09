@@ -585,6 +585,7 @@
       "readyUp": "Marcar listo",
       "autoStart": "La partida empieza automáticamente cuando los tres jugadores están listos.",
       "joinFailed": "No se pudo unir a la lobby de Cutthroat.",
+      "createFailed": "No se pudo crear la lobby de Cutthroat.",
       "readyFailed": "No se pudo actualizar el estado de listo.",
       "listTitle": "Lobbies de Cutthroat",
       "noLobbies": "No hay lobbies de Cutthroat abiertas.",
@@ -660,7 +661,12 @@
       "actionFailed": "La acción falló.",
       "loadFailed": "No se pudo cargar la partida de cutthroat.",
       "cannotSpectateOwnGame": "No puedes observar tu propia partida activa.",
-      "spectateUnavailable": "Esta partida de cutthroat aún no está disponible para observar."
+      "spectateUnavailable": "Esta partida de cutthroat aún no está disponible para observar.",
+      "playbackControls": "Controles de repetición",
+      "playbackFirst": "Ir al primer movimiento",
+      "playbackPrevious": "Ir al movimiento anterior",
+      "playbackNext": "Ir al siguiente movimiento",
+      "playbackLatest": "Ir al movimiento más reciente"
     }
   },
   "profile": {

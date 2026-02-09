@@ -627,9 +627,12 @@ impl GameRuntime {
         Ok(())
     }
 
-    pub(crate) fn start_game(&mut self, game_id: i64) -> Result<(), RuntimeError> {
+    pub(crate) fn start_game(&mut self, game_id: i64, user: AuthUser) -> Result<(), RuntimeError> {
         {
             let game = self.games.get_mut(&game_id).ok_or(RuntimeError::NotFound)?;
+            if !game.seats.iter().any(|seat| seat.user_id == user.id) {
+                return Err(RuntimeError::Forbidden);
+            }
             if game.status != STATUS_LOBBY {
                 return Err(RuntimeError::Conflict);
             }
@@ -1145,6 +1148,37 @@ mod tests {
 
         let err = runtime
             .toggle_scrap_straighten(game_id, outsider)
+            .expect_err("outsider should be forbidden");
+        assert!(matches!(err, RuntimeError::Forbidden));
+    }
+
+    #[test]
+    fn outsider_cannot_start_ready_lobby() {
+        let mut runtime = GameRuntime::new(1);
+        let p0 = user(1, "p0");
+        let p1 = user(2, "p1");
+        let p2 = user(3, "p2");
+        let outsider = user(99, "outsider");
+
+        let game_id = runtime.create_game(p0.clone());
+        runtime
+            .join_game(game_id, p1.clone())
+            .expect("player 2 should join");
+        runtime
+            .join_game(game_id, p2.clone())
+            .expect("player 3 should join");
+        runtime
+            .set_ready(game_id, p0, true)
+            .expect("player 1 should ready");
+        runtime
+            .set_ready(game_id, p1, true)
+            .expect("player 2 should ready");
+        runtime
+            .set_ready(game_id, p2, true)
+            .expect("player 3 should ready");
+
+        let err = runtime
+            .start_game(game_id, outsider)
             .expect_err("outsider should be forbidden");
         assert!(matches!(err, RuntimeError::Forbidden));
     }

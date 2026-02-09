@@ -1,11 +1,17 @@
 <template>
-  <menu id="playback-controls" data-cy="playback-controls">
+  <nav
+    id="playback-controls"
+    data-cy="playback-controls"
+    :aria-label="t('cutthroat.game.playbackControls')"
+  >
     <span id="playback-controls-button-wrapper">
       <v-btn
         :disabled="!canGoToPreviousState"
         variant="text"
         icon="mdi-skip-backward"
         data-cy="skip-backward"
+        :aria-label="t('cutthroat.game.playbackFirst')"
+        :title="t('cutthroat.game.playbackFirst')"
         @click="goToState(0)"
       />
 
@@ -14,6 +20,8 @@
         variant="text"
         icon="mdi-step-backward"
         data-cy="step-backward"
+        :aria-label="t('cutthroat.game.playbackPrevious')"
+        :title="t('cutthroat.game.playbackPrevious')"
         @click="goToState(previousGameStateIndex)"
       />
 
@@ -22,6 +30,8 @@
         variant="text"
         icon="mdi-step-forward"
         data-cy="step-forward"
+        :aria-label="t('cutthroat.game.playbackNext')"
+        :title="t('cutthroat.game.playbackNext')"
         @click="goToState(currentGameStateIndex + 1)"
       />
 
@@ -30,15 +40,18 @@
         variant="text"
         icon="mdi-skip-forward"
         data-cy="skip-forward"
+        :aria-label="t('cutthroat.game.playbackLatest')"
+        :title="t('cutthroat.game.playbackLatest')"
         @click="goToState(-1)"
       />
     </span>
-  </menu>
+  </nav>
 </template>
 
 <script setup>
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 
 const props = defineProps({
   gameId: {
@@ -51,6 +64,7 @@ const props = defineProps({
   },
 });
 
+const { t } = useI18n();
 const router = useRouter();
 const currentGameStateIndex = computed(() => {
   const route = router.currentRoute.value;

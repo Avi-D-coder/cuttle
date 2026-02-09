@@ -68,6 +68,7 @@ pub(crate) enum Command {
     },
     StartGame {
         game_id: i64,
+        user: AuthUser,
         respond: oneshot::Sender<Result<(), RuntimeError>>,
     },
     GetState {

@@ -442,12 +442,13 @@ pub(crate) async fn start_game(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
-    let _user = authorize(&state, &headers).await?;
+    let user = authorize(&state, &headers).await?;
     let (tx, rx) = oneshot::channel();
     state
         .runtime_tx
         .send(Command::StartGame {
             game_id: id,
+            user,
             respond: tx,
         })
         .await

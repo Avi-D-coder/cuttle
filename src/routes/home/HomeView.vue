@@ -357,7 +357,7 @@ export default {
         const gameId = await this.cutthroatStore.createGame();
         this.$router.push(`/cutthroat/lobby/${gameId}`);
       } catch (err) {
-        this.handleError(err?.message ?? err);
+        this.handleError(err?.message ?? this.t('cutthroat.lobby.createFailed'));
       }
     },
     async createGameByMode() {

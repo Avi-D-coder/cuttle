@@ -585,6 +585,7 @@
       "readyUp": "Se déclarer prêt",
       "autoStart": "La partie démarre automatiquement quand les trois joueurs sont prêts.",
       "joinFailed": "Impossible de rejoindre le salon Cutthroat.",
+      "createFailed": "Impossible de créer le salon Cutthroat.",
       "readyFailed": "Impossible de mettre à jour l'état prêt.",
       "listTitle": "Salons Cutthroat",
       "noLobbies": "Aucun salon Cutthroat ouvert.",
@@ -660,6 +661,11 @@
       "actionFailed": "Échec de l'action.",
       "loadFailed": "Impossible de charger la partie cutthroat.",
       "cannotSpectateOwnGame": "Vous ne pouvez pas observer votre propre partie active.",
+      "playbackControls": "Contrôles de replay",
+      "playbackFirst": "Aller au premier coup",
+      "playbackPrevious": "Aller au coup précédent",
+      "playbackNext": "Aller au coup suivant",
+      "playbackLatest": "Aller au coup le plus récent",
       "spectateUnavailable": "Cette partie cutthroat n'est pas encore disponible pour l'observation."
     }
   },

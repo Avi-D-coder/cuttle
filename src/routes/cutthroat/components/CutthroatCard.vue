@@ -8,7 +8,10 @@
       frozen: isFrozen,
     }"
     :role="clickable ? 'button' : undefined"
+    :tabindex="clickable ? 0 : undefined"
     @click="handleClick"
+    @keydown.enter.prevent="handleClick"
+    @keydown.space.prevent="handleClick"
   >
     <GameCard
       :rank="resolvedRank"

@@ -92,7 +92,7 @@ Frontend probes Rust health (`/cutthroat/api/v1/health`) with timeout + retry ba
 - 2P remains fully functional.
 
 ## Rust Runtime Model
-- In-memory lobby/game state (no Postgres required for active Cutthroat games).
+- In-memory lobby/game state for active Cutthroat games; Postgres is still required for normal server startup/history persistence (unless built with `e2e-seed`).
 - Broadcast channels for:
   - game state updates
   - lobby list updates

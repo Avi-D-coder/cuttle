@@ -84,6 +84,10 @@ pub fn parse(tokens: &str) -> Result<TokenLog, TokenError> {
 }
 
 pub fn replay(log: &TokenLog) -> Result<CutthroatState, TokenError> {
+    let required_cards = (PLAYER_COUNT as usize) * 5;
+    if log.deck.len() < required_cards {
+        return Err(TokenError::InvalidFormat);
+    }
     let mut state = CutthroatState::new_with_deck(log.dealer, log.deck.clone());
     for (seat, action) in &log.actions {
         state.apply(*seat, action.clone())?;
@@ -364,6 +368,9 @@ fn parse_seat(token: &str) -> Result<Seat, TokenError> {
     let num = token[1..]
         .parse::<u8>()
         .map_err(|_| TokenError::InvalidFormat)?;
+    if num >= PLAYER_COUNT {
+        return Err(TokenError::InvalidFormat);
+    }
     Ok(num)
 }
 
@@ -376,5 +383,29 @@ fn expect(actual: Option<&str>, expected: &str) -> Result<(), TokenError> {
         Ok(())
     } else {
         Err(TokenError::InvalidFormat)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TokenError, TokenLog, parse, replay};
+    use crate::action::Action;
+
+    #[test]
+    fn parse_rejects_out_of_range_seat_token() {
+        let tokenlog = "V1 CUTTHROAT3P DEALER P3 DECK ENDDECK";
+        let err = parse(tokenlog).expect_err("seat >= player count should be rejected");
+        assert!(matches!(err, TokenError::InvalidFormat));
+    }
+
+    #[test]
+    fn replay_rejects_short_deck_without_panicking() {
+        let log = TokenLog {
+            dealer: 0,
+            deck: Vec::new(),
+            actions: vec![(0, Action::Pass)],
+        };
+        let err = replay(&log).expect_err("short deck should be rejected");
+        assert!(matches!(err, TokenError::InvalidFormat));
     }
 }

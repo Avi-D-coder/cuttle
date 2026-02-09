@@ -585,6 +585,7 @@
       "readyUp": "Bereit machen",
       "autoStart": "Das Spiel startet automatisch, wenn alle drei Spieler bereit sind.",
       "joinFailed": "Der Beitritt zur Cutthroat-Lobby ist fehlgeschlagen.",
+      "createFailed": "Die Cutthroat-Lobby konnte nicht erstellt werden.",
       "readyFailed": "Der Bereitschaftsstatus konnte nicht aktualisiert werden.",
       "listTitle": "Cutthroat-Lobbys",
       "noLobbies": "Es sind keine Cutthroat-Lobbys offen.",
@@ -660,7 +661,12 @@
       "actionFailed": "Aktion fehlgeschlagen.",
       "loadFailed": "Cutthroat-Spiel konnte nicht geladen werden.",
       "cannotSpectateOwnGame": "Du kannst dein eigenes laufendes Spiel nicht beobachten.",
-      "spectateUnavailable": "Dieses Cutthroat-Spiel kann noch nicht beobachtet werden."
+      "spectateUnavailable": "Dieses Cutthroat-Spiel kann noch nicht beobachtet werden.",
+      "playbackControls": "Replay-Steuerung",
+      "playbackFirst": "Zum ersten Zug",
+      "playbackPrevious": "Zum vorherigen Zug",
+      "playbackNext": "Zum nächsten Zug",
+      "playbackLatest": "Zum neuesten Zug"
     }
   },
   "profile": {
