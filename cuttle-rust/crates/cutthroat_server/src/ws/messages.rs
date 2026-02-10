@@ -1,5 +1,4 @@
 use crate::api::handlers::{GameStateResponse, LobbySummary, SpectatableGameSummary};
-use cutthroat_engine::Action;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -8,7 +7,7 @@ pub(crate) enum WsClientMessage {
     #[serde(rename = "action")]
     Action {
         expected_version: i64,
-        action: Action,
+        action_tokens: String,
     },
     #[serde(rename = "scrap_straighten")]
     ScrapStraighten,

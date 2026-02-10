@@ -21,7 +21,11 @@
         />
       </v-btn>
     </div>
-    <div v-if="selectedCard" class="d-flex justify-center">
+    <div
+      v-if="selectedCard"
+      class="d-flex justify-center selected-card-wrapper"
+      :class="{ 'selected-from-deck': selectedFromDeck }"
+    >
       <CutthroatCard
         :card="selectedCard"
         :is-frozen="isFrozen"
@@ -75,6 +79,10 @@ export default {
       type: Boolean,
       default: false,
     },
+    selectedFromDeck: {
+      type: Boolean,
+      default: false,
+    },
   },
   emits: [ 'choose-move', 'cancel' ],
   computed: {
@@ -106,6 +114,18 @@ export default {
     width: 85%;
     max-width: 1300px;
   }
+}
+
+.selected-card-wrapper.selected-from-deck {
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.24);
+  box-shadow: 0 0 0 2px rgba(var(--v-theme-accent-lighten1), 0.35);
+}
+
+.selected-card-wrapper.selected-from-deck :deep(.player-card) {
+  max-height: 20vh;
+  max-width: calc(20vh / 1.45);
 }
 
 @media (max-width: 900px) {

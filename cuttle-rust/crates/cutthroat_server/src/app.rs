@@ -1,5 +1,7 @@
 #[cfg(feature = "e2e-seed")]
 use crate::api::handlers::seed_game_from_tokenlog;
+#[cfg(feature = "e2e-seed")]
+use crate::api::handlers::seed_game_from_transcript;
 use crate::api::handlers::{
     create_game, get_health, get_history, get_spectate_state, get_state, join_game, leave_game,
     post_action, rematch_game, set_ready, start_game,
@@ -35,10 +37,15 @@ pub(crate) fn build_router(state: AppState) -> Router {
         .route("/cutthroat/ws/lobbies", get(ws_lobbies_handler));
 
     #[cfg(feature = "e2e-seed")]
-    let router = router.route(
-        "/cutthroat/api/test/games/seed-tokenlog",
-        post(seed_game_from_tokenlog),
-    );
+    let router = router
+        .route(
+            "/cutthroat/api/test/games/seed-tokenlog",
+            post(seed_game_from_tokenlog),
+        )
+        .route(
+            "/cutthroat/api/test/games/seed-transcript",
+            post(seed_game_from_transcript),
+        );
 
     router.with_state(state)
 }

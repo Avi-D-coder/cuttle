@@ -1,4 +1,4 @@
-import { tokenlogWithActions } from '../../../support/cutthroat/seed';
+import { transcriptWithActions } from '../../../support/cutthroat/seed';
 
 describe('Cutthroat 3P Rematch UX', () => {
   beforeEach(() => {
@@ -7,11 +7,11 @@ describe('Cutthroat 3P Rematch UX', () => {
 
   it('keeps player on game route and allows canceling rematch offer', () => {
     const gameId = 7601;
-    const tokenlog = tokenlogWithActions({ dealer: 'P2' });
+    const transcript = transcriptWithActions({ dealer: 'P2' });
 
-    cy.seedCutthroatGameFromTokenlog({
+    cy.seedCutthroatGameFromTranscript({
       gameId,
-      tokenlog,
+      ...transcript,
       status: 2,
       playerSeat: 0,
     });
@@ -48,5 +48,41 @@ describe('Cutthroat 3P Rematch UX', () => {
     cy.location('pathname').should('eq', `/cutthroat/game/${gameId}`);
     cy.get('[data-cy=cutthroat-rematch-waiting]').should('not.exist');
     cy.get('[data-cy=cutthroat-rematch-btn]').should('contain', 'Rematch');
+  });
+
+  it('allows rejoining reserved rematch lobby from home after leaving old game page', () => {
+    const gameId = 7602;
+    const transcript = transcriptWithActions({ dealer: 'P2' });
+
+    cy.seedCutthroatGameFromTranscript({
+      gameId,
+      ...transcript,
+      status: 2,
+      playerSeat: 0,
+    });
+
+    cy.intercept('POST', `/cutthroat/api/v1/games/${gameId}/rematch`).as('rematchRequest');
+    cy.intercept('POST', '/cutthroat/api/v1/games/*/ready').as('readyRequest');
+
+    cy.openCutthroatGame(gameId, 'game');
+    cy.get('[data-cy=cutthroat-rematch-btn]').click();
+
+    cy.wait('@readyRequest')
+      .then(({ request }) => {
+        expect(request.body).to.deep.eq({ ready: true });
+      });
+    cy.wait('@rematchRequest')
+      .its('response.body.id')
+      .should('be.a', 'number')
+      .as('rematchGameId');
+
+    cy.get('[data-cy=cutthroat-back-home-btn]').click();
+    cy.location('pathname').should('eq', '/');
+
+    cy.get('@rematchGameId').then((id) => {
+      cy.get(`[data-cy=cutthroat-join-lobby-${id}]`).should('be.enabled')
+        .click();
+      cy.location('pathname').should('eq', `/cutthroat/lobby/${id}`);
+    });
   });
 });

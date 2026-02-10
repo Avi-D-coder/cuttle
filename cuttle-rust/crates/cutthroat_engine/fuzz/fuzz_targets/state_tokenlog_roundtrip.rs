@@ -3,7 +3,8 @@
 use arbitrary::Arbitrary;
 use cutthroat_engine::{
     Action, Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner,
-    append_action, encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog,
+    append_action, encode_header, full_deck_with_jokers, join_tokens, parse_token_slice, parse_tokenlog,
+    replay_tokenlog,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -12,7 +13,6 @@ struct FuzzInput {
     dealer_seed: u8,
     deck_bytes: Vec<u8>,
     move_bytes: Vec<u8>,
-    max_steps: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,32 +94,36 @@ fn run_case(input: FuzzInput) {
     let mut tokenlog = encode_header(dealer, &deck);
     let mut generated_actions = Vec::new();
 
-    let max_steps = usize::from(input.max_steps).min(4096);
-    for step in 0..max_steps {
-        let Some(seat) = acting_seat(&state) else {
-            break;
-        };
-
-        let legal = state.legal_actions(seat);
-        if legal.is_empty() {
+    let mut step = 0usize;
+    loop {
+        if matches!(state.phase, Phase::GameOver) {
             break;
         }
+
+        let seat = acting_seat(&state);
+
+        let legal = state.legal_actions(seat);
+        assert!(
+            !legal.is_empty(),
+            "non-terminal phase has no legal actions: phase={:?} seat={}",
+            state.phase,
+            seat
+        );
 
         maybe_reject_illegal_action(&mut state, seat, &legal, &input, step);
 
         let index = usize::from(sample_byte(&input.move_bytes, step)) % legal.len();
         let action = legal[index].clone();
+        let state_before = state.clone();
 
         state
             .apply(seat, action.clone())
             .expect("selected legal action should always apply");
-        append_action(&mut tokenlog, seat, &action)
+        append_action(&mut tokenlog, &state_before, seat, &action)
             .expect("valid seat should always append to tokenlog");
         generated_actions.push((seat, action));
-
-        if matches!(state.phase, Phase::GameOver) {
-            break;
-        }
+        maybe_assert_roundtrip_via_token_vec(&tokenlog, &state, &input, step);
+        step = step.wrapping_add(1);
     }
 
     let parsed = parse_tokenlog(&tokenlog).expect("generated tokenlog should parse");
@@ -129,8 +133,12 @@ fn run_case(input: FuzzInput) {
     assert_eq!(parsed.actions, generated_actions);
 
     let mut rebuilt = encode_header(parsed.dealer, &parsed.deck);
+    let mut rebuild_state = CutthroatState::new_with_deck(parsed.dealer, parsed.deck.clone());
     for (seat, action) in &parsed.actions {
-        append_action(&mut rebuilt, *seat, action).expect("parsed action should re-encode");
+        append_action(&mut rebuilt, &rebuild_state, *seat, action).expect("parsed action should re-encode");
+        rebuild_state
+            .apply(*seat, action.clone())
+            .expect("parsed action should apply while rebuilding");
     }
     assert_eq!(rebuilt, tokenlog);
 
@@ -175,6 +183,19 @@ fn maybe_reject_illegal_action(
     );
 }
 
+fn maybe_assert_roundtrip_via_token_vec(
+    tokenlog: &str,
+    expected_state: &CutthroatState,
+    input: &FuzzInput,
+    step: usize,
+) {
+    let roll = sample_byte(&input.move_bytes, step.wrapping_mul(17).wrapping_add(41));
+    if roll % 20 != 0 {
+        return;
+    }
+    assert_state_roundtrip_via_token_vec(tokenlog, expected_state);
+}
+
 fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -> Action {
     let mut candidates = match &state.phase {
         Phase::Main => vec![
@@ -217,7 +238,7 @@ fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -
             Action::Pass,
             Action::Draw,
             Action::ResolveSevenChoose {
-                source_index: u8::MAX,
+                card: Card::Joker(0),
                 play: SevenPlay::Discard,
             },
         ],
@@ -263,6 +284,14 @@ fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -
     }
 }
 
+fn assert_state_roundtrip_via_token_vec(tokenlog: &str, expected_state: &CutthroatState) {
+    let token_vec =
+        parse_token_slice(tokenlog).expect("generated tokenlog should tokenize into typed token vec");
+    let reparsed = parse_tokenlog(&join_tokens(&token_vec)).expect("token vec should parse as tokenlog");
+    let replayed = replay_tokenlog(&reparsed).expect("reparsed tokenlog should replay");
+    assert_eq!(state_digest(&replayed), state_digest(expected_state));
+}
+
 fn shuffled_deck(deck_bytes: &[u8]) -> Vec<Card> {
     let mut deck = full_deck_with_jokers();
     for i in (1..deck.len()).rev() {
@@ -280,15 +309,15 @@ fn sample_byte(bytes: &[u8], idx: usize) -> u8 {
     }
 }
 
-fn acting_seat(state: &CutthroatState) -> Option<u8> {
+fn acting_seat(state: &CutthroatState) -> u8 {
     match &state.phase {
-        Phase::Main => Some(state.turn),
-        Phase::Countering(counter) => Some(counter.next_seat),
+        Phase::Main => state.turn,
+        Phase::Countering(counter) => counter.next_seat,
         Phase::ResolvingThree { seat, .. }
         | Phase::ResolvingFour { seat, .. }
         | Phase::ResolvingFive { seat, .. }
-        | Phase::ResolvingSeven { seat, .. } => Some(*seat),
-        Phase::GameOver => None,
+        | Phase::ResolvingSeven { seat, .. } => *seat,
+        Phase::GameOver => panic!("acting_seat requested for game-over phase"),
     }
 }
 

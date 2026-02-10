@@ -1,4 +1,4 @@
-import { tokenlogWithActions } from '../../../support/cutthroat/seed';
+import { transcriptWithActions } from '../../../support/cutthroat/seed';
 
 describe('Cutthroat 3P Countering Phase', () => {
   beforeEach(() => {
@@ -7,16 +7,16 @@ describe('Cutthroat 3P Countering Phase', () => {
 
   it('loads a seeded countering phase with counter actions for current seat', () => {
     const gameId = 7341;
-    const tokenlog = tokenlogWithActions({
+    const transcript = transcriptWithActions({
       dealer: 'P2',
       actions: [
-        'P0 MT_ONEOFF 4C TGT_P P1',
+        'P0 oneOff 4C P1',
       ],
     });
 
-    cy.seedCutthroatGameFromTokenlog({
+    cy.seedCutthroatGameFromTranscript({
       gameId,
-      tokenlog,
+      ...transcript,
       status: 1,
       playerSeat: 1,
     });
@@ -26,9 +26,8 @@ describe('Cutthroat 3P Countering Phase', () => {
     cy.request(`/cutthroat/api/v1/games/${gameId}/state`)
       .its('body')
       .then((state) => {
-        const actionTypes = state.legal_actions.map((action) => action.type);
-        expect(actionTypes).to.include('CounterPass');
-        expect(actionTypes).to.include('CounterTwo');
+        expect(state.legal_actions.some((token) => token.endsWith(' resolve'))).to.equal(true);
+        expect(state.legal_actions.some((token) => /\scounter\s+[A2-9TJQK][CDHS]$/.test(token))).to.equal(true);
       });
   });
 });

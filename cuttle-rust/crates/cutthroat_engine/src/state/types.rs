@@ -50,25 +50,25 @@ pub struct CounterState {
     pub rotation_anchor: Seat,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrozenCard {
     pub card: Card,
     pub remaining_turns: u8,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JackOnStack {
     pub card: Card,
     pub owner: Seat,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JokerOnStack {
     pub card: Card,
     pub owner: Seat,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PointStack {
     pub base: Card,
     pub base_owner: Seat,
@@ -84,7 +84,7 @@ impl PointStack {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoyalStack {
     pub base: Card,
     pub base_owner: Seat,
@@ -100,7 +100,7 @@ impl RoyalStack {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlayerState {
     pub hand: Vec<Card>,
     pub points: Vec<PointStack>,
@@ -125,7 +125,7 @@ impl Default for PlayerState {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CutthroatState {
     pub dealer: Seat,
     pub turn: Seat,

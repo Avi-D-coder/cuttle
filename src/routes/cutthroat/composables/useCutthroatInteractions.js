@@ -2,7 +2,6 @@ import { computed, ref } from 'vue';
 import { parseCardToken } from '@/util/cutthroat-cards';
 import {
   deriveCounterDialogContextFromPhase,
-  deriveCounterDialogContextFromTokenlog,
   deriveCutthroatDialogState,
   deriveMoveChoicesForSource,
   deriveTargetsForChoice,
@@ -48,7 +47,6 @@ export function useCutthroatInteractions({
   myFrozenTokens,
   revealedCardEntries,
   isSpectatorMode,
-  replayStateIndex,
   localHandActionTokens,
   cardTokenToDialogCard,
 }) {
@@ -60,12 +58,12 @@ export function useCutthroatInteractions({
   const selectedResolveFiveToken = ref(null);
 
   const selectedSourceChoices = computed(() => {
-    return deriveMoveChoicesForSource(legalActions.value, selectedSource.value);
+    return deriveMoveChoicesForSource(legalActions.value, selectedSource.value, phaseType.value);
   });
 
   const selectedChoiceTargets = computed(() => {
     if (!selectedSource.value || !selectedChoice.value) {return [];}
-    return deriveTargetsForChoice(legalActions.value, selectedSource.value, selectedChoice.value);
+    return deriveTargetsForChoice(legalActions.value, selectedSource.value, selectedChoice.value, phaseType.value);
   });
 
   const targetKeySet = computed(() => {
@@ -115,26 +113,20 @@ export function useCutthroatInteractions({
 
   const isResolvingThreeTurn = computed(() => {
     if (!isResolvingThree.value) {return false;}
-    return legalActions.value.some((action) => action?.type === 'ResolveThreePick');
+    return legalActions.value.some((token) => {
+      if (typeof token !== 'string') {return false;}
+      const parts = token.trim().split(/\s+/);
+      return parts[1] === 'resolve' && parts[2] && parts[2] !== 'discard';
+    });
   });
 
   const counterTwoOptions = computed(() => {
     return dialogState.value.counterTwoTokens;
   });
 
-  const replayActionLimit = computed(() => {
-    const index = Number(replayStateIndex?.value);
-    if (!Number.isInteger(index) || index < 0) {return null;}
-    return index;
-  });
-
   const counterContext = computed(() => {
     if (!isCounteringPhase.value) {return null;}
-    const phaseContext = deriveCounterDialogContextFromPhase(store.playerView?.phase ?? null);
-    if (phaseContext) {
-      return phaseContext;
-    }
-    return deriveCounterDialogContextFromTokenlog(store.tokenlog, replayActionLimit.value);
+    return deriveCounterDialogContextFromPhase(store.playerView?.phase ?? null);
   });
 
   const counterDialogOneOff = computed(() => {
@@ -190,8 +182,8 @@ export function useCutthroatInteractions({
 
   const canUseDeck = computed(() => {
     if (isActionDisabled.value || isFinished.value || !isMainPhase.value) {return false;}
-    const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw');
-    const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass');
+    const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw', null, phaseType.value);
+    const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass', null, phaseType.value);
     return !!(draw || pass);
   });
 
@@ -202,7 +194,7 @@ export function useCutthroatInteractions({
       return found?.card ?? parseCardToken(selectedSource.value.token);
     }
     if (selectedSource.value.zone === 'reveal') {
-      const found = revealedCardEntries.value.find((entry) => entry.index === selectedSource.value.index);
+      const found = revealedCardEntries.value.find((entry) => entry.token === selectedSource.value.token);
       return found?.card ?? null;
     }
     if (selectedSource.value.zone === 'scrap') {
@@ -217,7 +209,7 @@ export function useCutthroatInteractions({
   });
 
   const resolveFiveActions = computed(() => {
-    return legalActions.value.filter((action) => action?.type === 'ResolveFiveDiscard');
+    return legalActions.value.filter((token) => typeof token === 'string' && token.startsWith('P') && token.includes(' discard '));
   });
 
   const resolveFourDiscardTokens = computed(() => {
@@ -280,7 +272,7 @@ export function useCutthroatInteractions({
   function syncInteractionState() {
     if (!selectedSource.value) {return;}
 
-    const choices = deriveMoveChoicesForSource(legalActions.value, selectedSource.value);
+    const choices = deriveMoveChoicesForSource(legalActions.value, selectedSource.value, phaseType.value);
     if (choices.length === 0) {
       clearInteractionState();
       return;
@@ -294,7 +286,12 @@ export function useCutthroatInteractions({
       return;
     }
 
-    const targets = deriveTargetsForChoice(legalActions.value, selectedSource.value, selectedChoice.value);
+    const targets = deriveTargetsForChoice(
+      legalActions.value,
+      selectedSource.value,
+      selectedChoice.value,
+      phaseType.value,
+    );
     if (targets.length === 0) {
       selectedChoice.value = null;
     }
@@ -318,20 +315,29 @@ export function useCutthroatInteractions({
   }
 
   function isRevealSelectable(index) {
+    const token = revealedCardEntries.value.find((entry) => entry.index === index)?.token ?? null;
+    if (!token) {return false;}
     const source = {
       zone: 'reveal',
-      index,
+      token,
     };
-    return deriveMoveChoicesForSource(legalActions.value, source).length > 0;
+    return deriveMoveChoicesForSource(legalActions.value, source, phaseType.value).length > 0;
   }
 
   function isRevealSelected(index) {
     if (!selectedSource.value) {return false;}
-    return selectedSource.value.zone === 'reveal' && selectedSource.value.index === index;
+    const revealToken = revealedCardEntries.value.find((entry) => entry.index === index)?.token ?? null;
+    return selectedSource.value.zone === 'reveal'
+      && selectedSource.value.token === revealToken;
   }
 
   function hasTarget(target) {
-    return targetKeySet.value.has(makeTargetKey(target));
+    const exact = makeTargetKey(target);
+    if (targetKeySet.value.has(exact)) {return true;}
+    if (target?.token) {
+      return targetKeySet.value.has(`card:${target.token}`);
+    }
+    return false;
   }
 
   function isPointTarget(token) {
@@ -398,7 +404,7 @@ export function useCutthroatInteractions({
   }
 
   async function executeSourceChoice(source, choiceType, target = null) {
-    const action = findMatchingAction(legalActions.value, source, choiceType, target);
+    const action = findMatchingAction(legalActions.value, source, choiceType, target, phaseType.value);
     if (!action) {return;}
     await sendResolvedAction(action);
   }
@@ -406,7 +412,7 @@ export function useCutthroatInteractions({
   function chooseMove(choiceType) {
     if (!selectedSource.value || isActionDisabled.value) {return;}
 
-    const targets = deriveTargetsForChoice(legalActions.value, selectedSource.value, choiceType);
+    const targets = deriveTargetsForChoice(legalActions.value, selectedSource.value, choiceType, phaseType.value);
     if (targets.length === 0) {
       executeSourceChoice(selectedSource.value, choiceType);
       return;
@@ -423,14 +429,14 @@ export function useCutthroatInteractions({
 
   async function handleDeckClick() {
     if (!canUseDeck.value) {return;}
-    const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw');
-    const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass');
+    const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw', null, phaseType.value);
+    const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass', null, phaseType.value);
     await sendResolvedAction(draw ?? pass);
   }
 
   async function handleCounterPass() {
     if (isSpectatorMode.value) {return;}
-    const action = findMatchingAction(legalActions.value, { zone: 'counter', token: 'pass' }, 'counterPass');
+    const action = findMatchingAction(legalActions.value, { zone: 'counter', token: 'pass' }, 'counterPass', null, phaseType.value);
     await sendResolvedAction(action);
   }
 
@@ -441,6 +447,8 @@ export function useCutthroatInteractions({
       legalActions.value,
       { zone: 'hand', token: twoToken },
       'counterTwo',
+      null,
+      phaseType.value,
     );
     await sendResolvedAction(action);
   }
@@ -475,6 +483,8 @@ export function useCutthroatInteractions({
         legalActions.value,
         { zone: 'hand', token },
         'resolveFourDiscard',
+        null,
+        phaseType.value,
       );
       if (!action) {continue;}
       await sendResolvedAction(action);
@@ -491,6 +501,8 @@ export function useCutthroatInteractions({
         legalActions.value,
         { zone: 'hand', token: selectedResolveFiveToken.value },
         'resolveFiveDiscard',
+        null,
+        phaseType.value,
       );
     } else {
       action = resolveFiveActions.value[0] ?? null;
@@ -506,7 +518,7 @@ export function useCutthroatInteractions({
       zone: 'hand',
       token: handCard.token,
     };
-    const choices = deriveMoveChoicesForSource(legalActions.value, source);
+    const choices = deriveMoveChoicesForSource(legalActions.value, source, phaseType.value);
 
     if (isResolvingFour.value || isResolvingFive.value) {
       if (choices.length === 0) {return;}
@@ -533,12 +545,14 @@ export function useCutthroatInteractions({
   function handleRevealClick(index) {
     if (isActionDisabled.value) {return;}
 
+    const revealToken = revealedCardEntries.value.find((entry) => entry.index === index)?.token ?? null;
+    if (!revealToken) {return;}
     const source = {
       zone: 'reveal',
-      index,
+      token: revealToken,
     };
 
-    if (deriveMoveChoicesForSource(legalActions.value, source).length === 0) {return;}
+    if (deriveMoveChoicesForSource(legalActions.value, source, phaseType.value).length === 0) {return;}
 
     if (sameSource(selectedSource.value, source) && !selectedChoice.value) {
       clearInteractionState();

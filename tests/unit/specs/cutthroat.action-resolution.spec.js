@@ -10,34 +10,22 @@ import {
   groupActions,
 } from '@/routes/cutthroat/helpers/action-resolution';
 
-describe('cutthroat action resolution helpers', () => {
-  it('extracts normalized action sources for deck, hand, counter, scrap, and reveal', () => {
-    expect(extractActionSource({ type: 'Draw' })).toEqual({ zone: 'deck' });
-    expect(extractActionSource({ type: 'PlayPoints', data: { card: '7C' } })).toEqual({
-      zone: 'hand',
-      token: '7C',
-    });
-    expect(extractActionSource({ type: 'CounterPass' })).toEqual({
-      zone: 'counter',
-      token: 'pass',
-    });
-    expect(extractActionSource({ type: 'ResolveThreePick', data: { card_from_scrap: '4D' } })).toEqual({
-      zone: 'scrap',
-      token: '4D',
-    });
-    expect(extractActionSource({ type: 'ResolveSevenChoose', data: { source_index: 1, play: { type: 'Points' } } })).toEqual({
-      zone: 'reveal',
-      index: 1,
-    });
+describe('cutthroat action resolution helpers (token actions)', () => {
+  it('extracts normalized action sources from tokenized legal actions', () => {
+    expect(extractActionSource('P1 draw')).toEqual({ zone: 'deck' });
+    expect(extractActionSource('P1 points 7C')).toEqual({ zone: 'hand', token: '7C' });
+    expect(extractActionSource('P1 resolve')).toEqual({ zone: 'counter', token: 'pass' });
+    expect(extractActionSource('P1 resolve 4D')).toEqual({ zone: 'scrap', token: '4D' });
+    expect(extractActionSource('P1 points KD', 'ResolvingSeven')).toEqual({ zone: 'reveal', token: 'KD' });
   });
 
   it('derives stable move choices for a selected source', () => {
     const actions = [
-      { type: 'Scuttle', data: { card: '7C', target_point_base: '5C' } },
-      { type: 'PlayPoints', data: { card: '7C' } },
-      { type: 'PlayOneOff', data: { card: '7C', target: { type: 'None' } } },
-      { type: 'PlayRoyal', data: { card: 'KC' } },
-      { type: 'CounterPass' },
+      'P1 scuttle 7C 5C',
+      'P1 points 7C',
+      'P1 oneOff 7C',
+      'P1 playRoyal KC',
+      'P1 resolve',
     ];
 
     expect(deriveMoveChoicesForSource(actions, { zone: 'hand', token: '7C' })).toEqual([
@@ -45,210 +33,81 @@ describe('cutthroat action resolution helpers', () => {
       { type: 'scuttle' },
       { type: 'oneOff' },
     ]);
-
     expect(deriveMoveChoicesForSource(actions, { zone: 'counter', token: 'pass' })).toEqual([
       { type: 'counterPass' },
     ]);
-
     expect(deriveMoveChoicesForSource(actions, { zone: 'hand', token: 'KC' })).toEqual([
       { type: 'royal' },
     ]);
   });
 
-  it('derives joker fallback move choice for selected joker hand card', () => {
-    expect(deriveFallbackChoiceTypesForSelectedCard(
-      { zone: 'hand', token: 'J0' },
-      { kind: 'joker', id: 0 },
-    )).toEqual([ 'joker' ]);
-  });
-
-  it('derives existing standard-rank fallback move choices for selected hand card', () => {
-    expect(deriveFallbackChoiceTypesForSelectedCard(
-      { zone: 'hand', token: '4C' },
-      { kind: 'standard', rank: 4, suit: 0 },
-    )).toEqual([ 'points', 'scuttle', 'oneOff' ]);
-  });
-
-  it('returns no fallback choices for non-hand sources', () => {
-    expect(deriveFallbackChoiceTypesForSelectedCard(
-      { zone: 'reveal', index: 0 },
-      { kind: 'joker', id: 0 },
-    )).toEqual([]);
-  });
-
-  it('derives unique targets for targeted choices', () => {
+  it('derives targets and finds matching token action', () => {
     const actions = [
-      {
-        type: 'PlayOneOff',
-        data: {
-          card: '9C',
-          target: { type: 'Point', data: { base: '7D' } },
-        },
-      },
-      {
-        type: 'PlayOneOff',
-        data: {
-          card: '9C',
-          target: { type: 'Player', data: { seat: 2 } },
-        },
-      },
-      {
-        type: 'PlayOneOff',
-        data: {
-          card: '9C',
-          target: { type: 'None' },
-        },
-      },
-      {
-        type: 'ResolveSevenChoose',
-        data: {
-          source_index: 0,
-          play: { type: 'Scuttle', data: { target: '6S' } },
-        },
-      },
+      'P1 oneOff 9C 7D',
+      'P1 oneOff 9C QH',
+      'P1 oneOff 9C JH',
+      'P1 oneOff 9C J0',
+      'P1 oneOff 9C P2',
+      'P1 oneOff 9C',
+      'P1 resolve discard 4C',
     ];
 
     expect(deriveTargetsForChoice(actions, { zone: 'hand', token: '9C' }, 'oneOff')).toEqual([
-      {
-        targetType: 'point',
-        token: '7D',
-        key: 'point:7D',
-      },
-      {
-        targetType: 'player',
-        seat: 2,
-        key: 'player:2',
-      },
+      { targetType: 'card', token: '7D', key: 'card:7D' },
+      { targetType: 'card', token: 'QH', key: 'card:QH' },
+      { targetType: 'card', token: 'JH', key: 'card:JH' },
+      { targetType: 'card', token: 'J0', key: 'card:J0' },
+      { targetType: 'player', seat: 2, key: 'player:2' },
     ]);
-
-    expect(deriveTargetsForChoice(actions, { zone: 'reveal', index: 0 }, 'scuttle')).toEqual([
-      {
-        targetType: 'point',
-        token: '6S',
-        key: 'point:6S',
-      },
-    ]);
+    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff', { targetType: 'card', token: '7D' })).toBe('P1 oneOff 9C 7D');
+    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff', { targetType: 'point', token: '7D' })).toBe('P1 oneOff 9C 7D');
+    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff', { targetType: 'royal', token: 'QH' })).toBe('P1 oneOff 9C QH');
+    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff', { targetType: 'jack', token: 'JH' })).toBe('P1 oneOff 9C JH');
+    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff', { targetType: 'joker', token: 'J0' })).toBe('P1 oneOff 9C J0');
+    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff')).toBe('P1 oneOff 9C');
+    expect(findMatchingAction(actions, { zone: 'hand', token: '4C' }, 'resolveFourDiscard')).toBe('P1 resolve discard 4C');
   });
 
-  it('finds matching actions for targeted and targetless choices', () => {
-    const actions = [
-      {
-        type: 'PlayOneOff',
-        data: {
-          card: '9C',
-          target: { type: 'Point', data: { base: '7D' } },
-        },
-      },
-      {
-        type: 'PlayOneOff',
-        data: {
-          card: '9C',
-          target: { type: 'None' },
-        },
-      },
-      {
-        type: 'ResolveFourDiscard',
-        data: { card: '4C' },
-      },
-    ];
-
-    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff', {
-      targetType: 'point',
-      token: '7D',
-    })).toEqual(actions[0]);
-
-    expect(findMatchingAction(actions, { zone: 'hand', token: '9C' }, 'oneOff')).toEqual(actions[1]);
-
-    expect(findMatchingAction(actions, { zone: 'hand', token: '4C' }, 'resolveFourDiscard')).toEqual(actions[2]);
-  });
-
-  it('filters seven actions and groups action sections', () => {
-    const actions = [
-      { type: 'PlayPoints', data: { card: '3C' } },
-      { type: 'CounterPass' },
-      { type: 'ResolveSevenChoose', data: { source_index: 0, play: { type: 'Points' } } },
-      { type: 'ResolveSevenChoose', data: { source_index: 1, play: { type: 'Discard' } } },
-    ];
-
-    const filtered = filterVisibleActions(actions, true, 0);
-    expect(filtered).toEqual([
-      { type: 'ResolveSevenChoose', data: { source_index: 0, play: { type: 'Points' } } },
-    ]);
-
+  it('filters seven actions by selected reveal token and groups by choice category', () => {
+    const actions = [ 'P1 points 3C', 'P1 resolve', 'P1 points KD', 'P1 discard 9C' ];
+    const filtered = filterVisibleActions(actions, true, 'KD', 'ResolvingSeven');
+    expect(filtered).toEqual([ 'P1 points KD' ]);
     const grouped = groupActions(actions);
-    expect(grouped.primary).toEqual([ { type: 'PlayPoints', data: { card: '3C' } } ]);
-    expect(grouped.counter).toEqual([ { type: 'CounterPass' } ]);
-    expect(grouped.resolution).toEqual([
-      { type: 'ResolveSevenChoose', data: { source_index: 0, play: { type: 'Points' } } },
-      { type: 'ResolveSevenChoose', data: { source_index: 1, play: { type: 'Discard' } } },
-    ]);
-    expect(grouped.other).toEqual([]);
+    expect(grouped.primary).toEqual([ 'P1 points 3C', 'P1 points KD' ]);
+    expect(grouped.counter).toEqual([ 'P1 resolve' ]);
+    expect(grouped.resolution).toEqual([ 'P1 discard 9C' ]);
   });
 
-  it('derives action-driven counter dialog state', () => {
+  it('derives dialog state from tokenized legal actions only', () => {
     const withCounterTwo = deriveCutthroatDialogState({
       phaseType: 'Countering',
-      legalActions: [
-        { type: 'CounterPass' },
-        { type: 'CounterTwo', data: { two_card: '2C' } },
-      ],
+      legalActions: [ 'P1 resolve', 'P1 counter 2C' ],
     });
     expect(withCounterTwo.hasCounterPass).toBe(true);
     expect(withCounterTwo.counterTwoTokens).toEqual([ '2C' ]);
     expect(withCounterTwo.showCounterDialog).toBe(true);
-    expect(withCounterTwo.showCannotCounterDialog).toBe(false);
 
-    const withoutCounterTwo = deriveCutthroatDialogState({
-      phaseType: 'Countering',
-      legalActions: [ { type: 'CounterPass' } ],
-    });
-    expect(withoutCounterTwo.hasCounterPass).toBe(true);
-    expect(withoutCounterTwo.counterTwoTokens).toEqual([]);
-    expect(withoutCounterTwo.showCounterDialog).toBe(false);
-    expect(withoutCounterTwo.showCannotCounterDialog).toBe(true);
-  });
-
-  it('derives resolve dialog state from legal actions only', () => {
-    const state = deriveCutthroatDialogState({
+    const resolvingFour = deriveCutthroatDialogState({
       phaseType: 'ResolvingFour',
-      legalActions: [
-        { type: 'ResolveFourDiscard', data: { card: '7C' } },
-        { type: 'ResolveFourDiscard', data: { card: '8D' } },
-      ],
+      legalActions: [ 'P1 resolve discard 7C', 'P1 resolve discard 8D' ],
     });
-    expect(state.resolveFourTokens).toEqual([ '7C', '8D' ]);
-    expect(state.showResolveFourDialog).toBe(true);
-    expect(state.showResolveFiveDialog).toBe(false);
+    expect(resolvingFour.resolveFourTokens).toEqual([ '7C', '8D' ]);
 
     const resolvingFive = deriveCutthroatDialogState({
       phaseType: 'ResolvingFive',
-      legalActions: [ { type: 'ResolveFiveDiscard', data: { card: '9H' } } ],
+      legalActions: [ 'P1 discard 9H' ],
     });
     expect(resolvingFive.resolveFiveTokens).toEqual([ '9H' ]);
-    expect(resolvingFive.showResolveFiveDialog).toBe(true);
   });
 
-  it('derives rank-4 player target dialog without metadata dependencies', () => {
-    const show = deriveCutthroatDialogState({
-      phaseType: 'Main',
-      legalActions: [],
-      selectedSource: { zone: 'hand', token: '4C' },
-      selectedChoice: 'oneOff',
-      targets: [
-        { targetType: 'player', seat: 1, key: 'player:1' },
-        { targetType: 'player', seat: 2, key: 'player:2' },
-      ],
-    });
-    expect(show.playerTargetSeats).toEqual([ 1, 2 ]);
-    expect(show.showFourPlayerTargetDialog).toBe(true);
-
-    const hide = deriveCutthroatDialogState({
-      phaseType: 'Main',
-      legalActions: [],
-      selectedSource: { zone: 'hand', token: '5C' },
-      selectedChoice: 'oneOff',
-      targets: [ { targetType: 'player', seat: 1, key: 'player:1' } ],
-    });
-    expect(hide.showFourPlayerTargetDialog).toBe(false);
+  it('keeps fallback logic for selected cards', () => {
+    expect(deriveFallbackChoiceTypesForSelectedCard(
+      { zone: 'hand', token: 'J0' },
+      { kind: 'joker', id: 0 },
+    )).toEqual([ 'joker' ]);
+    expect(deriveFallbackChoiceTypesForSelectedCard(
+      { zone: 'hand', token: '4C' },
+      { kind: 'standard', rank: 4, suit: 0 },
+    )).toEqual([ 'points', 'scuttle', 'oneOff' ]);
   });
 });

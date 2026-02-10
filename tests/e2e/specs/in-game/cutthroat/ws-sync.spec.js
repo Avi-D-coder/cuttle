@@ -1,4 +1,4 @@
-import { tokenlogWithActions } from '../../../support/cutthroat/seed';
+import { transcriptWithActions } from '../../../support/cutthroat/seed';
 
 function installCutthroatWsTracker(win) {
   const NativeWebSocket = win.WebSocket;
@@ -25,16 +25,17 @@ describe('Cutthroat 3P WS Sync', () => {
 
   it('toggles scrap straighten state via websocket message', () => {
     const gameId = 7361;
-    const tokenlog = tokenlogWithActions({
+    const transcript = transcriptWithActions({
       dealer: 'P2',
       actions: [
-        'P0 MT_ONEOFF AC',
-        'P1 MT_CPASS',
-        'P2 MT_CPASS',
+        'P0 oneOff AC',
+        'P1 resolve',
+        'P2 resolve',
       ],
     });
 
-    cy.seedCutthroatGameFromTokenlog({ gameId, tokenlog, status: 1, playerSeat: 0 });
+    cy.seedCutthroatGameFromTranscript({ gameId,
+      ...transcript, status: 1, playerSeat: 0 });
     cy.visit(`/cutthroat/game/${gameId}`, {
       onBeforeLoad(win) {
         installCutthroatWsTracker(win);

@@ -82,15 +82,26 @@
     <template #body>
       <div class="mt-4">
         <CardListSortable
-          :cards="sortedScrapCards"
+          :cards="dialogScrapCards"
           :empty-text="t('game.dialogs.scrapDialog.noCards')"
           data-selector-prefix="scrap-dialog"
+          :selected-ids="selectedScrapCardIds"
           @select-card="handleSortedCardSelect"
         />
       </div>
     </template>
 
     <template #actions>
+      <v-btn
+        v-if="isResolvingThreeTurn"
+        data-cy="cutthroat-three-resolve"
+        color="surface-2"
+        variant="flat"
+        :disabled="selectedScrapToken === null"
+        @click="confirmResolveThreePick"
+      >
+        {{ t('game.resolve') }}
+      </v-btn>
       <v-btn
         data-cy="close-cutthroat-scrap-dialog-button"
         color="surface-1"
@@ -141,6 +152,7 @@ const { t } = useI18n();
 
 const showDialog = ref(false);
 const hasAutoOpenedResolveThreeDialog = ref(false);
+const selectedScrapToken = ref(null);
 
 const scrapCards = computed(() => mapScrapEntriesToCards(props.scrapTokens));
 
@@ -149,6 +161,17 @@ const straightenedIndex = computed(() => (props.isStraightened ? scrapDisplay.va
 
 const sortedScrapCards = computed(() => {
   return orderBy(scrapCards.value, [ 'rank', 'suit' ]);
+});
+
+const dialogScrapCards = computed(() => {
+  if (!props.isResolvingThreeTurn) {return sortedScrapCards.value;}
+  return sortedScrapCards.value.filter((card) => card.rank !== 3);
+});
+
+const selectedScrapCardIds = computed(() => {
+  if (!selectedScrapToken.value) {return [];}
+  const selected = dialogScrapCards.value.find((card) => card.token === selectedScrapToken.value);
+  return selected ? [ selected.id ] : [];
 });
 
 const scrapWrapper = ref(null);
@@ -163,12 +186,21 @@ onLongPress(scrapWrapper, () => {
 });
 
 function handleSortedCardSelect(card) {
-  handleScrapCardClick(card?.token ?? null);
+  if (!props.isResolvingThreeTurn || props.isActionDisabled) {return;}
+  const token = card?.token ?? null;
+  if (!isPlayableScrapToken(token)) {return;}
+  if (selectedScrapToken.value === token) {
+    selectedScrapToken.value = null;
+    return;
+  }
+  selectedScrapToken.value = token;
 }
 
-function handleScrapCardClick(token) {
+function confirmResolveThreePick() {
+  const token = selectedScrapToken.value;
   if (!isPlayableScrapToken(token) || !props.isResolvingThreeTurn || props.isActionDisabled) {return;}
   emit('pick-scrap-card', token);
+  selectedScrapToken.value = null;
   showDialog.value = false;
 }
 
@@ -184,6 +216,7 @@ watch(
   (isResolvingThreeTurn) => {
     if (!isResolvingThreeTurn) {
       hasAutoOpenedResolveThreeDialog.value = false;
+      selectedScrapToken.value = null;
       showDialog.value = false;
       return;
     }
@@ -194,6 +227,12 @@ watch(
     hasAutoOpenedResolveThreeDialog.value = true;
   },
 );
+
+watch(showDialog, (isOpen) => {
+  if (!isOpen) {
+    selectedScrapToken.value = null;
+  }
+});
 </script>
 
 <style scoped lang="scss">

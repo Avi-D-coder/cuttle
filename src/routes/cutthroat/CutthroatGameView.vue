@@ -85,6 +85,34 @@
             >
               {{ seatLabel(leftSeat) }}
             </button>
+            <div
+              class="seat-status"
+              :data-cy="`cutthroat-seat-status-${leftSeatStatus.seat}`"
+            >
+              <span
+                class="seat-status-score"
+                :data-cy="`cutthroat-seat-points-${leftSeatStatus.seat}`"
+              >
+                {{ t('game.score.points') }}: {{ leftSeatStatus.points }}
+              </span>
+              <span
+                class="seat-status-score"
+                :data-cy="`cutthroat-seat-goal-${leftSeatStatus.seat}`"
+              >
+                {{ t('game.score.goal') }}: {{ leftSeatStatus.goal }}
+              </span>
+              <span
+                class="turn-status seat-status-turn"
+                :class="{
+                  'my-turn': leftSeatStatus.isActiveTurn,
+                  'text-black': leftSeatStatus.isActiveTurn,
+                  'text-white': !leftSeatStatus.isActiveTurn,
+                }"
+                :data-cy="`cutthroat-seat-turn-${leftSeatStatus.seat}`"
+              >
+                {{ leftSeatStatus.turnLabel }}
+              </span>
+            </div>
             <div class="player-hand">
               <CutthroatCard
                 v-for="card in leftHandCards"
@@ -222,6 +250,34 @@
             >
               {{ seatLabel(rightSeat) }}
             </button>
+            <div
+              class="seat-status"
+              :data-cy="`cutthroat-seat-status-${rightSeatStatus.seat}`"
+            >
+              <span
+                class="seat-status-score"
+                :data-cy="`cutthroat-seat-points-${rightSeatStatus.seat}`"
+              >
+                {{ t('game.score.points') }}: {{ rightSeatStatus.points }}
+              </span>
+              <span
+                class="seat-status-score"
+                :data-cy="`cutthroat-seat-goal-${rightSeatStatus.seat}`"
+              >
+                {{ t('game.score.goal') }}: {{ rightSeatStatus.goal }}
+              </span>
+              <span
+                class="turn-status seat-status-turn"
+                :class="{
+                  'my-turn': rightSeatStatus.isActiveTurn,
+                  'text-black': rightSeatStatus.isActiveTurn,
+                  'text-white': !rightSeatStatus.isActiveTurn,
+                }"
+                :data-cy="`cutthroat-seat-turn-${rightSeatStatus.seat}`"
+              >
+                {{ rightSeatStatus.turnLabel }}
+              </span>
+            </div>
             <div class="player-hand">
               <CutthroatCard
                 v-for="card in rightHandCards"
@@ -377,11 +433,33 @@
           <div class="player-area me">
             <div class="player-header">
               <span>{{ seatLabel(mySeat) }}</span>
+            </div>
+            <div
+              class="seat-status"
+              :data-cy="`cutthroat-seat-status-${mySeatStatus.seat}`"
+            >
               <span
-                class="turn-status"
-                :class="{ 'my-turn': isMyTurn, 'text-black': isMyTurn, 'text-white': !isMyTurn }"
+                class="seat-status-score"
+                :data-cy="`cutthroat-seat-points-${mySeatStatus.seat}`"
               >
-                {{ turnLabel }}
+                {{ t('game.score.points') }}: {{ mySeatStatus.points }}
+              </span>
+              <span
+                class="seat-status-score"
+                :data-cy="`cutthroat-seat-goal-${mySeatStatus.seat}`"
+              >
+                {{ t('game.score.goal') }}: {{ mySeatStatus.goal }}
+              </span>
+              <span
+                class="turn-status seat-status-turn"
+                :class="{
+                  'my-turn': mySeatStatus.isActiveTurn,
+                  'text-black': mySeatStatus.isActiveTurn,
+                  'text-white': !mySeatStatus.isActiveTurn,
+                }"
+                :data-cy="`cutthroat-seat-turn-${mySeatStatus.seat}`"
+              >
+                {{ mySeatStatus.turnLabel }}
               </span>
             </div>
             <div class="player-stacks">
@@ -475,26 +553,6 @@
                 </div>
               </div>
             </div>
-            <div class="frozen-zone">
-              <div class="stack-title">
-                {{ t('cutthroat.game.frozen') }}
-              </div>
-              <div
-                v-if="myFrozenCards.length === 0"
-                class="stack-empty"
-              >
-                {{ t('cutthroat.game.noFrozen') }}
-              </div>
-              <div v-else class="player-hand">
-                <CutthroatCard
-                  v-for="card in myFrozenCards"
-                  :key="`me-frozen-${card.key}`"
-                  :card="card.card"
-                  class="hand-card"
-                  :is-frozen="true"
-                />
-              </div>
-            </div>
             <div
               v-if="isTargeting && selectedSourceCard && !showFourPlayerTargetDialog"
               class="player-hand-targeting-overlay"
@@ -541,12 +599,59 @@
       </div>
     </template>
 
+    <BaseOverlay
+      id="waiting-for-opponent-counter-scrim"
+      :model-value="isWaitingForCounterAction"
+      persistent
+      scrim="surface-1"
+    >
+      <template #header>
+        {{ waitingForCounterText }}
+      </template>
+      <div id="cutthroat-counter-scrim-cards">
+        <CutthroatCard
+          v-if="counterOverlayOneOffCard"
+          :card="counterOverlayOneOffCard"
+          class="overlay-card"
+        />
+        <div>
+          <CutthroatCard
+            v-for="(two, index) in counterOverlayTwosPlayed"
+            :key="`cutthroat-overlay-two-${index}`"
+            :card="two"
+            :class="`overlay-card overlay-two overlay-two-${index}`"
+          />
+        </div>
+      </div>
+    </BaseOverlay>
+
+    <BaseOverlay
+      id="waiting-for-opponent-discard-scrim"
+      :model-value="isWaitingForDiscardAction"
+      persistent
+    >
+      <template #header>
+        {{ waitingForDiscardText }}
+      </template>
+    </BaseOverlay>
+
+    <BaseOverlay
+      id="waiting-for-opponent-resolve-three-scrim"
+      :model-value="isWaitingForResolveThreeAction"
+      persistent
+    >
+      <template #header>
+        {{ waitingForResolveThreeText }}
+      </template>
+    </BaseOverlay>
+
     <CutthroatMoveChoiceOverlay
       :model-value="showMoveChoiceOverlay"
       :selected-card="selectedSourceCard"
       :is-frozen="selectedSourceIsFrozen"
       :move-choices="moveChoiceCards"
       :disabled="isActionDisabled"
+      :selected-from-deck="selectedSource?.zone === 'reveal'"
       @cancel="clearInteractionState"
       @choose-move="chooseMove"
     />
@@ -743,6 +848,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useDisplay } from 'vuetify';
+import BaseOverlay from '@/components/BaseOverlay.vue';
 import BaseDialog from '@/components/BaseDialog.vue';
 import { useCutthroatStore } from '@/stores/cutthroat';
 import { useSnackbarStore } from '@/stores/snackbar';
@@ -761,7 +867,6 @@ import {
   getCutthroatGameResult,
   isActionInteractionDisabled,
   isCutthroatGameFinished,
-  parseTokenlogActions,
   shouldShowCutthroatGameOverDialog,
 } from '@/routes/cutthroat/helpers';
 import { useCutthroatSeatData } from '@/routes/cutthroat/composables/useCutthroatSeatData';
@@ -800,11 +905,8 @@ const hasReplayStateIndexQuery = computed(() => {
   return Object.prototype.hasOwnProperty.call(route.query, 'gameStateIndex');
 });
 const replayStateCount = computed(() => {
-  try {
-    return parseTokenlogActions(store.tokenlog).length + 1;
-  } catch (_) {
-    return 1;
-  }
+  const count = Number(store.replayTotalStates);
+  return Number.isInteger(count) && count > 0 ? count : 1;
 });
 const showPlaybackControls = computed(() => {
   return isSpectateRoute.value
@@ -867,8 +969,8 @@ const localHandActionTokens = computed(() => {
   }
   const deduped = [];
   const seen = new Set();
-  legalActions.value.forEach((action) => {
-    const source = extractActionSource(action);
+  legalActions.value.forEach((actionToken) => {
+    const source = extractActionSource(actionToken, phaseType.value);
     if (!source || source.zone !== 'hand' || !source.token) {return;}
     if (seen.has(source.token)) {return;}
     seen.add(source.token);
@@ -891,7 +993,6 @@ const {
   leftRoyalStacks,
   rightRoyalStacks,
   myRoyalStacks,
-  myFrozenCards,
   seatLabel,
 } = useCutthroatSeatData({
   playerView,
@@ -901,6 +1002,66 @@ const {
   seatEntries,
   localHandActionTokens,
 });
+
+function rankFromToken(token = '') {
+  const [ rankChar ] = token;
+  if (!rankChar) {return 0;}
+  const mapped = {
+    A: 1,
+    T: 10,
+    J: 11,
+    Q: 12,
+    K: 13,
+  }[rankChar];
+  if (mapped) {return mapped;}
+  const parsed = Number(rankChar);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pointsToWinByKings(kings) {
+  if (kings >= 3) {return 0;}
+  if (kings === 2) {return 5;}
+  if (kings === 1) {return 9;}
+  return 14;
+}
+
+function playerForSeat(seat) {
+  return playerView.value?.players?.find((player) => player.seat === seat);
+}
+
+function seatPointTotal(seat) {
+  const player = playerForSeat(seat);
+  return (player?.points ?? []).reduce((total, stack) => {
+    return total + rankFromToken(stack?.base ?? '');
+  }, 0);
+}
+
+function seatGoalTotal(seat) {
+  const player = playerForSeat(seat);
+  const kingCount = (player?.royals ?? []).filter((stack) => rankFromToken(stack?.base ?? '') === 13).length;
+  return pointsToWinByKings(kingCount);
+}
+
+function turnLabelForSeat(seat) {
+  if (!playerView.value) {return '';}
+  if (isFinished.value) {return t('cutthroat.game.gameOverTitle');}
+  if (!Number.isInteger(activeTurnSeat.value)) {return t('cutthroat.game.waiting');}
+  return activeTurnSeat.value === seat ? t('game.turn.yourTurn') : t('game.turn.opponentTurn');
+}
+
+function seatStatus(seat) {
+  return {
+    seat,
+    points: seatPointTotal(seat),
+    goal: seatGoalTotal(seat),
+    turnLabel: turnLabelForSeat(seat),
+    isActiveTurn: !isFinished.value && activeTurnSeat.value === seat,
+  };
+}
+
+const leftSeatStatus = computed(() => seatStatus(leftSeat.value));
+const rightSeatStatus = computed(() => seatStatus(rightSeat.value));
+const mySeatStatus = computed(() => seatStatus(mySeat.value));
 
 function cardNameForRankSuit(rank, suit) {
   const rankText = {
@@ -1033,7 +1194,6 @@ const {
   myFrozenTokens,
   revealedCardEntries,
   isSpectatorMode,
-  replayStateIndex,
   localHandActionTokens,
   cardTokenToDialogCard,
 });
@@ -1078,11 +1238,63 @@ const gameResultText = computed(() => {
   return t('cutthroat.game.gameOverGeneric');
 });
 
-const turnLabel = computed(() => {
-  if (!playerView.value) {return '';}
-  if (isFinished.value) {return t('cutthroat.game.gameOverTitle');}
-  if (isSpectatorMode.value) {return t('cutthroat.game.spectating');}
-  return playerView.value.turn === mySeat.value ? t('game.turn.yourTurn') : t('game.turn.opponentTurn');
+const actingPlayerLabel = computed(() => {
+  if (Number.isInteger(activeTurnSeat.value)) {
+    return seatLabel(activeTurnSeat.value);
+  }
+  return t('global.player');
+});
+
+const isWaitingForCounterAction = computed(() => {
+  if (!isCounteringPhase.value || isFinished.value) {return false;}
+  return !showCounterDialog.value && !showCannotCounterDialog.value;
+});
+
+const isWaitingForDiscardAction = computed(() => {
+  if (isFinished.value) {return false;}
+  if (isResolvingFour.value) {return !showResolveFourDialog.value;}
+  if (isResolvingFive.value) {return !showResolveFiveDialog.value;}
+  return false;
+});
+
+const isWaitingForResolveThreeAction = computed(() => {
+  if (!isResolvingThree.value || isFinished.value) {return false;}
+  return !isResolvingThreeTurn.value;
+});
+
+const waitingForCounterText = computed(() => {
+  return t('game.overlays.mayCounter', {
+    opponentUsername: actingPlayerLabel.value,
+  });
+});
+
+const waitingForDiscardText = computed(() => {
+  return t('game.overlays.isDiscarding', {
+    opponentUsername: actingPlayerLabel.value,
+  });
+});
+
+const waitingForResolveThreeText = computed(() => {
+  return t('game.overlays.choosingFromScrap', {
+    opponentUsername: actingPlayerLabel.value,
+  });
+});
+
+const counterOverlayOneOffCard = computed(() => {
+  if (!counterDialogOneOff.value) {return null;}
+  return {
+    kind: 'standard',
+    rank: counterDialogOneOff.value.rank,
+    suit: counterDialogOneOff.value.suit,
+  };
+});
+
+const counterOverlayTwosPlayed = computed(() => {
+  return counterDialogTwosPlayed.value.map((card) => ({
+    kind: 'standard',
+    rank: card.rank,
+    suit: card.suit,
+  }));
 });
 
 const resolveFiveDialogTitle = computed(() => {
@@ -1185,88 +1397,9 @@ function fallbackDisabledExplanation() {
   return t('cutthroat.game.waiting');
 }
 
-function revealToken(index) {
-  const tokens = phaseData.value?.revealed_cards ?? [];
-  if (typeof index !== 'number') {return '';}
-  return tokens[index] ?? '';
-}
-
-function formatOneOffTarget(target) {
-  if (!target || !target.type) {return '';}
-  switch (target.type) {
-    case 'None':
-      return '';
-    case 'Player':
-      return `${t('cutthroat.game.targetPlayer')} P${target.data?.seat}`;
-    case 'Point':
-      return `${t('cutthroat.game.targetPoint')} ${formatCardToken(target.data?.base)}`;
-    case 'Royal':
-      return `${t('cutthroat.game.targetRoyal')} ${formatCardToken(target.data?.card)}`;
-    case 'Jack':
-      return `${t('cutthroat.game.targetJack')} ${formatCardToken(target.data?.card)}`;
-    case 'Joker':
-      return `${t('cutthroat.game.targetJoker')} ${formatCardToken(target.data?.card)}`;
-    default:
-      return '';
-  }
-}
-
-function formatSevenPlay(play) {
-  if (!play || !play.type) {return '';}
-  switch (play.type) {
-    case 'Points':
-      return t('cutthroat.game.asPoints');
-    case 'Scuttle':
-      return `${t('cutthroat.game.asScuttle')} ${formatCardToken(play.data?.target)}`;
-    case 'Royal':
-      return t('cutthroat.game.asRoyal');
-    case 'Jack':
-      return `${t('cutthroat.game.asJack')} ${formatCardToken(play.data?.target)}`;
-    case 'Joker':
-      return `${t('cutthroat.game.asJoker')} ${formatCardToken(play.data?.target)}`;
-    case 'OneOff':
-      return `${t('cutthroat.game.asOneOff')} ${formatOneOffTarget(play.data?.target)}`;
-    case 'Discard':
-      return t('cutthroat.game.asDiscard');
-    default:
-      return '';
-  }
-}
-
-function formatAction(action) {
-  if (!action || !action.type) {return t('cutthroat.game.action');}
-  switch (action.type) {
-    case 'Draw':
-      return t('cutthroat.game.draw');
-    case 'Pass':
-      return t('cutthroat.game.pass');
-    case 'PlayPoints':
-      return `${t('cutthroat.game.playPoints')} ${formatCardToken(action.data?.card)}`;
-    case 'Scuttle':
-      return `${t('cutthroat.game.scuttle')} ${formatCardToken(action.data?.target_point_base)} ${t('cutthroat.game.with')} ${formatCardToken(action.data?.card)}`;
-    case 'PlayRoyal':
-      return `${t('cutthroat.game.playRoyal')} ${formatCardToken(action.data?.card)}`;
-    case 'PlayJack':
-      return `${t('cutthroat.game.playJack')} ${formatCardToken(action.data?.jack)} -> ${formatCardToken(action.data?.target_point_base)}`;
-    case 'PlayJoker':
-      return `${t('cutthroat.game.playJoker')} ${formatCardToken(action.data?.joker)} -> ${formatCardToken(action.data?.target_royal_card)}`;
-    case 'PlayOneOff':
-      return `${t('cutthroat.game.playOneOff')} ${formatCardToken(action.data?.card)} ${formatOneOffTarget(action.data?.target)}`;
-    case 'CounterTwo':
-      return `${t('cutthroat.game.counterTwo')} ${formatCardToken(action.data?.two_card)}`;
-    case 'CounterPass':
-      return t('cutthroat.game.counterPassAction');
-    case 'ResolveThreePick':
-      return `${t('cutthroat.game.pickFromScrap')} ${formatCardToken(action.data?.card_from_scrap)}`;
-    case 'ResolveFourDiscard':
-      return `${t('cutthroat.game.discard')} ${formatCardToken(action.data?.card)}`;
-    case 'ResolveFiveDiscard':
-      return `${t('cutthroat.game.discard')} ${formatCardToken(action.data?.card)}`;
-    case 'ResolveSevenChoose':
-      return `${t('cutthroat.game.play')} ${formatCardToken(revealToken(action.data?.source_index))} ${formatSevenPlay(action.data?.play)}`;
-    default:
-      return action.type;
-  }
+function formatAction(actionToken) {
+  if (typeof actionToken !== 'string') {return t('cutthroat.game.action');}
+  return actionToken;
 }
 
 function scrollHistoryLogs() {
@@ -1387,6 +1520,7 @@ useCutthroatLifecycle({
   phaseType,
   isResolvingSeven,
   selectedSource,
+  revealedCardEntries,
   isRevealSelectable,
 });
 
@@ -1544,6 +1678,32 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.seat-status {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.seat-status-score {
+  font-family: 'Luckiest Guy', serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.seat-status-turn {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.player-area.me .seat-status {
+  justify-content: center;
+}
+
 .turn-status {
   font-family: 'Cormorant Infant', serif;
   font-size: 0.92rem;
@@ -1617,10 +1777,6 @@ onBeforeUnmount(() => {
 
 .player-hand-targeting-overlay {
   margin-top: 10px;
-}
-
-.frozen-zone {
-  margin-top: 12px;
 }
 
 .player-stacks {
@@ -1740,6 +1896,16 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
+.reveal-group .hand-card {
+  width: 9.5rem;
+}
+
+.reveal-group .hand-card :deep(.player-card) {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+}
+
 .reveal-card {
   background: transparent;
   border: none;
@@ -1855,6 +2021,36 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
 }
 
+#cutthroat-counter-scrim-cards {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.overlay-card {
+  position: relative;
+  display: inline-block;
+  margin-right: -48px !important;
+}
+
+.overlay-two-0 {
+  transform: rotate(-5deg);
+}
+
+.overlay-two-1 {
+  transform: rotate(3deg);
+}
+
+.overlay-two-2 {
+  transform: rotate(-10deg);
+}
+
+.overlay-two-3 {
+  transform: rotate(-4deg);
+}
+
 :deep(.player-card) {
   max-height: bh(16);
   max-width: calc(bh(16) / 1.45);
@@ -1897,6 +2093,18 @@ onBeforeUnmount(() => {
   .player-header {
     font-size: 1.12rem;
     margin-bottom: 6px;
+  }
+
+  .seat-status {
+    gap: 8px;
+  }
+
+  .seat-status-score {
+    font-size: 0.8rem;
+  }
+
+  .seat-status-turn {
+    font-size: 0.74rem;
   }
 
   .stack-group {
@@ -2153,8 +2361,18 @@ onBeforeUnmount(() => {
     margin-bottom: 4px;
   }
 
+  .seat-status {
+    margin-bottom: 4px;
+    gap: 6px;
+  }
+
+  .seat-status-score {
+    font-size: 0.62rem;
+    letter-spacing: 0.35px;
+  }
+
   .turn-status {
-    font-size: 0.7rem;
+    font-size: 0.62rem;
     padding: 1px 7px;
   }
 
@@ -2252,10 +2470,6 @@ onBeforeUnmount(() => {
   .reveal-group .hand-card :deep(.player-card) {
     max-height: bh(5.5);
     max-width: calc(bh(5.5) / 1.45);
-  }
-
-  .frozen-zone {
-    margin-top: 4px;
   }
 
   :deep(.player-card) {

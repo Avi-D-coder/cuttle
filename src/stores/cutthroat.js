@@ -25,6 +25,10 @@ function isStringArray(value) {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
+function isOptionalString(value) {
+  return value === undefined || typeof value === 'string';
+}
+
 function isOptionalBoolean(value) {
   return value === undefined || typeof value === 'boolean';
 }
@@ -93,10 +97,11 @@ function isValidGameStatePayload(payload) {
     && isFiniteNumber(payload.status)
     && isValidPublicView(payload.player_view)
     && isValidPublicView(payload.spectator_view)
-    && Array.isArray(payload.legal_actions)
+    && isStringArray(payload.legal_actions)
     && isValidLobbyView(payload.lobby)
     && isStringArray(payload.log_tail)
-    && typeof payload.tokenlog === 'string'
+    && isOptionalString(payload.tokenlog)
+    && isFiniteNumber(payload.replay_total_states)
     && typeof payload.is_spectator === 'boolean'
     && isStringArray(payload.spectating_usernames)
     && typeof payload.scrap_straightened === 'boolean'
@@ -109,7 +114,8 @@ function isValidLobbySummary(lobbyEntry) {
     && typeof lobbyEntry.name === 'string'
     && isFiniteNumber(lobbyEntry.seat_count)
     && isFiniteNumber(lobbyEntry.ready_count)
-    && isFiniteNumber(lobbyEntry.status);
+    && isFiniteNumber(lobbyEntry.status)
+    && typeof lobbyEntry.viewer_has_reserved_seat === 'boolean';
 }
 
 function isValidSpectatableGame(gameEntry) {
@@ -156,6 +162,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const spectatingUsers = ref([]);
   const logTail = ref([]);
   const tokenlog = ref('');
+  const replayTotalStates = ref(1);
   const lastEvent = ref(null);
   const socket = ref(null);
   const lobbySocket = ref(null);
@@ -204,6 +211,26 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     const { resolve } = pendingAction.value;
     pendingAction.value = null;
     resolve();
+  }
+
+  function resetGameState() {
+    rejectPendingAction(new Error('Cutthroat game state reset.'));
+    gameId.value = null;
+    seat.value = null;
+    version.value = 0;
+    status.value = null;
+    playerView.value = null;
+    spectatorView.value = null;
+    legalActions.value = [];
+    isSpectator.value = false;
+    lobby.value = { seats: [] };
+    spectatingUsers.value = [];
+    logTail.value = [];
+    tokenlog.value = '';
+    replayTotalStates.value = 1;
+    lastEvent.value = null;
+    isScrapStraightened.value = false;
+    isArchived.value = false;
   }
 
   function clearGameReconnectTimer() {
@@ -307,7 +334,8 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     lobby.value = payload.lobby;
     spectatingUsers.value = payload.spectating_usernames;
     logTail.value = payload.log_tail;
-    tokenlog.value = payload.tokenlog;
+    tokenlog.value = payload.tokenlog ?? '';
+    replayTotalStates.value = payload.replay_total_states;
     isScrapStraightened.value = payload.scrap_straightened;
     isArchived.value = payload.archived === true;
     lastEvent.value = playerView.value?.last_event ?? null;
@@ -317,7 +345,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     ensureCutthroatAvailable();
     isScrapStraightened.value = false;
     if (gameId.value !== id) {
-      version.value = 0;
+      resetGameState();
     }
     let statePath = spectateIntent ? `/cutthroat/api/v1/games/${id}/spectate/state` : `/cutthroat/api/v1/games/${id}/state`;
     if (spectateIntent && Number.isInteger(gameStateIndex)) {
@@ -420,9 +448,9 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     if (capabilitiesStore.cutthroatAvailability === 'unavailable') {return;}
     if (!Number.isInteger(id)) {return;}
     if (gameId.value !== id) {
-      version.value = 0;
-      gameId.value = id;
+      resetGameState();
     }
+    gameId.value = id;
     if (replace) {
       disconnectWs();
     }
@@ -573,7 +601,8 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
 
   async function sendAction(action) {
     ensureCutthroatAvailable();
-    if (!action) {return;}
+    if (typeof action !== 'string' || action.trim().length === 0) {return;}
+    const actionTokens = action;
     if (socket.value && socket.value.readyState === WebSocket.OPEN) {
       if (pendingAction.value) {
         throw new Error('Another action is already pending.');
@@ -593,7 +622,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
           socket.value.send(JSON.stringify({
             type: 'action',
             expected_version: expectedVersion,
-            action,
+            action_tokens: actionTokens,
           }));
         } catch (err) {
           rejectPendingAction(err instanceof Error ? err : new Error('Failed to send WebSocket action.'));
@@ -609,7 +638,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
       credentials: 'include',
       body: JSON.stringify({
         expected_version: version.value,
-        action,
+        action_tokens: actionTokens,
       }),
     });
     if (!res.ok) {
@@ -647,6 +676,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     spectatingUsers,
     logTail,
     tokenlog,
+    replayTotalStates,
     lastEvent,
     lobbies,
     spectateGames,
@@ -667,5 +697,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     disconnectLobbyWs,
     sendAction,
     sendScrapStraighten,
+    resetGameState,
   };
 });

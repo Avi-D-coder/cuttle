@@ -64,16 +64,6 @@ export function useCutthroatSeatData({
     return entries;
   }
 
-  function frozenFor(seat) {
-    const player = playerForSeat(seat);
-    if (!player) {return [];}
-    return (player.frozen ?? []).map((token, index) => ({
-      token,
-      key: `${token}-${index}`,
-      card: parseCardToken(token),
-    }));
-  }
-
   function pointsFor(seat) {
     const player = playerForSeat(seat);
     if (!player) {return [];}
@@ -134,8 +124,6 @@ export function useCutthroatSeatData({
   const rightRoyalStacks = computed(() => royalsFor(rightSeat.value));
   const myRoyalStacks = computed(() => royalsFor(mySeat.value));
 
-  const myFrozenCards = computed(() => frozenFor(mySeat.value));
-
   return {
     leftSeat,
     rightSeat,
@@ -150,7 +138,6 @@ export function useCutthroatSeatData({
     leftRoyalStacks,
     rightRoyalStacks,
     myRoyalStacks,
-    myFrozenCards,
     seatLabel,
   };
 }

@@ -39,6 +39,24 @@ impl CutthroatState {
         Self::new_with_deck(dealer, deck)
     }
 
+    pub fn acting_seat(&self) -> Seat {
+        match &self.phase {
+            Phase::Main => self.turn,
+            Phase::Countering(counter) => counter.next_seat,
+            Phase::ResolvingThree { seat, .. }
+            | Phase::ResolvingFour { seat, .. }
+            | Phase::ResolvingFive { seat, .. }
+            | Phase::ResolvingSeven { seat, .. } => *seat,
+            Phase::GameOver => self.turn,
+        }
+    }
+
+    pub fn opponent_seat_order_for_current_actor(&self) -> [Seat; 2] {
+        let first = next_seat(self.acting_seat());
+        let second = next_seat(first);
+        [first, second]
+    }
+
     pub fn legal_actions(&self, seat: Seat) -> Vec<Action> {
         if matches!(self.phase, Phase::GameOver) {
             return vec![];
@@ -58,8 +76,18 @@ impl CutthroatState {
                 }
                 self.scrap
                     .iter()
+                    .copied()
+                    .filter(|card| {
+                        !matches!(
+                            card,
+                            Card::Standard {
+                                rank: Rank::Three,
+                                ..
+                            }
+                        )
+                    })
                     .map(|card| Action::ResolveThreePick {
-                        card_from_scrap: *card,
+                        card_from_scrap: card,
                     })
                     .collect()
             }
@@ -326,8 +354,7 @@ impl CutthroatState {
 
     fn legal_seven_actions(&self, seat: Seat, revealed: &[Card]) -> Vec<Action> {
         let mut actions = Vec::new();
-        for (idx, card) in revealed.iter().enumerate() {
-            let idx = idx as u8;
+        for card in revealed {
             let mut plays = Vec::new();
             match card {
                 Card::Standard { rank, .. } => match rank {
@@ -386,15 +413,12 @@ impl CutthroatState {
 
             if plays.is_empty() {
                 actions.push(Action::ResolveSevenChoose {
-                    source_index: idx,
+                    card: *card,
                     play: SevenPlay::Discard,
                 });
             } else {
                 for play in plays {
-                    actions.push(Action::ResolveSevenChoose {
-                        source_index: idx,
-                        play,
-                    });
+                    actions.push(Action::ResolveSevenChoose { card: *card, play });
                 }
             }
         }
@@ -413,6 +437,9 @@ impl CutthroatState {
                 }
                 Rank::Two => {
                     for (owner, stack) in self.iter_royal_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Royal, stack.base) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -421,6 +448,9 @@ impl CutthroatState {
                         }
                     }
                     for (owner, _stack, jack) in self.iter_jack_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Jack, jack) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -429,6 +459,9 @@ impl CutthroatState {
                         }
                     }
                     for (owner, _stack, joker) in self.iter_joker_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Joker, joker) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -449,6 +482,9 @@ impl CutthroatState {
                 }
                 Rank::Nine => {
                     for (owner, stack) in self.iter_point_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Point, stack.base) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -457,6 +493,9 @@ impl CutthroatState {
                         }
                     }
                     for (owner, stack) in self.iter_royal_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Royal, stack.base) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -465,6 +504,9 @@ impl CutthroatState {
                         }
                     }
                     for (owner, _stack, jack) in self.iter_jack_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Jack, jack) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -473,6 +515,9 @@ impl CutthroatState {
                         }
                     }
                     for (owner, _stack, joker) in self.iter_joker_targets() {
+                        if owner == seat {
+                            continue;
+                        }
                         if self.can_target(owner, TargetKind::Joker, joker) {
                             actions.push(Action::PlayOneOff {
                                 card,
@@ -739,7 +784,16 @@ impl CutthroatState {
                     self.apply_two_target(target)?;
                 }
                 Rank::Three => {
-                    if !self.scrap.is_empty() {
+                    let has_pickable = self.scrap.iter().any(|scrap_card| {
+                        !matches!(
+                            scrap_card,
+                            Card::Standard {
+                                rank: Rank::Three,
+                                ..
+                            }
+                        )
+                    });
+                    if has_pickable {
                         self.phase = Phase::ResolvingThree {
                             seat: base_player,
                             base_player,
@@ -804,6 +858,15 @@ impl CutthroatState {
         let Action::ResolveThreePick { card_from_scrap } = action else {
             return Err(RuleError::InvalidAction);
         };
+        if matches!(
+            card_from_scrap,
+            Card::Standard {
+                rank: Rank::Three,
+                ..
+            }
+        ) {
+            return Err(RuleError::InvalidAction);
+        }
         let idx = self
             .scrap
             .iter()
@@ -873,7 +936,7 @@ impl CutthroatState {
     }
 
     fn apply_resolve_seven(&mut self, seat: Seat, action: Action) -> Result<(), RuleError> {
-        let Action::ResolveSevenChoose { source_index, play } = action else {
+        let Action::ResolveSevenChoose { card, play } = action else {
             return Err(RuleError::InvalidAction);
         };
         let (base_player, mut revealed) = match &self.phase {
@@ -884,10 +947,11 @@ impl CutthroatState {
             } => (*base_player, revealed.clone()),
             _ => (seat, Vec::new()),
         };
-        if source_index as usize >= revealed.len() {
-            return Err(RuleError::InvalidAction);
-        }
-        let chosen = revealed.remove(source_index as usize);
+        let chosen_idx = revealed
+            .iter()
+            .position(|revealed_card| *revealed_card == card)
+            .ok_or(RuleError::InvalidAction)?;
+        let chosen = revealed.remove(chosen_idx);
         if let Some(unchosen) = revealed.pop() {
             self.deck.insert(0, unchosen);
         }

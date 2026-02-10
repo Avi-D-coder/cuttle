@@ -1,4 +1,4 @@
-import { tokenlogWithActions } from '../../../support/cutthroat/seed';
+import { transcriptWithActions } from '../../../support/cutthroat/seed';
 import { CUTTHROAT_SELECTORS } from '../../../support/cutthroat/selectors';
 
 describe('Cutthroat 3P Basic Moves', () => {
@@ -8,11 +8,11 @@ describe('Cutthroat 3P Basic Moves', () => {
 
   it('draws from deck when action is legal', () => {
     const gameId = 7311;
-    const tokenlog = tokenlogWithActions({ dealer: 'P2' });
+    const transcript = transcriptWithActions({ dealer: 'P2' });
 
-    cy.seedCutthroatGameFromTokenlog({
+    cy.seedCutthroatGameFromTranscript({
       gameId,
-      tokenlog,
+      ...transcript,
       status: 1,
       playerSeat: 0,
     });
@@ -33,11 +33,11 @@ describe('Cutthroat 3P Basic Moves', () => {
 
   it('plays a points card from hand', () => {
     const gameId = 7312;
-    const tokenlog = tokenlogWithActions({ dealer: 'P2' });
+    const transcript = transcriptWithActions({ dealer: 'P2' });
 
-    cy.seedCutthroatGameFromTokenlog({
+    cy.seedCutthroatGameFromTranscript({
       gameId,
-      tokenlog,
+      ...transcript,
       status: 1,
       playerSeat: 0,
     });
@@ -57,18 +57,18 @@ describe('Cutthroat 3P Basic Moves', () => {
 
   it('scuttles an opponent point stack in a seeded turn-state', () => {
     const gameId = 7313;
-    const tokenlog = tokenlogWithActions({
+    const transcript = transcriptWithActions({
       dealer: 'P2',
       actions: [
-        'P0 MT_DRAW',
-        'P1 MT_POINTS 2C',
-        'P2 MT_DRAW',
+        'P0 draw',
+        'P1 points 2C',
+        'P2 draw',
       ],
     });
 
-    cy.seedCutthroatGameFromTokenlog({
+    cy.seedCutthroatGameFromTranscript({
       gameId,
-      tokenlog,
+      ...transcript,
       status: 1,
       playerSeat: 0,
     });

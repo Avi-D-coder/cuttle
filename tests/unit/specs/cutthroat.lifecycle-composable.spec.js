@@ -69,6 +69,7 @@ function buildLifecycleArgs(overrides = {}) {
     phaseType: overrides.phaseType ?? { value: 'Main' },
     isResolvingSeven: overrides.isResolvingSeven ?? { value: false },
     selectedSource: overrides.selectedSource ?? { value: null },
+    revealedCardEntries: overrides.revealedCardEntries ?? { value: [] },
     isRevealSelectable: overrides.isRevealSelectable ?? vi.fn(() => true),
   };
 }
@@ -82,13 +83,14 @@ describe('useCutthroatLifecycle', () => {
 
     const phaseType = { value: 'Main' };
     const isResolvingSeven = { value: true };
-    const selectedSource = { value: { zone: 'reveal', index: 0 } };
+    const selectedSource = { value: { zone: 'reveal', token: 'KC' } };
 
     useCutthroatLifecycle(buildLifecycleArgs({
       clearInteractionState,
       phaseType,
       isResolvingSeven,
       selectedSource,
+      revealedCardEntries: { value: [ { token: 'KC', index: 0 } ] },
       isRevealSelectable: vi.fn(() => false),
     }));
 

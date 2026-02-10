@@ -1,3 +1,4 @@
+use crate::tokens::Token;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -139,31 +140,19 @@ impl<'de> Deserialize<'de> for Card {
 
 impl Card {
     pub fn from_token(token: &str) -> Option<Self> {
-        if token == "J0" {
-            return Some(Card::Joker(0));
-        }
-        if token == "J1" {
-            return Some(Card::Joker(1));
-        }
-        if token.len() != 2 {
-            return None;
-        }
-        let mut chars = token.chars();
-        let rank = Rank::from_char(chars.next()?)?;
-        let suit = Suit::from_char(chars.next()?)?;
-        Some(Card::Standard { rank, suit })
+        Token::from_str(token).and_then(Token::card)
     }
 
     pub fn to_token(self) -> String {
-        match self {
-            Card::Joker(id) => format!("J{}", id),
-            Card::Standard { rank, suit } => {
-                let mut s = String::with_capacity(2);
-                s.push(rank.to_char());
-                s.push(suit.to_char());
-                s
-            }
-        }
+        self.to_token_enum().as_str().to_string()
+    }
+
+    pub fn to_token_enum(self) -> Token {
+        Token::from_card(self)
+    }
+
+    pub fn from_token_enum(token: Token) -> Option<Self> {
+        token.card()
     }
 
     pub fn is_number(self) -> bool {

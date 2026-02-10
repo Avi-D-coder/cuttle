@@ -12,12 +12,13 @@ use app::build_router;
 use config::{resolve_auto_run_migrations, resolve_database_url};
 #[cfg(test)]
 use config::{resolve_auto_run_migrations_from, resolve_database_url_from};
+use game_runtime::GlobalRuntimeState;
 use persistence::{ensure_schema_ready, fetch_max_cutthroat_game_id_in_db, run_persistence_worker};
 use sqlx::postgres::PgPoolOptions;
 use state::AppState;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::info;
 
 #[tokio::main]
@@ -32,7 +33,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let http = reqwest::Client::new();
     let auth_cache = Arc::new(Mutex::new(HashMap::new()));
-    let (runtime_tx, runtime_rx) = mpsc::channel(256);
     let (persistence_tx, persistence_rx) = mpsc::channel(256);
 
     let (initial_next_game_id, persistence_pool) = match resolve_database_url() {
@@ -62,11 +62,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let state_db = persistence_pool.clone();
 
-    tokio::spawn(game_runtime::runtime_task(
-        runtime_rx,
-        persistence_tx,
-        initial_next_game_id,
-    ));
+    let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(initial_next_game_id)));
     if let Some(pool) = persistence_pool {
         tokio::spawn(run_persistence_worker(persistence_rx, pool));
     } else {
@@ -78,7 +74,8 @@ async fn main() -> Result<(), anyhow::Error> {
         http,
         db: state_db,
         auth_cache,
-        runtime_tx,
+        runtime,
+        persistence_tx,
     };
 
     let app = build_router(state);

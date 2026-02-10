@@ -77,8 +77,9 @@ function buildStatePayload(version = 1) {
       deck_count: 0,
     },
     tokenlog: 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK',
+    replay_total_states: 1,
     log_tail: [],
-    legal_actions: [ { type: 'Draw' } ],
+    legal_actions: [ 'P1 draw' ],
     spectating_usernames: [],
     scrap_straightened: false,
     lobby: {
@@ -114,7 +115,7 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.version).toBe(3);
     expect(store.seat).toBe(1);
     expect(store.status).toBe(1);
-    expect(store.legalActions).toEqual([ { type: 'Draw' } ]);
+    expect(store.legalActions).toEqual([ 'P1 draw' ]);
     expect(store.lobby.seats[0].username).toBe('avi');
     expect(store.tokenlog).toBe('V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK');
   });
@@ -195,13 +196,13 @@ describe('cutthroat store websocket behavior', () => {
     const store = useCutthroatStore();
     store.connectWs(99);
     const [ ws ] = FakeWebSocket.instances;
-    store.version = 4;
+    ws.emitMessage({ type: 'state', state: buildStatePayload(4) });
 
-    const actionPromise = store.sendAction({ type: 'Draw' });
+    const actionPromise = store.sendAction('P1 draw');
     const [ sentAction ] = ws.sent;
     const sent = JSON.parse(sentAction);
     expect(sent.expected_version).toBe(4);
-    expect(sent.action.type).toBe('Draw');
+    expect(sent.action_tokens).toBe('P1 draw');
 
     ws.emitMessage({ type: 'error', code: 400, message: 'illegal action' });
 
@@ -213,9 +214,9 @@ describe('cutthroat store websocket behavior', () => {
     const store = useCutthroatStore();
     store.connectWs(99);
     const [ ws ] = FakeWebSocket.instances;
-    store.version = 7;
+    ws.emitMessage({ type: 'state', state: buildStatePayload(7) });
 
-    const actionPromise = store.sendAction({ type: 'Draw' });
+    const actionPromise = store.sendAction('P1 draw');
     ws.emitMessage({ type: 'state', state: buildStatePayload(8) });
 
     await expect(actionPromise).resolves.toBeUndefined();
@@ -226,9 +227,9 @@ describe('cutthroat store websocket behavior', () => {
     const store = useCutthroatStore();
     store.connectWs(99);
     const [ ws ] = FakeWebSocket.instances;
-    store.version = 7;
+    ws.emitMessage({ type: 'state', state: buildStatePayload(7) });
 
-    const actionPromise = store.sendAction({ type: 'Draw' });
+    const actionPromise = store.sendAction('P1 draw');
     ws.emitMessage({ type: 'state', state: { version: 8 } });
 
     await expect(actionPromise).rejects.toThrow('Cutthroat protocol violation');
@@ -255,18 +256,22 @@ describe('cutthroat store websocket behavior', () => {
     expect(ws.url).toContain('/cutthroat/ws/games/42/spectate');
   });
 
-  it('resets version when switching to another game websocket', () => {
+  it('clears stale game state when switching to another game websocket', () => {
     const store = useCutthroatStore();
-    store.gameId = 10;
-    store.version = 20;
+    store.connectWs(10);
+    let [ ws ] = FakeWebSocket.instances;
+    ws.emitMessage({ type: 'state', state: buildStatePayload(20) });
 
     store.connectWs(11);
-    const [ ws ] = FakeWebSocket.instances;
-    ws.emitMessage({ type: 'state', state: buildStatePayload(3) });
-
     expect(store.gameId).toBe(11);
+    expect(store.version).toBe(0);
+    expect(store.playerView).toBeNull();
+    expect(store.lobby).toEqual({ seats: [] });
+    expect(store.legalActions).toEqual([]);
+
+    [ , ws ] = FakeWebSocket.instances;
+    ws.emitMessage({ type: 'state', state: buildStatePayload(3) });
     expect(store.version).toBe(3);
-    expect(store.playerView).not.toBeNull();
   });
 
   it('routes lobby websocket through vite proxy when app is served on localhost:1337', () => {
@@ -351,7 +356,9 @@ describe('cutthroat store websocket behavior', () => {
     ws.emitMessage({
       type: 'lobbies',
       version: 1,
-      lobbies: [ { id: 1, name: 'lobby', seat_count: 1, ready_count: 0, status: 0 } ],
+      lobbies: [ {
+        id: 1, name: 'lobby', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
+      } ],
       spectatable_games: [
         { id: 2, name: 'active', seat_count: 3, status: 1, spectating_usernames: [] },
       ],
@@ -370,13 +377,17 @@ describe('cutthroat store websocket behavior', () => {
     ws.emitMessage({
       type: 'lobbies',
       version: 2,
-      lobbies: [ { id: 10, name: 'new', seat_count: 1, ready_count: 0, status: 0 } ],
+      lobbies: [ {
+        id: 10, name: 'new', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
+      } ],
       spectatable_games: [],
     });
     ws.emitMessage({
       type: 'lobbies',
       version: 1,
-      lobbies: [ { id: 9, name: 'old', seat_count: 1, ready_count: 0, status: 0 } ],
+      lobbies: [ {
+        id: 9, name: 'old', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
+      } ],
       spectatable_games: [],
     });
 
@@ -543,5 +554,36 @@ describe('cutthroat store http methods', () => {
 
     await expect(store.fetchState(77)).rejects.toThrow('Cutthroat protocol violation');
     expect(store.lastError.message).toContain('Cutthroat protocol violation');
+  });
+
+  it('clears stale game state when switching games even if fetchState fails', async () => {
+    const store = useCutthroatStore();
+    store.gameId = 30;
+    store.version = 9;
+    store.status = 1;
+    store.seat = 2;
+    store.playerView = { seat: 2, turn: 3 };
+    store.spectatorView = { seat: 0, turn: 3 };
+    store.legalActions = [ 'P2 draw' ];
+    store.lobby = {
+      seats: [ { seat: 0, user_id: 1, username: 'stale-player', ready: true } ],
+    };
+    store.tokenlog = 'STALE';
+
+    fetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+
+    await expect(store.fetchState(31)).rejects.toThrow('Failed to fetch state: 500');
+    expect(store.gameId).toBeNull();
+    expect(store.version).toBe(0);
+    expect(store.status).toBeNull();
+    expect(store.seat).toBeNull();
+    expect(store.playerView).toBeNull();
+    expect(store.spectatorView).toBeNull();
+    expect(store.legalActions).toEqual([]);
+    expect(store.lobby).toEqual({ seats: [] });
+    expect(store.tokenlog).toBe('');
   });
 });

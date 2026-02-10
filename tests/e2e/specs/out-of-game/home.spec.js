@@ -496,6 +496,38 @@ describe('Home - Create Game', () => {
     cy.location('pathname').should('contain', '/cutthroat/lobby/');
   });
 
+  it('Does not flash stale cutthroat lobby seats when creating a new 3p lobby', () => {
+    ensureCutthroatAvailable();
+    cy.intercept('GET', '**/cutthroat/api/v1/games/*/state', (req) => {
+      req.on('response', (res) => {
+        res.setDelay(800);
+      });
+    }).as('cutthroatLobbyState');
+
+    cy.window()
+      .its('cuttle.cutthroatStore')
+      .then((store) => {
+        store.gameId = 9999;
+        store.lobby = {
+          seats: [
+            { seat: 0, user_id: 101, username: 'stale-player-one', ready: true },
+            { seat: 1, user_id: 102, username: 'stale-player-two', ready: true },
+            { seat: 2, user_id: 103, username: 'stale-player-three', ready: false },
+          ],
+        };
+      });
+
+    selectCreateMode('3p');
+    cy.get('[data-cy=create-game-unified-btn]').click();
+    cy.location('pathname').should('contain', '/cutthroat/lobby/');
+    cy.get('[data-cy=cutthroat-seat-indicator]').should('have.length', 3);
+    cy.get('[data-cy-ready-indicator="stale-player-one"]', { timeout: 0 }).should('not.exist');
+    cy.get('[data-cy-ready-indicator="stale-player-two"]', { timeout: 0 }).should('not.exist');
+    cy.get('[data-cy-ready-indicator="stale-player-three"]', { timeout: 0 }).should('not.exist');
+    cy.get('#cutthroat-lobby-wrapper').should('contain.text', 'Invite');
+    cy.wait('@cutthroatLobbyState');
+  });
+
   it('Creates a vs AI game from the unified create controls', () => {
     selectCreateMode('ai');
     cy.get('[data-cy=create-game-unified-btn]').click();

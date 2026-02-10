@@ -57,16 +57,16 @@ function buildInteractions(overrides = {}) {
 describe('useCutthroatInteractions', () => {
   it('submits resolve-four discards sequentially', async () => {
     const legalActions = [
-      { type: 'ResolveFourDiscard', data: { card: '7C' } },
-      { type: 'ResolveFourDiscard', data: { card: '8D' } },
+      'P1 resolve discard 7C',
+      'P1 resolve discard 8D',
     ];
     const sent = [];
     const { store, selectedResolveFourTokens, submitResolveFourDiscard } = buildInteractions({
       phaseType: 'ResolvingFour',
       legalActions,
       store: {
-        sendAction: vi.fn(async (action) => {
-          sent.push(action.data.card);
+        sendAction: vi.fn(async (actionToken) => {
+          sent.push(actionToken.split(' ').at(-1));
         }),
       },
     });
@@ -132,12 +132,36 @@ describe('useCutthroatInteractions', () => {
       isSpectatorMode: true,
       myHandCards: [ handCard ],
       legalActions: [
-        { type: 'ResolveFourDiscard', data: { card: '7C' } },
+        'P1 resolve discard 7C',
       ],
     });
 
     await handleHandCardClick(handCard);
 
     expect(store.sendAction).not.toHaveBeenCalled();
+  });
+
+  it('submits typed target clicks for one-off card targets', async () => {
+    const handCard = {
+      isKnown: true,
+      token: '9C',
+      key: '9C',
+      card: { kind: 'standard', rank: 9, suit: 0 },
+    };
+    const { store, handleHandCardClick, chooseMove, handleRoyalTargetClick } = buildInteractions({
+      legalActions: [
+        'P1 oneOff 9C QH',
+      ],
+      myHandCards: [ handCard ],
+      store: {
+        sendAction: vi.fn(async () => {}),
+      },
+    });
+
+    await handleHandCardClick(handCard);
+    chooseMove('oneOff');
+    handleRoyalTargetClick('QH');
+
+    expect(store.sendAction).toHaveBeenCalledWith('P1 oneOff 9C QH');
   });
 });

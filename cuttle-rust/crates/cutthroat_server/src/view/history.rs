@@ -1,8 +1,6 @@
 use crate::game_runtime::{GameEntry, SeatEntry};
 use cutthroat_engine::state::{PhaseView, PublicCard};
-use cutthroat_engine::{
-    Action, Card, CutthroatState, OneOffTarget, PublicView, Seat, SevenPlay, parse_tokenlog,
-};
+use cutthroat_engine::{Action, Card, CutthroatState, OneOffTarget, PublicView, Seat, SevenPlay};
 use std::collections::{HashMap, HashSet};
 
 const LOG_TAIL_LIMIT: usize = 60;
@@ -16,26 +14,26 @@ pub(crate) fn build_history_log_for_viewer_with_limit(
     viewer: Seat,
     max_actions: Option<usize>,
 ) -> Vec<String> {
-    let Ok(parsed) = parse_tokenlog(&game.tokenlog_full) else {
-        return Vec::new();
-    };
-    let mut state = CutthroatState::new_with_deck(parsed.dealer, parsed.deck);
+    let mut state =
+        CutthroatState::new_with_deck(game.transcript.dealer, game.transcript.deck.clone());
     let seat_names = seat_name_map(&game.seats);
     let mut lines = Vec::new();
     let action_limit = max_actions.unwrap_or(usize::MAX);
 
-    for (idx, (actor_seat, action)) in parsed.actions.into_iter().enumerate() {
+    for (idx, (actor_seat, action)) in game.transcript.actions.iter().enumerate() {
         if idx >= action_limit {
             break;
         }
-        if state.apply(actor_seat, action.clone()).is_err() {
+        let pre_view = state.public_view(viewer);
+        let mut visible_tokens = collect_visible_tokens(&pre_view);
+        if state.apply(*actor_seat, action.clone()).is_err() {
             break;
         }
-        let view = state.public_view(viewer);
-        let visible_tokens = collect_visible_tokens(&view);
+        let post_view = state.public_view(viewer);
+        visible_tokens.extend(collect_visible_tokens(&post_view));
         lines.push(format_history_line(
-            &action,
-            actor_seat,
+            action,
+            *actor_seat,
             &seat_names,
             &visible_tokens,
         ));
@@ -271,10 +269,10 @@ fn format_history_line(
             actor,
             card_name_for_history(*card, visible_tokens)
         ),
-        Action::ResolveSevenChoose { source_index, play } => format!(
-            "{} resolved seven from revealed card {}{}.",
+        Action::ResolveSevenChoose { card, play } => format!(
+            "{} resolved seven with revealed {}{}.",
             actor,
-            source_index + 1,
+            card_name_for_history(*card, visible_tokens),
             seven_play_text(play, seat_names, visible_tokens)
         ),
     }

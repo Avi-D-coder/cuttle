@@ -17,3 +17,19 @@ export function tokenlogWithActions({ dealer = 'P2', deckTokens = STANDARD_DECK_
   }
   return `${header} ${actions.join(' ')}`;
 }
+
+export function transcriptWithActions({
+  dealer = 'P2',
+  deckTokens = STANDARD_DECK_TOKENS,
+  actions = [],
+} = {}) {
+  const dealerSeat = Number(String(dealer).replace(/^P/, ''));
+  if (!Number.isInteger(dealerSeat) || dealerSeat < 0 || dealerSeat > 2) {
+    throw new Error(`Invalid dealer seat token: ${dealer}`);
+  }
+  return {
+    dealerSeat,
+    deckTokens,
+    actionTokens: actions,
+  };
+}

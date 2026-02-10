@@ -66,7 +66,7 @@ pub enum Action {
         card: Card,
     },
     ResolveSevenChoose {
-        source_index: u8,
+        card: Card,
         play: SevenPlay,
     },
 }

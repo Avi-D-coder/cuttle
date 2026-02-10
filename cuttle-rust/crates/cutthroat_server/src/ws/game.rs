@@ -1,9 +1,8 @@
 use crate::api::handlers::{
-    apply_action_internal, set_spectator_disconnected, subscribe_game_stream,
-    toggle_scrap_straighten_internal,
+    apply_action_with_sender, set_socket_disconnected, subscribe_game_stream,
+    toggle_scrap_straighten_with_sender,
 };
 use crate::auth::authorize;
-use crate::game_runtime::GameAudience;
 use crate::state::AppState;
 use crate::ws::messages::{WsClientMessage, WsServerMessage};
 use axum::extract::ws::{Message, WebSocket};
@@ -85,7 +84,7 @@ async fn handle_ws(
     user: crate::auth::AuthUser,
     spectate_intent: bool,
 ) {
-    let subscription =
+    let (sender, subscription) =
         match subscribe_game_stream(&state, game_id, user.clone(), spectate_intent).await {
             Ok(subscription) => subscription,
             Err((code, message)) => {
@@ -94,7 +93,6 @@ async fn handle_ws(
             }
         };
 
-    let spectator_registered = matches!(subscription.audience, GameAudience::Spectator);
     let mut state_rx = subscription.rx;
 
     let initial_state = {
@@ -102,9 +100,7 @@ async fn handle_ws(
         borrowed.clone()
     };
     if !send_state(&mut socket, initial_state).await {
-        if spectator_registered {
-            set_spectator_disconnected(&state, game_id, user.id).await;
-        }
+        set_socket_disconnected(&sender, user.id, subscription.audience).await;
         return;
     }
 
@@ -128,20 +124,22 @@ async fn handle_ws(
                 match msg {
                     Message::Text(text) => {
                         match serde_json::from_str::<WsClientMessage>(&text) {
-                            Ok(WsClientMessage::Action { expected_version, action }) => {
-                                let result = apply_action_internal(
-                                    &state,
-                                    game_id,
+                            Ok(WsClientMessage::Action {
+                                expected_version,
+                                action_tokens,
+                            }) => {
+                                let result = apply_action_with_sender(
+                                    &sender,
                                     user.clone(),
                                     expected_version,
-                                    action,
+                                    action_tokens,
                                 ).await;
                                 if let Err((code, message)) = result {
                                     send_error(&mut socket, code, message).await;
                                 }
                             }
                             Ok(WsClientMessage::ScrapStraighten) => {
-                                let result = toggle_scrap_straighten_internal(&state, game_id, user.clone()).await;
+                                let result = toggle_scrap_straighten_with_sender(&sender, user.clone()).await;
                                 if let Err((code, message)) = result {
                                     send_error(&mut socket, code, message).await;
                                 }
@@ -158,7 +156,5 @@ async fn handle_ws(
         }
     }
 
-    if spectator_registered {
-        set_spectator_disconnected(&state, game_id, user.id).await;
-    }
+    set_socket_disconnected(&sender, user.id, subscription.audience).await;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveCounterDialogContextFromTokenlog,
+  encodeActionTokens,
   findActiveCounterChain,
   formatTokenlogForHistory,
   parseTokenlogActions,
@@ -10,9 +11,9 @@ describe('cutthroat tokenlog helpers', () => {
   it('parses tokenlog actions and derives counter context chain', () => {
     const tokenlog = [
       'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
-      'P0 MT_ONEOFF 4C TGT_P P2',
-      'P1 MT_C2 2H',
-      'P2 MT_CPASS',
+      'P0 oneOff 4C P2',
+      'P1 counter 2H',
+      'P2 resolve',
     ].join(' ');
 
     const parsed = parseTokenlogActions(tokenlog);
@@ -56,26 +57,32 @@ describe('cutthroat tokenlog helpers', () => {
   it('supports R7 one-off parsing and target extraction', () => {
     const tokenlog = [
       'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
-      'P1 MT_R7 SRC 0 AS ONEOFF TGT_POINT 9C',
-      'P2 MT_CPASS',
+      'P1 oneOff AC 9C',
+      'P2 resolve',
     ].join(' ');
     const parsed = parseTokenlogActions(tokenlog);
 
     expect(parsed[0]).toEqual({
       type: 'ONEOFF',
       seat: 1,
-      cardToken: null,
-      sourceIndex: 0,
+      cardToken: 'AC',
       target: {
         type: 'Point',
         token: '9C',
       },
     });
-    expect(deriveCounterDialogContextFromTokenlog(tokenlog)).toBeNull();
+    expect(deriveCounterDialogContextFromTokenlog(tokenlog)).toEqual({
+      oneOffCardToken: 'AC',
+      oneOffTarget: {
+        type: 'Point',
+        token: '9C',
+      },
+      twosPlayed: [],
+    });
   });
 
   it('returns tokenlog line for history and throws on malformed tokenlog', () => {
-    const line = 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK P0 MT_CPASS';
+    const line = 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK P0 resolve';
     expect(formatTokenlogForHistory(line)).toEqual([ line ]);
     expect(formatTokenlogForHistory('')).toEqual([]);
     expect(() => parseTokenlogActions('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toThrow('Invalid card token');
@@ -85,9 +92,9 @@ describe('cutthroat tokenlog helpers', () => {
   it('supports replay-scoped counter context by limiting actions', () => {
     const tokenlog = [
       'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
-      'P0 MT_ONEOFF 4C TGT_P P2',
-      'P1 MT_C2 2H',
-      'P2 MT_CPASS',
+      'P0 oneOff 4C P2',
+      'P1 counter 2H',
+      'P2 resolve',
     ].join(' ');
 
     expect(deriveCounterDialogContextFromTokenlog(tokenlog, 0)).toBeNull();
@@ -107,5 +114,48 @@ describe('cutthroat tokenlog helpers', () => {
       },
       twosPlayed: [ '2H' ],
     });
+  });
+
+  it('supports mixed resolve-four and resolve-five discard token shapes', () => {
+    const tokenlog = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P1 resolve discard 7H',
+      'P1 discard 6C',
+    ].join(' ');
+    const parsed = parseTokenlogActions(tokenlog);
+    expect(parsed).toEqual([
+      { type: 'OTHER', seat: 1, cardToken: '7H' },
+      { type: 'OTHER', seat: 1, cardToken: '6C' },
+    ]);
+
+    expect(
+      encodeActionTokens(
+        { type: 'ResolveFourDiscard', data: { card: '7H' } },
+        1,
+        { type: 'ResolvingFour', data: { seat: 1, base_player: 0, remaining: 2 } },
+      ),
+    ).toBe('P1 resolve discard 7H');
+    expect(
+      encodeActionTokens(
+        { type: 'ResolveFiveDiscard', data: { card: '6C' } },
+        1,
+        { type: 'ResolvingFive', data: { seat: 1, base_player: 1, discarded: false } },
+      ),
+    ).toBe('P1 discard 6C');
+  });
+
+  it('parses draw tokens with explicit and redacted cards', () => {
+    const tokenlog = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P0 draw AC',
+      'P1 draw UNKNOWN',
+      'P2 pass',
+    ].join(' ');
+    const parsed = parseTokenlogActions(tokenlog);
+    expect(parsed).toEqual([
+      { type: 'OTHER', seat: 0, cardToken: 'AC' },
+      { type: 'OTHER', seat: 1, cardToken: 'UNKNOWN' },
+      { type: 'OTHER', seat: 2 },
+    ]);
   });
 });

@@ -92,7 +92,7 @@
     "lint:fix": "eslint --fix --ext .js,.vue .",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
-    "test:unit:client": "NODE_ENV=development vitest run",
+    "test:unit:client": "NODE_ENV=development vitest run --pool=threads --maxWorkers=1 --no-file-parallelism",
     "test:unit:sails": "NODE_ENV=development vitest run --config tests/unit/vitest-sails.config.mjs",
     "test:unit": "npm run test:unit:client && npm run test:unit:sails",
     "version:patch": "npm version patch",

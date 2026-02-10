@@ -1,31 +1,37 @@
 use crate::auth::{AuthUser, authorize};
 use crate::game_runtime::{
-    Command, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED,
-    STATUS_STARTED, SeatEntry,
+    GameCommand, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED,
+    STATUS_STARTED, SeatEntry, create_game_for_user, create_rematch_for_user, game_sender,
 };
 #[cfg(feature = "e2e-seed")]
-use crate::game_runtime::{SeedGameInput, SeedGameResult, SeedSeatInput};
+use crate::game_runtime::{
+    SeedGameFromTranscriptInput, SeedGameInput, SeedGameResult, SeedSeatInput,
+    seed_game_from_tokenlog as seed_game_from_tokenlog_runtime,
+    seed_game_from_transcript as seed_game_from_transcript_runtime,
+};
 use crate::state::AppState;
 use crate::view::history::build_history_log_for_viewer_with_limit;
-use crate::view::response::{build_spectator_view, format_action, redact_tokenlog_for_client};
+use crate::view::response::{
+    build_spectator_view, legal_action_tokens_for_seat, redact_tokenlog_for_client,
+};
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Utc};
-use cutthroat_engine::{Action, Phase, PublicView, Seat, Winner, parse_tokenlog, replay_tokenlog};
+use cutthroat_engine::{Phase, PublicView, Seat, Winner, parse_tokenlog, replay_tokenlog};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 #[derive(Deserialize)]
 pub(crate) struct ActionRequest {
     pub(crate) expected_version: i64,
-    pub(crate) action: Action,
+    pub(crate) action_tokens: String,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +46,7 @@ pub(crate) struct LobbySummary {
     pub(crate) seat_count: usize,
     pub(crate) ready_count: usize,
     pub(crate) status: i16,
+    pub(crate) viewer_has_reserved_seat: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -58,10 +65,11 @@ pub(crate) struct GameStateResponse {
     pub(crate) status: i16,
     pub(crate) player_view: PublicView,
     pub(crate) spectator_view: PublicView,
-    pub(crate) legal_actions: Vec<Action>,
+    pub(crate) legal_actions: Vec<String>,
     pub(crate) lobby: LobbyView,
     pub(crate) log_tail: Vec<String>,
     pub(crate) tokenlog: String,
+    pub(crate) replay_total_states: i64,
     pub(crate) is_spectator: bool,
     pub(crate) spectating_usernames: Vec<String>,
     pub(crate) scrap_straightened: bool,
@@ -175,6 +183,19 @@ pub(crate) struct SeedGameFromTokenlogRequest {
 
 #[cfg(feature = "e2e-seed")]
 #[derive(Deserialize)]
+pub(crate) struct SeedGameFromTranscriptRequest {
+    pub(crate) game_id: i64,
+    pub(crate) players: Vec<SeedSeatFromTokenlogRequest>,
+    pub(crate) dealer_seat: Seat,
+    pub(crate) deck_tokens: Vec<String>,
+    pub(crate) action_tokens: Vec<String>,
+    pub(crate) status: Option<i16>,
+    pub(crate) spectating_usernames: Option<Vec<String>>,
+    pub(crate) name: Option<String>,
+}
+
+#[cfg(feature = "e2e-seed")]
+#[derive(Deserialize)]
 pub(crate) struct SeedSeatFromTokenlogRequest {
     pub(crate) seat: Seat,
     pub(crate) user_id: i64,
@@ -193,6 +214,9 @@ pub(crate) struct SeedGameFromTokenlogResponse {
     pub(crate) created: bool,
     pub(crate) replaced_existing: bool,
 }
+
+#[cfg(feature = "e2e-seed")]
+pub(crate) type SeedGameFromTranscriptResponse = SeedGameFromTokenlogResponse;
 
 pub(crate) async fn get_health() -> Json<HealthResponse> {
     Json(HealthResponse {
@@ -281,7 +305,6 @@ pub(crate) async fn seed_game_from_tokenlog(
     State(state): State<AppState>,
     Json(body): Json<SeedGameFromTokenlogRequest>,
 ) -> Result<Json<SeedGameFromTokenlogResponse>, StatusCode> {
-    let (tx, rx) = oneshot::channel();
     let seed = SeedGameInput {
         game_id: body.game_id,
         players: body
@@ -300,12 +323,6 @@ pub(crate) async fn seed_game_from_tokenlog(
         spectating_usernames: body.spectating_usernames,
         name: body.name,
     };
-    state
-        .runtime_tx
-        .send(Command::SeedGameFromTokenlog { seed, respond: tx })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
     let SeedGameResult {
         game_id,
         version,
@@ -314,12 +331,62 @@ pub(crate) async fn seed_game_from_tokenlog(
         tokenlog,
         created,
         replaced_existing,
-    } = rx
+    } = seed_game_from_tokenlog_runtime(state.runtime.clone(), state.persistence_tx.clone(), seed)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| err.status_code())?;
 
     Ok(Json(SeedGameFromTokenlogResponse {
+        game_id,
+        version,
+        status,
+        seat_user_ids,
+        tokenlog,
+        created,
+        replaced_existing,
+    }))
+}
+
+#[cfg(feature = "e2e-seed")]
+pub(crate) async fn seed_game_from_transcript(
+    State(state): State<AppState>,
+    Json(body): Json<SeedGameFromTranscriptRequest>,
+) -> Result<Json<SeedGameFromTranscriptResponse>, StatusCode> {
+    let seed = SeedGameFromTranscriptInput {
+        game_id: body.game_id,
+        players: body
+            .players
+            .into_iter()
+            .map(|seat| SeedSeatInput {
+                seat: seat.seat,
+                user_id: seat.user_id,
+                username: seat.username,
+                ready: seat.ready,
+            })
+            .collect(),
+        dealer_seat: body.dealer_seat,
+        deck_tokens: body.deck_tokens,
+        action_tokens: body.action_tokens,
+        status: body.status,
+        spectating_usernames: body.spectating_usernames,
+        name: body.name,
+    };
+    let SeedGameResult {
+        game_id,
+        version,
+        status,
+        seat_user_ids,
+        tokenlog,
+        created,
+        replaced_existing,
+    } = seed_game_from_transcript_runtime(
+        state.runtime.clone(),
+        state.persistence_tx.clone(),
+        seed,
+    )
+    .await
+    .map_err(|err| err.status_code())?;
+
+    Ok(Json(SeedGameFromTranscriptResponse {
         game_id,
         version,
         status,
@@ -335,13 +402,7 @@ pub(crate) async fn create_game(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::CreateGame { user, respond: tx })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let id = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let id = create_game_for_user(state.runtime.clone(), state.persistence_tx.clone(), user).await;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -351,16 +412,14 @@ pub(crate) async fn join_game(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::JoinGame {
-            game_id: id,
-            user,
-            respond: tx,
-        })
+    let sender = game_sender(&state.runtime, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let (tx, rx) = oneshot::channel();
+    sender
+        .send(GameCommand::JoinGame { user, respond: tx })
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     let seat = rx
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -374,20 +433,14 @@ pub(crate) async fn rematch_game(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::RematchGame {
-            game_id: id,
-            user,
-            respond: tx,
-        })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let rematch_id = rx
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map_err(|err| err.status_code())?;
+    let rematch_id = create_rematch_for_user(
+        state.runtime.clone(),
+        state.persistence_tx.clone(),
+        id,
+        user,
+    )
+    .await
+    .map_err(|err| err.status_code())?;
     Ok(Json(serde_json::json!({ "id": rematch_id })))
 }
 
@@ -397,16 +450,14 @@ pub(crate) async fn leave_game(
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::LeaveGame {
-            game_id: id,
-            user,
-            respond: tx,
-        })
+    let sender = game_sender(&state.runtime, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let (tx, rx) = oneshot::channel();
+    sender
+        .send(GameCommand::LeaveGame { user, respond: tx })
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     rx.await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| err.status_code())?;
@@ -420,17 +471,18 @@ pub(crate) async fn set_ready(
     Json(body): Json<ReadyRequest>,
 ) -> Result<StatusCode, StatusCode> {
     let user = authorize(&state, &headers).await?;
+    let sender = game_sender(&state.runtime, id)
+        .await
+        .ok_or(StatusCode::NOT_FOUND)?;
     let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::SetReady {
-            game_id: id,
+    sender
+        .send(GameCommand::SetReady {
             user,
             ready: body.ready,
             respond: tx,
         })
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     rx.await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| err.status_code())?;
@@ -443,16 +495,14 @@ pub(crate) async fn start_game(
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::StartGame {
-            game_id: id,
-            user,
-            respond: tx,
-        })
+    let sender = game_sender(&state.runtime, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let (tx, rx) = oneshot::channel();
+    sender
+        .send(GameCommand::StartGame { user, respond: tx })
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     rx.await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .map_err(|err| err.status_code())?;
@@ -486,35 +536,50 @@ async fn get_state_inner(
     let user = authorize(&state, &headers).await?;
     let user_for_fallback = user.clone();
     let normalized_game_state_index = game_state_index.unwrap_or(-1).max(-1);
+    let sender = game_sender(&state.runtime, id).await;
+
+    if sender.is_none() {
+        if spectate_intent
+            && let Some(resp) = load_archived_spectate_state(
+                &state,
+                id,
+                &user_for_fallback,
+                normalized_game_state_index,
+            )
+            .await?
+        {
+            return Ok(Json(resp));
+        }
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let sender = sender.expect("checked is_some");
+
     let (tx, rx) = oneshot::channel();
     if spectate_intent && normalized_game_state_index >= 0 {
-        state
-            .runtime_tx
-            .send(Command::GetSpectateReplayState {
-                game_id: id,
+        sender
+            .send(GameCommand::GetSpectateReplayState {
                 user,
                 game_state_index: normalized_game_state_index,
                 respond: tx,
             })
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| StatusCode::NOT_FOUND)?;
     } else {
-        state
-            .runtime_tx
-            .send(Command::GetState {
-                game_id: id,
+        sender
+            .send(GameCommand::GetState {
                 user,
                 spectate_intent,
                 respond: tx,
             })
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| StatusCode::NOT_FOUND)?;
     }
     let runtime_result = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     match runtime_result {
         Ok(resp) => Ok(Json(resp)),
         Err(err) => {
-            if spectate_intent && err.status_code() == StatusCode::NOT_FOUND
+            if spectate_intent
+                && err.status_code() == StatusCode::NOT_FOUND
                 && let Some(resp) = load_archived_spectate_state(
                     &state,
                     id,
@@ -567,7 +632,7 @@ async fn load_archived_spectate_state(
     }
 
     let game = build_game_entry_from_row(&row).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let parsed = parse_tokenlog(&game.tokenlog_full).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let parsed = game.transcript.clone();
     let replay_index = if game_state_index < 0 {
         parsed.actions.len()
     } else {
@@ -595,13 +660,12 @@ async fn load_archived_spectate_state(
     let spectator_view = build_spectator_view(&replay_game);
     let log_tail = build_history_log_for_viewer_with_limit(&replay_game, 0, Some(replay_index));
     let action_seat = action_seat_for_phase(&replay_game.engine.phase, replay_game.engine.turn);
-    let mut legal_actions = if replay_game.status == STATUS_STARTED {
-        replay_game.engine.legal_actions(action_seat)
+    let legal_actions = if replay_game.status == STATUS_STARTED {
+        legal_action_tokens_for_seat(&replay_game.engine, action_seat)
     } else {
         Vec::new()
     };
-    legal_actions.sort_by_key(format_action);
-    let tokenlog = redact_tokenlog_for_client(&game.tokenlog_full);
+    let tokenlog = redact_tokenlog_for_client(&game.transcript, None);
     Ok(Some(GameStateResponse {
         version: replay_game.version,
         seat: 0,
@@ -623,6 +687,7 @@ async fn load_archived_spectate_state(
         },
         log_tail,
         tokenlog,
+        replay_total_states: game.transcript.actions.len() as i64 + 1,
         is_spectator: true,
         spectating_usernames: Vec::new(),
         scrap_straightened: false,
@@ -632,6 +697,7 @@ async fn load_archived_spectate_state(
 
 fn build_game_entry_from_row(row: &PersistedCutthroatGameRow) -> Option<GameEntry> {
     let parsed = parse_tokenlog(&row.tokenlog).ok()?;
+    let action_count = parsed.actions.len() as i64;
     let engine = replay_tokenlog(&parsed).ok()?;
     Some(GameEntry {
         id: row.rust_game_id,
@@ -664,13 +730,13 @@ fn build_game_entry_from_row(row: &PersistedCutthroatGameRow) -> Option<GameEntr
                 ready: true,
             },
         ],
-        tokenlog_full: row.tokenlog.clone(),
+        transcript: parsed,
         last_event: None,
         scrap_straightened: false,
-        started_at: Some(row.started_at),
-        finished_at: Some(row.finished_at),
+        started_at: row.started_at,
+        finished_at: row.finished_at,
         active_spectators: HashMap::new(),
-        version: parsed.actions.len() as i64,
+        version: action_count,
         engine,
     })
 }
@@ -729,70 +795,51 @@ pub(crate) async fn post_action(
     Json(body): Json<ActionRequest>,
 ) -> Result<Json<GameStateResponse>, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::ApplyAction {
-            game_id: id,
-            user,
-            expected_version: body.expected_version,
-            action: body.action,
-            respond: tx,
-        })
+    let sender = game_sender(&state.runtime, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let resp = rx
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let resp = apply_action_with_sender(&sender, user, body.expected_version, body.action_tokens)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map_err(|err| err.status_code())?;
+        .map_err(|(code, _)| {
+            StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+        })?;
     Ok(Json(resp))
 }
 
-pub(crate) async fn apply_action_internal(
-    state: &AppState,
-    game_id: i64,
+pub(crate) async fn apply_action_with_sender(
+    sender: &mpsc::Sender<GameCommand>,
     user: AuthUser,
     expected_version: i64,
-    action: Action,
-) -> Result<(), (u16, String)> {
+    action_tokens: String,
+) -> Result<GameStateResponse, (u16, String)> {
     let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::ApplyAction {
-            game_id,
+    sender
+        .send(GameCommand::ApplyAction {
             user,
             expected_version,
-            action,
+            action_tokens,
             respond: tx,
         })
         .await
-        .map_err(|_| (500, "server error".to_string()))?;
+        .map_err(|_| (404, "not found".to_string()))?;
 
     rx.await
         .map_err(|_| (500, "server error".to_string()))?
-        .map(|_| ())
         .map_err(|err| (err.code(), err.message()))
 }
 
-pub(crate) async fn toggle_scrap_straighten_internal(
-    state: &AppState,
-    game_id: i64,
+pub(crate) async fn toggle_scrap_straighten_with_sender(
+    sender: &mpsc::Sender<GameCommand>,
     user: AuthUser,
 ) -> Result<(), (u16, String)> {
     let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::ToggleScrapStraighten {
-            game_id,
-            user,
-            respond: tx,
-        })
+    sender
+        .send(GameCommand::ToggleScrapStraighten { user, respond: tx })
         .await
-        .map_err(|_| (500, "server error".to_string()))?;
+        .map_err(|_| (404, "not found".to_string()))?;
 
     rx.await
         .map_err(|_| (500, "server error".to_string()))?
-        .map(|_| ())
         .map_err(|err| (err.code(), err.message()))
 }
 
@@ -801,39 +848,40 @@ pub(crate) async fn subscribe_game_stream(
     game_id: i64,
     user: AuthUser,
     spectate_intent: bool,
-) -> Result<GameStreamSubscription, (u16, String)> {
+) -> Result<(mpsc::Sender<GameCommand>, GameStreamSubscription), (u16, String)> {
+    let sender = game_sender(&state.runtime, game_id)
+        .await
+        .ok_or((404, "not found".to_string()))?;
     let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::SubscribeGameStream {
-            game_id,
+    sender
+        .send(GameCommand::SubscribeGameStream {
             user,
             spectate_intent,
             respond: tx,
         })
         .await
-        .map_err(|_| (500, "server error".to_string()))?;
+        .map_err(|_| (404, "not found".to_string()))?;
 
-    rx.await
+    let subscription = rx
+        .await
         .map_err(|_| (500, "server error".to_string()))?
-        .map_err(|err| (err.code(), err.message()))
+        .map_err(|err| (err.code(), err.message()))?;
+    Ok((sender, subscription))
 }
 
 pub(crate) async fn subscribe_lobby_stream(
     state: &AppState,
 ) -> Result<watch::Receiver<Arc<LobbySnapshotInternal>>, StatusCode> {
-    let (tx, rx) = oneshot::channel();
-    state
-        .runtime_tx
-        .send(Command::SubscribeLobbyStream { respond: tx })
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    let guard = state.runtime.read().await;
+    Ok(guard.subscribe_lobby_stream())
 }
 
-pub(crate) async fn set_spectator_disconnected(state: &AppState, game_id: i64, user_id: i64) {
-    let _ = state
-        .runtime_tx
-        .send(Command::SpectatorDisconnected { game_id, user_id })
+pub(crate) async fn set_socket_disconnected(
+    sender: &mpsc::Sender<GameCommand>,
+    user_id: i64,
+    audience: crate::game_runtime::GameAudience,
+) {
+    let _ = sender
+        .send(GameCommand::SocketDisconnected { user_id, audience })
         .await;
 }

@@ -1,25 +1,9 @@
-const PRIMARY_ACTIONS = new Set([
-  'Draw',
-  'Pass',
-  'PlayPoints',
-  'Scuttle',
-  'PlayRoyal',
-  'PlayJack',
-  'PlayJoker',
-  'PlayOneOff',
-]);
+const CARD_TOKEN_RE = /^(?:[A2-9TJQK][CDHS]|J[01])$/;
+const SEAT_TOKEN_RE = /^P([0-2])$/;
 
-const COUNTER_ACTIONS = new Set([
-  'CounterTwo',
-  'CounterPass',
-]);
-
-const RESOLUTION_ACTIONS = new Set([
-  'ResolveThreePick',
-  'ResolveFourDiscard',
-  'ResolveFiveDiscard',
-  'ResolveSevenChoose',
-]);
+const PRIMARY_CHOICES = new Set([ 'draw', 'pass', 'points', 'scuttle', 'royal', 'jack', 'joker', 'oneOff' ]);
+const COUNTER_CHOICES = new Set([ 'counterTwo', 'counterPass' ]);
+const RESOLUTION_CHOICES = new Set([ 'resolveThreePick', 'resolveFourDiscard', 'resolveFiveDiscard', 'discard' ]);
 
 const CHOICE_ORDER = [
   'draw',
@@ -41,7 +25,7 @@ const CHOICE_ORDER = [
 function sourceKey(source) {
   if (!source || !source.zone) {return '';}
   if (source.zone === 'reveal') {
-    return `reveal:${source.index}`;
+    return `reveal:${source.token ?? ''}`;
   }
   if (source.token !== undefined && source.token !== null) {
     return `${source.zone}:${source.token}`;
@@ -70,169 +54,139 @@ function dedupeBy(items, getKey) {
   });
 }
 
-function targetFromOneOff(oneOffTarget) {
-  if (!oneOffTarget || !oneOffTarget.type) {
+function parseSeat(seatToken) {
+  const match = String(seatToken ?? '').match(SEAT_TOKEN_RE);
+  if (!match) {return null;}
+  return Number(match[1]);
+}
+
+function isCardToken(token) {
+  return CARD_TOKEN_RE.test(String(token ?? '').toUpperCase());
+}
+
+function normalizeCardToken(token) {
+  const normalized = String(token ?? '').toUpperCase();
+  return isCardToken(normalized) ? normalized : null;
+}
+
+function parseLegalActionToken(actionToken = '') {
+  if (typeof actionToken !== 'string') {return null;}
+  const parts = actionToken
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length < 2) {return null;}
+  const seat = parseSeat(parts[0]);
+  if (seat === null) {return null;}
+  return {
+    seat,
+    verb: parts[1],
+    args: parts.slice(2),
+    token: actionToken,
+  };
+}
+
+function playRoyalChoiceForCard(cardToken) {
+  const card = normalizeCardToken(cardToken);
+  if (!card) {return null;}
+  if (card === 'J0' || card === 'J1') {return 'joker';}
+  return card[0] === 'J' ? 'jack' : 'royal';
+}
+
+function choiceFromParsed(parsed, phaseType = null) {
+  if (!parsed) {return null;}
+  const { verb, args } = parsed;
+  if (verb === 'draw') {return 'draw';}
+  if (verb === 'pass') {return 'pass';}
+  if (verb === 'points') {return 'points';}
+  if (verb === 'scuttle') {return 'scuttle';}
+  if (verb === 'oneOff') {return 'oneOff';}
+  if (verb === 'counter') {return 'counterTwo';}
+  if (verb === 'playRoyal') {return playRoyalChoiceForCard(args[0]);}
+  if (verb === 'resolve') {
+    if (args.length === 0) {return 'counterPass';}
+    if (args[0] === 'discard' && normalizeCardToken(args[1])) {return 'resolveFourDiscard';}
+    if (normalizeCardToken(args[0])) {return 'resolveThreePick';}
     return null;
   }
-  switch (oneOffTarget.type) {
-    case 'None':
-      return null;
-    case 'Player':
-      return {
-        targetType: 'player',
-        seat: oneOffTarget.data?.seat,
-      };
-    case 'Point':
-      return {
-        targetType: 'point',
-        token: oneOffTarget.data?.base,
-      };
-    case 'Royal':
-      return {
-        targetType: 'royal',
-        token: oneOffTarget.data?.card,
-      };
-    case 'Jack':
-      return {
-        targetType: 'jack',
-        token: oneOffTarget.data?.card,
-      };
-    case 'Joker':
-      return {
-        targetType: 'joker',
-        token: oneOffTarget.data?.card,
-      };
-    default:
-      return null;
+  if (verb === 'discard') {
+    if (!normalizeCardToken(args[0])) {return null;}
+    return phaseType === 'ResolvingSeven' ? 'discard' : 'resolveFiveDiscard';
   }
+  return null;
 }
 
-function actionChoiceType(action) {
-  if (!action || !action.type) {return null;}
-  switch (action.type) {
-    case 'Draw':
-      return 'draw';
-    case 'Pass':
-      return 'pass';
-    case 'PlayPoints':
-      return 'points';
-    case 'Scuttle':
-      return 'scuttle';
-    case 'PlayRoyal':
-      return 'royal';
-    case 'PlayJack':
-      return 'jack';
-    case 'PlayJoker':
-      return 'joker';
-    case 'PlayOneOff':
-      return 'oneOff';
-    case 'CounterTwo':
-      return 'counterTwo';
-    case 'CounterPass':
-      return 'counterPass';
-    case 'ResolveThreePick':
-      return 'resolveThreePick';
-    case 'ResolveFourDiscard':
-      return 'resolveFourDiscard';
-    case 'ResolveFiveDiscard':
-      return 'resolveFiveDiscard';
-    case 'ResolveSevenChoose':
-      return sevenChoiceType(action.data?.play);
-    default:
-      return null;
+function sourceFromParsed(parsed, phaseType = null) {
+  if (!parsed) {return null;}
+  const choice = choiceFromParsed(parsed, phaseType);
+  if (!choice) {return null;}
+
+  if (choice === 'draw' || choice === 'pass') {
+    return { zone: 'deck' };
   }
+  if (choice === 'counterPass') {
+    return { zone: 'counter', token: 'pass' };
+  }
+  if (choice === 'counterTwo') {
+    return { zone: 'hand', token: normalizeCardToken(parsed.args[0]) };
+  }
+  if (choice === 'resolveThreePick') {
+    return { zone: 'scrap', token: normalizeCardToken(parsed.args[0]) };
+  }
+  if (choice === 'resolveFourDiscard') {
+    return { zone: 'hand', token: normalizeCardToken(parsed.args[1]) };
+  }
+  if (choice === 'resolveFiveDiscard') {
+    return { zone: 'hand', token: normalizeCardToken(parsed.args[0]) };
+  }
+
+  if (phaseType === 'ResolvingSeven') {
+    return { zone: 'reveal', token: normalizeCardToken(parsed.args[0]) };
+  }
+
+  return { zone: 'hand', token: normalizeCardToken(parsed.args[0]) };
 }
 
-function sevenChoiceType(play) {
-  if (!play || !play.type) {return null;}
-  switch (play.type) {
-    case 'Points':
-      return 'points';
-    case 'Scuttle':
-      return 'scuttle';
-    case 'Royal':
-      return 'royal';
-    case 'Jack':
-      return 'jack';
-    case 'Joker':
-      return 'joker';
-    case 'OneOff':
-      return 'oneOff';
-    case 'Discard':
-      return 'discard';
-    default:
-      return null;
+function targetFromParsed(parsed, phaseType = null) {
+  if (!parsed) {return null;}
+  const choice = choiceFromParsed(parsed, phaseType);
+  if (!choice) {return null;}
+
+  if (choice === 'scuttle') {
+    return { targetType: 'point', token: normalizeCardToken(parsed.args[1]) };
   }
+  if (choice === 'jack') {
+    return { targetType: 'point', token: normalizeCardToken(parsed.args[1]) };
+  }
+  if (choice === 'joker') {
+    return { targetType: 'royal', token: normalizeCardToken(parsed.args[1]) };
+  }
+  if (choice !== 'oneOff') {
+    return null;
+  }
+
+  const [ , raw ] = parsed.args;
+  const seat = parseSeat(raw);
+  if (seat !== null) {
+    return { targetType: 'player', seat };
+  }
+  const token = normalizeCardToken(raw);
+  if (!token) {
+    return null;
+  }
+  return { targetType: 'card', token };
 }
 
-function actionTarget(action) {
-  if (!action || !action.type) {return null;}
-  switch (action.type) {
-    case 'Scuttle':
-      return {
-        targetType: 'point',
-        token: action.data?.target_point_base,
-      };
-    case 'PlayJack':
-      return {
-        targetType: 'point',
-        token: action.data?.target_point_base,
-      };
-    case 'PlayJoker':
-      return {
-        targetType: 'royal',
-        token: action.data?.target_royal_card,
-      };
-    case 'PlayOneOff':
-      return targetFromOneOff(action.data?.target);
-    case 'ResolveSevenChoose':
-      return sevenActionTarget(action.data?.play);
-    default:
-      return null;
-  }
-}
-
-function sevenActionTarget(play) {
-  if (!play || !play.type) {return null;}
-  switch (play.type) {
-    case 'Scuttle':
-      return {
-        targetType: 'point',
-        token: play.data?.target,
-      };
-    case 'Jack':
-      return {
-        targetType: 'point',
-        token: play.data?.target,
-      };
-    case 'Joker':
-      return {
-        targetType: 'royal',
-        token: play.data?.target,
-      };
-    case 'OneOff':
-      return targetFromOneOff(play.data?.target);
-    default:
-      return null;
-  }
-}
-
-function sourceMatchesAction(source, action) {
-  if (!source) {return false;}
-  const actionSource = extractActionSource(action);
-  return sourceKey(source) === sourceKey(actionSource);
+function sourceMatchesParsed(source, parsed, phaseType = null) {
+  if (!source || !parsed) {return false;}
+  const parsedSource = sourceFromParsed(parsed, phaseType);
+  return sourceKey(source) === sourceKey(parsedSource);
 }
 
 function rankFromToken(token = '') {
   const [ rankChar ] = token;
   if (!rankChar) {return 0;}
-  const mapped = {
-    A: 1,
-    T: 10,
-    J: 11,
-    Q: 12,
-    K: 13,
-  }[rankChar];
+  const mapped = { A: 1, T: 10, J: 11, Q: 12, K: 13 }[rankChar];
   if (mapped) {return mapped;}
   const parsed = Number(rankChar);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -271,69 +225,20 @@ export function deriveFallbackChoiceTypesForSelectedCard(source = null, selected
   }
 }
 
-export function extractActionSource(action) {
-  if (!action || !action.type) {return null;}
-  switch (action.type) {
-    case 'Draw':
-    case 'Pass':
-      return { zone: 'deck' };
-    case 'PlayPoints':
-    case 'Scuttle':
-    case 'PlayRoyal':
-    case 'PlayOneOff':
-    case 'ResolveFourDiscard':
-    case 'ResolveFiveDiscard':
-      return {
-        zone: 'hand',
-        token: action.data?.card,
-      };
-    case 'PlayJack':
-      return {
-        zone: 'hand',
-        token: action.data?.jack,
-      };
-    case 'PlayJoker':
-      return {
-        zone: 'hand',
-        token: action.data?.joker,
-      };
-    case 'CounterTwo':
-      return {
-        zone: 'hand',
-        token: action.data?.two_card,
-      };
-    case 'CounterPass':
-      return {
-        zone: 'counter',
-        token: 'pass',
-      };
-    case 'ResolveThreePick':
-      return {
-        zone: 'scrap',
-        token: action.data?.card_from_scrap,
-      };
-    case 'ResolveSevenChoose':
-      return {
-        zone: 'reveal',
-        index: action.data?.source_index,
-      };
-    default:
-      return null;
-  }
+export function extractActionSource(actionToken, phaseType = null) {
+  return sourceFromParsed(parseLegalActionToken(actionToken), phaseType);
 }
 
-export function deriveMoveChoicesForSource(actions = [], source = null) {
+export function deriveMoveChoicesForSource(actions = [], source = null, phaseType = null) {
   if (!source) {return [];}
   const choices = actions
-    .filter((action) => sourceMatchesAction(source, action))
-    .map((action) => actionChoiceType(action))
+    .map((token) => parseLegalActionToken(token))
+    .filter((parsed) => sourceMatchesParsed(source, parsed, phaseType))
+    .map((parsed) => choiceFromParsed(parsed, phaseType))
     .filter(Boolean)
     .map((type) => {
       const orderIndex = CHOICE_ORDER.indexOf(type);
-      return {
-        type,
-        order: orderIndex === -1 ? CHOICE_ORDER.length + 1 : orderIndex,
-      };
+      return { type, order: orderIndex === -1 ? CHOICE_ORDER.length + 1 : orderIndex };
     });
 
   return dedupeBy(choices, (choice) => choice.type)
@@ -341,39 +246,46 @@ export function deriveMoveChoicesForSource(actions = [], source = null) {
     .map((choice) => ({ type: choice.type }));
 }
 
-export function deriveTargetsForChoice(actions = [], source = null, choice = null) {
+export function deriveTargetsForChoice(actions = [], source = null, choice = null, phaseType = null) {
   if (!source || !choice) {return [];}
   return dedupeBy(
     actions
-      .filter((action) => sourceMatchesAction(source, action))
-      .filter((action) => actionChoiceType(action) === choice)
-      .map((action) => actionTarget(action))
+      .map((token) => parseLegalActionToken(token))
+      .filter((parsed) => sourceMatchesParsed(source, parsed, phaseType))
+      .filter((parsed) => choiceFromParsed(parsed, phaseType) === choice)
+      .map((parsed) => targetFromParsed(parsed, phaseType))
       .filter(Boolean)
-      .map((target) => ({
-        ...target,
-        key: targetKey(target),
-      })),
+      .map((target) => ({ ...target, key: targetKey(target) })),
     (target) => target.key,
   );
 }
 
-export function findMatchingAction(actions = [], source = null, choice = null, target = null) {
+export function findMatchingAction(actions = [], source = null, choice = null, target = null, phaseType = null) {
   if (!source || !choice) {return null;}
 
   const candidates = actions
-    .filter((action) => sourceMatchesAction(source, action))
-    .filter((action) => actionChoiceType(action) === choice);
+    .map((token) => parseLegalActionToken(token))
+    .filter((parsed) => sourceMatchesParsed(source, parsed, phaseType))
+    .filter((parsed) => choiceFromParsed(parsed, phaseType) === choice);
 
   if (!target) {
-    const targetless = candidates.find((action) => !actionTarget(action));
-    return targetless ?? candidates[0] ?? null;
+    const targetless = candidates.find((parsed) => !targetFromParsed(parsed, phaseType));
+    return targetless?.token ?? candidates[0]?.token ?? null;
   }
 
   const wantedKey = targetKey(target);
-  return candidates.find((action) => {
-    const actionTargetValue = actionTarget(action);
-    return actionTargetValue && targetKey(actionTargetValue) === wantedKey;
-  }) ?? null;
+  const match = candidates.find((parsed) => {
+    const parsedTarget = targetFromParsed(parsed, phaseType);
+    if (!parsedTarget) {return false;}
+    if (target.targetType === 'card') {
+      return parsedTarget.token === target.token;
+    }
+    if (target.token) {
+      return parsedTarget.token === target.token;
+    }
+    return targetKey(parsedTarget) === wantedKey;
+  });
+  return match?.token ?? null;
 }
 
 export function deriveCutthroatDialogState({
@@ -383,24 +295,25 @@ export function deriveCutthroatDialogState({
   selectedChoice = null,
   targets = [],
 } = {}) {
-  const hasCounterPass = legalActions.some((action) => action?.type === 'CounterPass');
+  const parsed = legalActions.map((token) => parseLegalActionToken(token)).filter(Boolean);
+  const hasCounterPass = parsed.some((entry) => choiceFromParsed(entry, phaseType) === 'counterPass');
   const counterTwoTokens = dedupeBy(
-    legalActions
-      .filter((action) => action?.type === 'CounterTwo')
-      .map((action) => action?.data?.two_card)
+    parsed
+      .filter((entry) => choiceFromParsed(entry, phaseType) === 'counterTwo')
+      .map((entry) => normalizeCardToken(entry.args[0]))
       .filter(Boolean)
       .map((token) => ({ token })),
     (entry) => entry.token,
   ).map((entry) => entry.token);
 
-  const resolveFourTokens = legalActions
-    .filter((action) => action?.type === 'ResolveFourDiscard')
-    .map((action) => action?.data?.card)
+  const resolveFourTokens = parsed
+    .filter((entry) => choiceFromParsed(entry, phaseType) === 'resolveFourDiscard')
+    .map((entry) => normalizeCardToken(entry.args[1]))
     .filter(Boolean);
 
-  const resolveFiveTokens = legalActions
-    .filter((action) => action?.type === 'ResolveFiveDiscard')
-    .map((action) => action?.data?.card)
+  const resolveFiveTokens = parsed
+    .filter((entry) => choiceFromParsed(entry, phaseType) === 'resolveFiveDiscard')
+    .map((entry) => normalizeCardToken(entry.args[0]))
     .filter(Boolean);
 
   const playerTargetSeats = dedupeBy(
@@ -413,9 +326,7 @@ export function deriveCutthroatDialogState({
   const selectedSourceRank = (
     selectedSource?.zone === 'hand'
     && typeof selectedSource?.token === 'string'
-  )
-    ? rankFromToken(selectedSource.token)
-    : null;
+  ) ? rankFromToken(selectedSource.token) : null;
 
   return {
     hasCounterPass,
@@ -427,38 +338,43 @@ export function deriveCutthroatDialogState({
     showResolveFourDialog: phaseType === 'ResolvingFour' && resolveFourTokens.length > 0,
     showResolveFiveDialog: phaseType === 'ResolvingFive' && resolveFiveTokens.length > 0,
     playerTargetSeats,
-    showFourPlayerTargetDialog: selectedChoice === 'oneOff' && selectedSourceRank === 4 && playerTargetSeats.length > 0,
+    showFourPlayerTargetDialog:
+      selectedChoice === 'oneOff' && selectedSourceRank === 4 && playerTargetSeats.length > 0,
   };
 }
 
-export function filterVisibleActions(actions = [], isResolvingSeven = false, selectedRevealIndex = 0) {
+export function filterVisibleActions(
+  actions = [],
+  isResolvingSeven = false,
+  selectedRevealToken = null,
+  phaseType = null,
+) {
   if (!isResolvingSeven) {
     return actions;
   }
-  return actions.filter((action) => {
-    return action.type === 'ResolveSevenChoose' && action.data?.source_index === selectedRevealIndex;
+  return actions.filter((token) => {
+    const parsed = parseLegalActionToken(token);
+    const source = sourceFromParsed(parsed, phaseType);
+    return source?.zone === 'reveal' && source.token === selectedRevealToken;
   });
 }
 
-export function groupActions(actions = []) {
+export function groupActions(actions = [], phaseType = null) {
   return actions.reduce(
-    (groups, action) => {
-      if (PRIMARY_ACTIONS.has(action.type)) {
-        groups.primary.push(action);
-      } else if (COUNTER_ACTIONS.has(action.type)) {
-        groups.counter.push(action);
-      } else if (RESOLUTION_ACTIONS.has(action.type)) {
-        groups.resolution.push(action);
+    (groups, token) => {
+      const parsed = parseLegalActionToken(token);
+      const choice = choiceFromParsed(parsed, phaseType);
+      if (PRIMARY_CHOICES.has(choice)) {
+        groups.primary.push(token);
+      } else if (COUNTER_CHOICES.has(choice)) {
+        groups.counter.push(token);
+      } else if (RESOLUTION_CHOICES.has(choice)) {
+        groups.resolution.push(token);
       } else {
-        groups.other.push(action);
+        groups.other.push(token);
       }
       return groups;
     },
-    {
-      primary: [],
-      counter: [],
-      resolution: [],
-      other: [],
-    },
+    { primary: [], counter: [], resolution: [], other: [] },
   );
 }

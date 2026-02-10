@@ -25,6 +25,7 @@ export function useCutthroatLifecycle({
   phaseType,
   isResolvingSeven,
   selectedSource,
+  revealedCardEntries,
   isRevealSelectable,
 }) {
   function setBrowserHeightVariable() {
@@ -197,7 +198,10 @@ export function useCutthroatLifecycle({
     () => phaseType.value,
     () => {
       if (isResolvingSeven.value && selectedSource.value?.zone === 'reveal') {
-        if (!isRevealSelectable(selectedSource.value.index)) {
+        const revealIndex = revealedCardEntries.value
+          .find((entry) => entry.token === selectedSource.value.token)
+          ?.index;
+        if (!Number.isInteger(revealIndex) || !isRevealSelectable(revealIndex)) {
           clearInteractionState();
         }
       }

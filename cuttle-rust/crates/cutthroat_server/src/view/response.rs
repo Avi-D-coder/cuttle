@@ -1,9 +1,11 @@
 use crate::game_runtime::{GameEntry, SeatEntry};
 use cutthroat_engine::state::PublicCard;
 use cutthroat_engine::{
-    Action, LastEventView, OneOffTarget, Phase, PublicView, Seat, SevenPlay, append_action,
-    encode_header, parse_tokenlog,
+    Action, CutthroatState, LastEventView, OneOffTarget, Phase, PublicView, Seat, SevenPlay,
+    TokenLog, append_action, encode_action_token_vec_for_input, encode_header, join_tokens,
 };
+
+const UNKNOWN_CARD_TOKEN: &str = "UNKNOWN";
 
 #[cfg(test)]
 pub(crate) fn usernames_from_seats(seats: &[SeatEntry]) -> Option<[String; 3]> {
@@ -78,6 +80,16 @@ pub(crate) fn format_action(action: &Action) -> String {
         Action::ResolveFiveDiscard { .. } => "resolve_five".to_string(),
         Action::ResolveSevenChoose { .. } => "resolve_seven".to_string(),
     }
+}
+
+pub(crate) fn legal_action_tokens_for_seat(state: &CutthroatState, seat: Seat) -> Vec<String> {
+    let mut legal_actions = state.legal_actions(seat);
+    legal_actions.sort_by_key(format_action);
+    legal_actions
+        .into_iter()
+        .filter_map(|action| encode_action_token_vec_for_input(state, seat, &action).ok())
+        .map(|tokens| join_tokens(&tokens))
+        .collect()
 }
 
 fn oneoff_target_fields(target: &OneOffTarget) -> (Option<String>, Option<Seat>, Option<String>) {
@@ -185,9 +197,9 @@ pub(crate) fn build_last_event(
             source_zone = Some("hand".to_string());
             source_token = Some(card.to_token());
         }
-        Action::ResolveSevenChoose { source_index, play } => {
+        Action::ResolveSevenChoose { card, play } => {
             source_zone = Some("reveal".to_string());
-            source_token = Some(format!("reveal:{}", source_index));
+            source_token = Some(card.to_token());
             match play {
                 SevenPlay::Points => {
                     change = "main".to_string();
@@ -260,13 +272,34 @@ pub(crate) fn build_last_event(
     }
 }
 
-pub(crate) fn redact_tokenlog_for_client(full_tokenlog: &str) -> String {
-    let Ok(parsed) = parse_tokenlog(full_tokenlog) else {
-        return encode_header(0, &[]);
-    };
-    let mut redacted = encode_header(parsed.dealer, &[]);
-    for (seat, action) in parsed.actions {
-        if append_action(&mut redacted, seat, &action).is_err() {
+pub(crate) fn serialize_tokenlog(transcript: &TokenLog) -> String {
+    let mut encoded = encode_header(transcript.dealer, &transcript.deck);
+    let mut state = CutthroatState::new_with_deck(transcript.dealer, transcript.deck.clone());
+    for (seat, action) in &transcript.actions {
+        if append_action(&mut encoded, &state, *seat, action).is_err() {
+            break;
+        }
+        if state.apply(*seat, action.clone()).is_err() {
+            break;
+        }
+    }
+    encoded
+}
+
+pub(crate) fn redact_tokenlog_for_client(transcript: &TokenLog, viewer: Option<Seat>) -> String {
+    let mut redacted = encode_header(transcript.dealer, &[]);
+    let mut state = CutthroatState::new_with_deck(transcript.dealer, transcript.deck.clone());
+    for (seat, action) in &transcript.actions {
+        let should_hide_draw = matches!(action, Action::Draw) && viewer.is_some_and(|v| v != *seat);
+        if should_hide_draw {
+            if !redacted.is_empty() {
+                redacted.push(' ');
+            }
+            redacted.push_str(&format!("P{} draw {}", seat, UNKNOWN_CARD_TOKEN));
+        } else if append_action(&mut redacted, &state, *seat, action).is_err() {
+            break;
+        }
+        if state.apply(*seat, action.clone()).is_err() {
             break;
         }
     }

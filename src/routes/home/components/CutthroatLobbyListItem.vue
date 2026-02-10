@@ -15,8 +15,8 @@
           color="surface-1"
           variant="outlined"
           min-width="200"
-          :disabled="!isSpectateMode && (lobby.seat_count ?? 0) >= 3"
-          :data-cy="isSpectateMode ? `cutthroat-spectate-game-${lobby.id}` : null"
+          :disabled="isJoinDisabled"
+          :data-cy="isSpectateMode ? `cutthroat-spectate-game-${lobby.id}` : `cutthroat-join-lobby-${lobby.id}`"
           @click="handleClick"
         >
           <v-icon
@@ -62,6 +62,12 @@ function spectateGame() {
 }
 
 const isSpectateMode = computed(() => props.mode === 'spectate');
+const isJoinDisabled = computed(() => {
+  if (isSpectateMode.value) {return false;}
+  const seatCount = props.lobby.seat_count ?? 0;
+  const viewerHasReservedSeat = props.lobby.viewer_has_reserved_seat === true;
+  return seatCount >= 3 && !viewerHasReservedSeat;
+});
 const readyText = computed(() => {
   if (isSpectateMode.value) {
     return `${props.lobby.seat_count ?? 0} / 3 ${t('home.players')}`;

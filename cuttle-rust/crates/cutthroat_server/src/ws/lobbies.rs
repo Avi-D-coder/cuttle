@@ -35,7 +35,11 @@ fn filter_for_user(
         .lobbies
         .iter()
         .filter(|entry| !entry.is_rematch_lobby || entry.seat_user_ids.contains(&user_id))
-        .map(|entry| entry.summary.clone())
+        .map(|entry| {
+            let mut summary = entry.summary.clone();
+            summary.viewer_has_reserved_seat = entry.seat_user_ids.contains(&user_id);
+            summary
+        })
         .collect();
 
     (

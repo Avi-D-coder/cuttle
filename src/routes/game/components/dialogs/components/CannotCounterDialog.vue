@@ -4,6 +4,7 @@
     id="cannot-counter-dialog"
     v-model="show"
     :title="t('game.dialogs.counterDialogs.cannotCounterTitle')"
+    :max-width="dialogMaxWidth"
   >
     <template #body>
       <div v-if="!opponentLastTwo" class="my-2">
@@ -140,6 +141,9 @@ export default {
       return this.twosPlayed && this.twosPlayed.length > 1
         ? this.twosPlayed[this.twosPlayed.length - 2]
         : null;
+    },
+    dialogMaxWidth() {
+      return this.oneOff?.rank === 1 ? 920 : 650;
     },
   },
 };

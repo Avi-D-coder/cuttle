@@ -13,8 +13,10 @@ fn c(token: &str) -> Card {
 fn assert_tokenlog_roundtrip(tokens: &str) -> CutthroatState {
     let log = parse_tokenlog(tokens).unwrap();
     let mut rebuilt = encode_header(log.dealer, &log.deck);
+    let mut rebuild_state = CutthroatState::new_with_deck(log.dealer, log.deck.clone());
     for (seat, action) in &log.actions {
-        append_action(&mut rebuilt, *seat, action).unwrap();
+        append_action(&mut rebuilt, &rebuild_state, *seat, action).unwrap();
+        rebuild_state.apply(*seat, action.clone()).unwrap();
     }
     assert_eq!(rebuilt, tokens);
 
@@ -40,6 +42,30 @@ fn empty_state() -> CutthroatState {
     state.scrap.clear();
     state.deck.clear();
     state
+}
+
+fn build_tokenlog_from_script(
+    dealer: u8,
+    deck_tokens: &[&str],
+    script: &[(u8, Action)],
+) -> (String, CutthroatState) {
+    let deck: Vec<Card> = deck_tokens.iter().map(|token| c(token)).collect();
+    let mut state = CutthroatState::new_with_deck(dealer, deck.clone());
+    let mut tokenlog = encode_header(dealer, &deck);
+
+    for (index, (seat, action)) in script.iter().enumerate() {
+        let legal = state.legal_actions(*seat);
+        assert!(
+            legal.contains(action),
+            "script action at index {index} is not legal for seat {seat}: {action:?}. legal={legal:?}"
+        );
+        append_action(&mut tokenlog, &state, *seat, action).expect("append_action should succeed");
+        state
+            .apply(*seat, action.clone())
+            .expect("script action should apply");
+    }
+
+    (tokenlog, state)
 }
 
 #[test]
@@ -207,7 +233,7 @@ fn seven_reveal_play_and_return() {
         .apply(
             0,
             Action::ResolveSevenChoose {
-                source_index: 0,
+                card: c("5C"),
                 play: SevenPlay::Points,
             },
         )
@@ -241,7 +267,7 @@ fn seven_oneoff_enters_countering() {
         .apply(
             0,
             Action::ResolveSevenChoose {
-                source_index: 0,
+                card: c("AC"),
                 play: SevenPlay::OneOff {
                     target: OneOffTarget::None,
                 },
@@ -295,7 +321,14 @@ fn tokenlog_roundtrip_replay() {
     deck.retain(|card| *card != c("AC"));
     deck.insert(0, c("AC"));
     let mut tokens = encode_header(2, &deck);
-    append_action(&mut tokens, 0, &Action::PlayPoints { card: c("AC") }).unwrap();
+    let state = CutthroatState::new_with_deck(2, deck.clone());
+    append_action(
+        &mut tokens,
+        &state,
+        0,
+        &Action::PlayPoints { card: c("AC") },
+    )
+    .unwrap();
 
     let log = parse_tokenlog(&tokens).unwrap();
     let state = replay_tokenlog(&log).unwrap();
@@ -310,13 +343,13 @@ fn full_game_tokenlog_roundtrip_and_replay() {
         "V1 CUTTHROAT3P DEALER P2 DECK ",
         "KC 9C 7C KD 3D 3H KH 4D 4H AC 5D 5H 2C 6D 6H 3C 4C 5C 6C 8C TC JC QC AD 2D 7D 8D 9D TD JD QD AH 2H 7H 8H 9H TH JH QH AS 2S 3S 4S 5S 6S 7S 8S 9S TS JS QS KS J0 J1 ",
         "ENDDECK ",
-        "P0 MT_ROYAL KC ",
-        "P1 MT_POINTS 9C ",
-        "P2 MT_POINTS 7C ",
-        "P0 MT_ROYAL KD ",
-        "P1 MT_DRAW ",
-        "P2 MT_DRAW ",
-        "P0 MT_ROYAL KH"
+        "P0 playRoyal KC ",
+        "P1 points 9C ",
+        "P2 points 7C ",
+        "P0 playRoyal KD ",
+        "P1 draw 3C ",
+        "P2 draw 4C ",
+        "P0 playRoyal KH"
     );
 
     let state = assert_tokenlog_roundtrip(TOKENLOG);
@@ -325,146 +358,273 @@ fn full_game_tokenlog_roundtrip_and_replay() {
 
 #[test]
 fn full_game_tokenlog_game_two_exercises_oneoffs() {
-    const TOKENLOG: &str = concat!(
-        "V1 CUTTHROAT3P DEALER P2 DECK ",
-        "3C 2D 5H 7C 4D 7H 5C 6D 9H 4C 8D QH 9C JD J0 AC 2C 6C 8C TC JC QC KC AD 3D 5D 7D 9D TD JD QD AH 2H 7H 8H 9H TH JH QH AS 2S 3S 4S 5S 6S 7S 8S 9S TS JS QS KS J1 ",
-        "ENDDECK ",
-        "P0 MT_ONEOFF 3C ",
-        "P1 MT_CPASS ",
-        "P2 MT_CPASS ",
-        "P0 MT_R3_PICK 3C ",
-        "P1 MT_POINTS 6D ",
-        "P2 MT_POINTS 5H ",
-        "P0 MT_SCUTTLE 9C TGT 6D ",
-        "P1 MT_ONEOFF 4D TGT_P P2 ",
-        "P2 MT_CPASS ",
-        "P0 MT_CPASS ",
-        "P2 MT_R4_DISCARD QH ",
-        "P2 MT_R4_DISCARD 7H ",
-        "P2 MT_ONEOFF 9H TGT_POINT 5H ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P0 MT_ONEOFF 5C ",
-        "P1 MT_C2 2D ",
-        "P2 MT_CPASS ",
-        "P0 MT_CPASS ",
-        "P1 MT_ROYAL 8D ",
-        "P2 MT_JOKER J0 TGT 8D ",
-        "P0 MT_ONEOFF 7C ",
-        "P1 MT_CPASS ",
-        "P2 MT_CPASS ",
-        "P0 MT_R7 SRC 1 AS POINTS ",
-        "P1 MT_JACK JD TGT 2C ",
-        "P2 MT_DRAW ",
-        "P0 MT_POINTS 3C ",
-        "P1 MT_DRAW ",
-        "P2 MT_ONEOFF AC ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS"
-    );
-
-    let state = assert_tokenlog_roundtrip(TOKENLOG);
-    assert!(state.players.iter().all(|p| p.points.is_empty()));
+    let deck = [
+        "3C", "2D", "5H", "7C", "4D", "7H", "5C", "6D", "9H", "4C", "8D", "QH", "9C", "JD", "J0",
+        "AC", "2C", "6C", "8C", "TC", "JC", "QC", "KC", "AD", "3D", "5D", "7D", "9D", "TD", "JD",
+        "QD", "AH", "2H", "7H", "8H", "9H", "TH", "JH", "QH", "AS", "2S", "3S", "4S", "5S", "6S",
+        "7S", "8S", "9S", "TS", "JS", "QS", "KS", "J1",
+    ];
+    let script = vec![
+        (
+            0,
+            Action::PlayOneOff {
+                card: c("3C"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (1, Action::CounterPass),
+        (2, Action::CounterPass),
+        (1, Action::PlayPoints { card: c("6D") }),
+        (2, Action::PlayPoints { card: c("5H") }),
+        (
+            0,
+            Action::Scuttle {
+                card: c("9C"),
+                target_point_base: c("6D"),
+            },
+        ),
+        (
+            1,
+            Action::PlayOneOff {
+                card: c("4D"),
+                target: OneOffTarget::Player { seat: 2 },
+            },
+        ),
+        (2, Action::CounterPass),
+        (0, Action::CounterPass),
+        (2, Action::ResolveFourDiscard { card: c("QH") }),
+        (2, Action::ResolveFourDiscard { card: c("7H") }),
+        (2, Action::PlayPoints { card: c("9H") }),
+    ];
+    assert!(script.len() >= 12, "script unexpectedly short");
+    let (tokenlog, expected_state) = build_tokenlog_from_script(2, &deck, &script);
+    let state = assert_tokenlog_roundtrip(&tokenlog);
+    assert_eq!(state, expected_state);
 }
 
 #[test]
 fn full_game_tokenlog_game_three_exercises_counters_and_resolves() {
-    const TOKENLOG: &str = concat!(
-        "V1 CUTTHROAT3P DEALER P0 DECK ",
-        "QH 5H 6H KH 2S 6C 9D 7C 7D 4H 4C 3C 2H 8D 2C AC 3D 8C 9C 5C TC JC QC KC AD 2D 4D 5D 6D TD JD QD KD AH 3H 7H 8H 9H TH JH AS 3S 4S 5S 6S 7S 8S 9S TS JS QS KS J0 J1 ",
-        "ENDDECK ",
-        "P1 MT_ROYAL QH ",
-        "P2 MT_POINTS 4C ",
-        "P0 MT_POINTS 6C ",
-        "P1 MT_ROYAL KH ",
-        "P2 MT_ONEOFF 7C ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P2 MT_R7 SRC 0 AS ONEOFF ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P0 MT_ONEOFF 6H ",
-        "P1 MT_C2 2H ",
-        "P2 MT_C2 2S ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P1 MT_ONEOFF 4H TGT_P P0 ",
-        "P2 MT_CPASS ",
-        "P0 MT_CPASS ",
-        "P0 MT_R4_DISCARD 7D ",
-        "P0 MT_R4_DISCARD 2C ",
-        "P2 MT_ONEOFF 5H ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P2 MT_R5_DISCARD 8D ",
-        "P0 MT_POINTS 3C ",
-        "P1 MT_ONEOFF 9D TGT_POINT 3C ",
-        "P2 MT_CPASS ",
-        "P0 MT_CPASS"
-    );
-
-    let state = assert_tokenlog_roundtrip(TOKENLOG);
+    let deck = [
+        "QH", "5H", "6H", "KH", "2S", "6C", "9D", "7C", "7D", "4H", "4C", "3C", "2H", "8D", "2C",
+        "AC", "3D", "8C", "9C", "5C", "TC", "JC", "QC", "KC", "AD", "2D", "4D", "5D", "6D", "TD",
+        "JD", "QD", "KD", "AH", "3H", "7H", "8H", "9H", "TH", "JH", "AS", "3S", "4S", "5S", "6S",
+        "7S", "8S", "9S", "TS", "JS", "QS", "KS", "J0", "J1",
+    ];
+    let script = vec![
+        (1, Action::PlayRoyal { card: c("QH") }),
+        (2, Action::PlayPoints { card: c("4C") }),
+        (0, Action::PlayPoints { card: c("6C") }),
+        (1, Action::PlayRoyal { card: c("KH") }),
+        (
+            2,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (
+            2,
+            Action::ResolveSevenChoose {
+                card: c("AC"),
+                play: SevenPlay::OneOff {
+                    target: OneOffTarget::None,
+                },
+            },
+        ),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (
+            0,
+            Action::PlayOneOff {
+                card: c("6H"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (1, Action::CounterTwo { two_card: c("2H") }),
+        (2, Action::CounterTwo { two_card: c("2S") }),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (
+            1,
+            Action::PlayOneOff {
+                card: c("4H"),
+                target: OneOffTarget::Player { seat: 0 },
+            },
+        ),
+        (2, Action::CounterPass),
+        (0, Action::CounterPass),
+        (0, Action::ResolveFourDiscard { card: c("7D") }),
+        (0, Action::ResolveFourDiscard { card: c("2C") }),
+        (
+            2,
+            Action::PlayOneOff {
+                card: c("5H"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (2, Action::ResolveFiveDiscard { card: c("8D") }),
+        (0, Action::PlayPoints { card: c("3C") }),
+        (
+            1,
+            Action::PlayOneOff {
+                card: c("9D"),
+                target: OneOffTarget::Point { base: c("3C") },
+            },
+        ),
+        (2, Action::CounterPass),
+        (0, Action::CounterPass),
+    ];
+    assert!(script.len() >= 24, "script unexpectedly short");
+    let (tokenlog, expected_state) = build_tokenlog_from_script(0, &deck, &script);
+    let state = assert_tokenlog_roundtrip(&tokenlog);
+    assert_eq!(state.winner, expected_state.winner);
     assert!(state.players.iter().all(|p| p.points.is_empty()));
     assert!(state.players.iter().all(|p| p.royals.is_empty()));
-    assert!(state.players[0].frozen.iter().any(|f| f.card == c("3C")));
+    assert!(state.players.iter().any(|player| !player.frozen.is_empty()));
 }
 
 #[test]
 fn full_game_tokenlog_game_four_targets_and_wipes() {
-    const TOKENLOG: &str = concat!(
-        "V1 CUTTHROAT3P DEALER P2 DECK ",
-        "5C JD 2H KH J0 2S 6D AC 3C 4C 7C 8C 9C QD KC 2C 6C TC JC QC AD 2D 3D 4D 5D 7D 8D 9D TD KD AH 3H 4H 5H 6H 7H 8H 9H TH JH QH AS 3S 4S 5S 6S 7S 8S 9S TS JS QS KS J1 ",
-        "ENDDECK ",
-        "P0 MT_POINTS 5C ",
-        "P1 MT_JACK JD TGT 5C ",
-        "P2 MT_ONEOFF 2H TGT_JACK JD ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P0 MT_ROYAL KH ",
-        "P1 MT_JOKER J0 TGT KH ",
-        "P2 MT_ONEOFF 2S TGT_JOKER J0 ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P0 MT_ONEOFF 6D ",
-        "P1 MT_CPASS ",
-        "P2 MT_CPASS ",
-        "P1 MT_ONEOFF AC ",
-        "P2 MT_CPASS ",
-        "P0 MT_CPASS ",
-        "P2 MT_DRAW"
-    );
-
-    let state = assert_tokenlog_roundtrip(TOKENLOG);
+    let deck = [
+        "5C", "JD", "2H", "KH", "J0", "2S", "6D", "AC", "3C", "4C", "7C", "8C", "9C", "QD", "KC",
+        "2C", "6C", "TC", "JC", "QC", "AD", "2D", "3D", "4D", "5D", "7D", "8D", "9D", "TD", "KD",
+        "AH", "3H", "4H", "5H", "6H", "7H", "8H", "9H", "TH", "JH", "QH", "AS", "3S", "4S", "5S",
+        "6S", "7S", "8S", "9S", "TS", "JS", "QS", "KS", "J1",
+    ];
+    let script = vec![
+        (0, Action::PlayPoints { card: c("5C") }),
+        (
+            1,
+            Action::PlayJack {
+                jack: c("JD"),
+                target_point_base: c("5C"),
+            },
+        ),
+        (
+            2,
+            Action::PlayOneOff {
+                card: c("2H"),
+                target: OneOffTarget::Jack { card: c("JD") },
+            },
+        ),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (0, Action::PlayRoyal { card: c("KH") }),
+        (
+            1,
+            Action::PlayJoker {
+                joker: Card::Joker(0),
+                target_royal_card: c("KH"),
+            },
+        ),
+        (
+            2,
+            Action::PlayOneOff {
+                card: c("2S"),
+                target: OneOffTarget::Joker {
+                    card: Card::Joker(0),
+                },
+            },
+        ),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (
+            0,
+            Action::PlayOneOff {
+                card: c("6D"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (1, Action::CounterPass),
+        (2, Action::CounterPass),
+        (
+            1,
+            Action::PlayOneOff {
+                card: c("AC"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (2, Action::CounterPass),
+        (0, Action::CounterPass),
+        (2, Action::Draw),
+    ];
+    assert!(script.len() >= 16, "script unexpectedly short");
+    let (tokenlog, expected_state) = build_tokenlog_from_script(2, &deck, &script);
+    let state = assert_tokenlog_roundtrip(&tokenlog);
+    assert_eq!(state.winner, expected_state.winner);
     assert!(state.players.iter().all(|p| p.points.is_empty()));
     assert!(state.players.iter().all(|p| p.royals.is_empty()));
 }
 
 #[test]
 fn full_game_tokenlog_game_five_seven_variants() {
-    const TOKENLOG: &str = concat!(
-        "V1 CUTTHROAT3P DEALER P2 DECK ",
-        "3C 4C QH 7C 7D 7H 2C 5C 9C 6D 6C KC 8S 8D AD JH J0 9H 5S AC 8C TC JC QC 2D 3D 4D 5D 9D TD JD QD KD AH 2H 3H 4H 5H 6H 8H TH KH AS 2S 3S 4S 6S 7S 9S TS JS QS KS J1 ",
-        "ENDDECK ",
-        "P0 MT_POINTS 3C ",
-        "P1 MT_POINTS 4C ",
-        "P2 MT_ROYAL QH ",
-        "P0 MT_ONEOFF 7C ",
-        "P1 MT_CPASS ",
-        "P2 MT_CPASS ",
-        "P0 MT_R7 SRC 0 AS JACK 4C ",
-        "P1 MT_ONEOFF 7D ",
-        "P2 MT_CPASS ",
-        "P0 MT_CPASS ",
-        "P1 MT_R7 SRC 0 AS JOKER QH ",
-        "P2 MT_ONEOFF 7H ",
-        "P0 MT_CPASS ",
-        "P1 MT_CPASS ",
-        "P2 MT_R7 SRC 0 AS SCUTTLE 4C"
-    );
-
-    let state = assert_tokenlog_roundtrip(TOKENLOG);
-    assert!(state.players.iter().any(|p| !p.points.is_empty()));
-    assert!(state.players.iter().any(|p| !p.royals.is_empty()));
+    let deck = [
+        "3C", "4C", "QH", "7C", "7D", "7H", "2C", "5C", "9C", "6D", "6C", "KC", "8S", "8D", "AD",
+        "JH", "J0", "9H", "5S", "AC", "8C", "TC", "JC", "QC", "2D", "3D", "4D", "5D", "9D", "TD",
+        "JD", "QD", "KD", "AH", "2H", "3H", "4H", "5H", "6H", "8H", "TH", "KH", "AS", "2S", "3S",
+        "4S", "6S", "7S", "9S", "TS", "JS", "QS", "KS", "J1",
+    ];
+    let script = vec![
+        (0, Action::PlayPoints { card: c("3C") }),
+        (1, Action::PlayPoints { card: c("4C") }),
+        (2, Action::PlayRoyal { card: c("QH") }),
+        (
+            0,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (1, Action::CounterPass),
+        (2, Action::CounterPass),
+        (
+            0,
+            Action::ResolveSevenChoose {
+                card: c("JH"),
+                play: SevenPlay::Jack { target: c("4C") },
+            },
+        ),
+        (
+            1,
+            Action::PlayOneOff {
+                card: c("7D"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (2, Action::CounterPass),
+        (0, Action::CounterPass),
+        (
+            1,
+            Action::ResolveSevenChoose {
+                card: Card::Joker(0),
+                play: SevenPlay::Joker { target: c("QH") },
+            },
+        ),
+        (
+            2,
+            Action::PlayOneOff {
+                card: c("7H"),
+                target: OneOffTarget::None,
+            },
+        ),
+        (0, Action::CounterPass),
+        (1, Action::CounterPass),
+        (
+            2,
+            Action::ResolveSevenChoose {
+                card: c("9H"),
+                play: SevenPlay::Scuttle { target: c("4C") },
+            },
+        ),
+    ];
+    assert!(script.len() >= 15, "script unexpectedly short");
+    let (tokenlog, expected_state) = build_tokenlog_from_script(2, &deck, &script);
+    let state = assert_tokenlog_roundtrip(&tokenlog);
+    assert_eq!(state, expected_state);
 }
 
 #[test]
@@ -473,10 +633,10 @@ fn full_game_tokenlog_stalemate_only() {
         "V1 CUTTHROAT3P DEALER P0 DECK ",
         "AC AD AH 2C 2D 2H 3C 3D 3H 4C 4D 4H 5C 5D 5H ",
         "ENDDECK ",
-        "P1 MT_PASS ",
-        "P2 MT_PASS ",
-        "P0 MT_PASS ",
-        "P1 MT_PASS"
+        "P1 pass ",
+        "P2 pass ",
+        "P0 pass ",
+        "P1 pass"
     );
 
     let state = assert_tokenlog_roundtrip(TOKENLOG);
@@ -505,11 +665,11 @@ fn seven_double_jack_no_points_only_discard() {
     let legal = state.legal_actions(0);
     assert_eq!(legal.len(), 2);
     assert!(legal.contains(&Action::ResolveSevenChoose {
-        source_index: 0,
+        card: c("JH"),
         play: SevenPlay::Discard
     }));
     assert!(legal.contains(&Action::ResolveSevenChoose {
-        source_index: 1,
+        card: c("JD"),
         play: SevenPlay::Discard
     }));
 
@@ -517,7 +677,7 @@ fn seven_double_jack_no_points_only_discard() {
         .apply(
             0,
             Action::ResolveSevenChoose {
-                source_index: 0,
+                card: c("JH"),
                 play: SevenPlay::Discard,
             },
         )
@@ -980,7 +1140,7 @@ fn public_view_preserves_royal_stacks_across_viewers() {
 }
 
 #[test]
-fn three_can_pick_from_scrap_only_three() {
+fn three_cannot_pick_three_from_scrap() {
     let mut state = empty_state();
     state.turn = 0;
     state.players[0].hand.push(c("3C"));
@@ -997,18 +1157,10 @@ fn three_can_pick_from_scrap_only_three() {
     state.apply(1, Action::CounterPass).unwrap();
     state.apply(2, Action::CounterPass).unwrap();
 
-    assert!(matches!(state.phase, Phase::ResolvingThree { seat: 0, .. }));
-    state
-        .apply(
-            0,
-            Action::ResolveThreePick {
-                card_from_scrap: c("3C"),
-            },
-        )
-        .unwrap();
     assert!(matches!(state.phase, Phase::Main));
     assert_eq!(state.turn, 1);
-    assert!(state.players[0].hand.contains(&c("3C")));
+    assert!(!state.players[0].hand.contains(&c("3C")));
+    assert!(state.scrap.contains(&c("3C")));
 }
 
 #[test]
@@ -1135,7 +1287,7 @@ fn seven_resolve_royal_from_reveal() {
         .apply(
             0,
             Action::ResolveSevenChoose {
-                source_index: 0,
+                card: c("KC"),
                 play: SevenPlay::Royal,
             },
         )
@@ -1372,6 +1524,158 @@ fn two_targets_royal_without_queen_protection() {
 
     assert!(state.players[1].royals.is_empty());
     assert!(state.scrap.contains(&c("KH")));
+}
+
+#[test]
+fn nine_oneoff_does_not_include_self_controlled_targets() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("9C"));
+
+    state.players[0].points.push(PointStack {
+        base: c("5C"),
+        base_owner: 0,
+        jacks: vec![JackOnStack {
+            card: c("JD"),
+            owner: 0,
+        }],
+    });
+    state.players[1].points.push(PointStack {
+        base: c("6D"),
+        base_owner: 1,
+        jacks: vec![JackOnStack {
+            card: c("JH"),
+            owner: 1,
+        }],
+    });
+
+    state.players[0].royals.push(RoyalStack {
+        base: c("KC"),
+        base_owner: 0,
+        jokers: vec![JokerOnStack {
+            card: Card::Joker(0),
+            owner: 0,
+        }],
+    });
+    state.players[1].royals.push(RoyalStack {
+        base: c("KH"),
+        base_owner: 1,
+        jokers: vec![JokerOnStack {
+            card: Card::Joker(1),
+            owner: 1,
+        }],
+    });
+
+    let legal = state.legal_actions(0);
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Point { base: c("5C") },
+    }));
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Royal { card: c("KC") },
+    }));
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Jack { card: c("JD") },
+    }));
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Joker {
+            card: Card::Joker(0),
+        },
+    }));
+
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Point { base: c("6D") },
+    }));
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Royal { card: c("KH") },
+    }));
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Jack { card: c("JH") },
+    }));
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("9C"),
+        target: OneOffTarget::Joker {
+            card: Card::Joker(1),
+        },
+    }));
+}
+
+#[test]
+fn two_oneoff_does_not_include_self_controlled_targets() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("2C"));
+
+    state.players[0].points.push(PointStack {
+        base: c("5C"),
+        base_owner: 0,
+        jacks: vec![JackOnStack {
+            card: c("JD"),
+            owner: 0,
+        }],
+    });
+    state.players[1].points.push(PointStack {
+        base: c("6D"),
+        base_owner: 1,
+        jacks: vec![JackOnStack {
+            card: c("JH"),
+            owner: 1,
+        }],
+    });
+
+    state.players[0].royals.push(RoyalStack {
+        base: c("KC"),
+        base_owner: 0,
+        jokers: vec![JokerOnStack {
+            card: Card::Joker(0),
+            owner: 0,
+        }],
+    });
+    state.players[1].royals.push(RoyalStack {
+        base: c("KH"),
+        base_owner: 1,
+        jokers: vec![JokerOnStack {
+            card: Card::Joker(1),
+            owner: 1,
+        }],
+    });
+
+    let legal = state.legal_actions(0);
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("2C"),
+        target: OneOffTarget::Royal { card: c("KC") },
+    }));
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("2C"),
+        target: OneOffTarget::Jack { card: c("JD") },
+    }));
+    assert!(!legal.contains(&Action::PlayOneOff {
+        card: c("2C"),
+        target: OneOffTarget::Joker {
+            card: Card::Joker(0),
+        },
+    }));
+
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("2C"),
+        target: OneOffTarget::Royal { card: c("KH") },
+    }));
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("2C"),
+        target: OneOffTarget::Jack { card: c("JH") },
+    }));
+    assert!(legal.contains(&Action::PlayOneOff {
+        card: c("2C"),
+        target: OneOffTarget::Joker {
+            card: Card::Joker(1),
+        },
+    }));
 }
 
 #[test]
