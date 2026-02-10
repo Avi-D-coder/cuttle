@@ -113,104 +113,78 @@
                 {{ leftSeatStatus.turnLabel }}
               </span>
             </div>
-            <div class="player-hand">
+            <TransitionGroup tag="div" name="slide-above" class="player-hand">
               <CutthroatCard
                 v-for="card in leftHandCards"
                 :key="card.key"
                 :card="card.card"
-                class="hand-card"
+                class="hand-card transition-all"
               />
-            </div>
+            </TransitionGroup>
             <div class="player-stacks">
-              <div class="stack-group">
-                <div class="stack-title">
-                  {{ t('cutthroat.game.points') }}
-                </div>
-                <div class="stack-list">
-                  <div
-                    v-for="stack in leftPointStacks"
-                    :key="`left-point-${stack.baseToken}`"
-                    class="stack"
-                  >
-                    <div class="stack-card-container">
+              <TransitionGroup tag="div" name="in-above-out-below" class="stack-list stack-list-points">
+                <div
+                  v-for="stack in leftPointStacks"
+                  :key="`left-point-${stack.baseToken}`"
+                  class="stack transition-all"
+                >
+                  <div class="stack-card-container">
+                    <CutthroatCard
+                      :card="stack.baseCard"
+                      class="stack-base"
+                      :clickable="isPointTarget(stack.baseToken)"
+                      :is-valid-target="isPointTarget(stack.baseToken)"
+                      :data-cutthroat-point-card="stack.baseToken"
+                      @click="handlePointTargetClick(stack.baseToken)"
+                    />
+                    <div class="attachments-overlay">
                       <CutthroatCard
-                        :card="stack.baseCard"
-                        class="stack-base"
-                        :clickable="isPointTarget(stack.baseToken)"
-                        :is-valid-target="isPointTarget(stack.baseToken)"
-                        :data-cutthroat-point-card="stack.baseToken"
-                        @click="handlePointTargetClick(stack.baseToken)"
+                        v-for="jack in stack.attachments"
+                        :key="`left-jack-${stack.baseToken}-${jack.token}`"
+                        :card="jack.card"
+                        class="mini-card"
+                        :is-jack="true"
+                        :clickable="isJackTarget(jack.token)"
+                        :is-valid-target="isJackTarget(jack.token)"
+                        :data-cutthroat-jack-card="jack.token"
+                        @click="handleJackTargetClick(jack.token)"
                       />
-                      <div class="attachments-overlay">
-                        <CutthroatCard
-                          v-for="jack in stack.attachments"
-                          :key="`left-jack-${stack.baseToken}-${jack.token}`"
-                          :card="jack.card"
-                          class="mini-card"
-                          :is-jack="true"
-                          :clickable="isJackTarget(jack.token)"
-                          :is-valid-target="isJackTarget(jack.token)"
-                          :data-cutthroat-jack-card="jack.token"
-                          @click="handleJackTargetClick(jack.token)"
-                        />
-                      </div>
-                    </div>
-                    <div class="stack-meta">
-                      <div class="stack-controller">
-                        {{ seatLabel(stack.controller) }}
-                      </div>
                     </div>
                   </div>
-                  <div v-if="leftPointStacks.length === 0" class="stack-empty">
-                    {{ t('cutthroat.game.noPoints') }}
-                  </div>
                 </div>
-              </div>
-              <div class="stack-group">
-                <div class="stack-title">
-                  {{ t('cutthroat.game.royals') }}
-                </div>
-                <div class="stack-list">
-                  <div
-                    v-for="stack in leftRoyalStacks"
-                    :key="`left-royal-${stack.baseToken}`"
-                    class="stack"
-                  >
-                    <div class="stack-card-container">
+              </TransitionGroup>
+              <TransitionGroup tag="div" name="in-above-out-below" class="stack-list stack-list-royals">
+                <div
+                  v-for="stack in leftRoyalStacks"
+                  :key="`left-royal-${stack.baseToken}`"
+                  class="stack transition-all"
+                >
+                  <div class="stack-card-container">
+                    <CutthroatCard
+                      :card="stack.baseCard"
+                      class="stack-base"
+                      :is-glasses="stack.isGlasses"
+                      :clickable="isRoyalTarget(stack.baseToken)"
+                      :is-valid-target="isRoyalTarget(stack.baseToken)"
+                      :data-cutthroat-royal-card="stack.baseToken"
+                      @click="handleRoyalTargetClick(stack.baseToken)"
+                    />
+                    <div class="attachments-overlay">
                       <CutthroatCard
-                        :card="stack.baseCard"
-                        class="stack-base"
-                        :is-glasses="stack.isGlasses"
-                        :clickable="isRoyalTarget(stack.baseToken)"
-                        :is-valid-target="isRoyalTarget(stack.baseToken)"
-                        :data-cutthroat-royal-card="stack.baseToken"
-                        @click="handleRoyalTargetClick(stack.baseToken)"
+                        v-for="joker in stack.attachments"
+                        :key="`left-joker-${stack.baseToken}-${joker.token}`"
+                        :card="joker.card"
+                        class="mini-card"
+                        :is-jack="true"
+                        :clickable="isJokerTarget(joker.token)"
+                        :is-valid-target="isJokerTarget(joker.token)"
+                        :data-cutthroat-joker-card="joker.token"
+                        @click="handleJokerTargetClick(joker.token)"
                       />
-                      <div class="attachments-overlay">
-                        <CutthroatCard
-                          v-for="joker in stack.attachments"
-                          :key="`left-joker-${stack.baseToken}-${joker.token}`"
-                          :card="joker.card"
-                          class="mini-card"
-                          :is-jack="true"
-                          :clickable="isJokerTarget(joker.token)"
-                          :is-valid-target="isJokerTarget(joker.token)"
-                          :data-cutthroat-joker-card="joker.token"
-                          @click="handleJokerTargetClick(joker.token)"
-                        />
-                      </div>
                     </div>
-                    <div class="stack-meta">
-                      <div class="stack-controller">
-                        {{ seatLabel(stack.controller) }}
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="leftRoyalStacks.length === 0" class="stack-empty">
-                    {{ t('cutthroat.game.noRoyals') }}
                   </div>
                 </div>
-              </div>
+              </TransitionGroup>
             </div>
           </div>
 
@@ -278,104 +252,78 @@
                 {{ rightSeatStatus.turnLabel }}
               </span>
             </div>
-            <div class="player-hand">
+            <TransitionGroup tag="div" name="slide-above" class="player-hand">
               <CutthroatCard
                 v-for="card in rightHandCards"
                 :key="card.key"
                 :card="card.card"
-                class="hand-card"
+                class="hand-card transition-all"
               />
-            </div>
+            </TransitionGroup>
             <div class="player-stacks">
-              <div class="stack-group">
-                <div class="stack-title">
-                  {{ t('cutthroat.game.points') }}
-                </div>
-                <div class="stack-list">
-                  <div
-                    v-for="stack in rightPointStacks"
-                    :key="`right-point-${stack.baseToken}`"
-                    class="stack"
-                  >
-                    <div class="stack-card-container">
+              <TransitionGroup tag="div" name="in-above-out-below" class="stack-list stack-list-points">
+                <div
+                  v-for="stack in rightPointStacks"
+                  :key="`right-point-${stack.baseToken}`"
+                  class="stack transition-all"
+                >
+                  <div class="stack-card-container">
+                    <CutthroatCard
+                      :card="stack.baseCard"
+                      class="stack-base"
+                      :clickable="isPointTarget(stack.baseToken)"
+                      :is-valid-target="isPointTarget(stack.baseToken)"
+                      :data-cutthroat-point-card="stack.baseToken"
+                      @click="handlePointTargetClick(stack.baseToken)"
+                    />
+                    <div class="attachments-overlay">
                       <CutthroatCard
-                        :card="stack.baseCard"
-                        class="stack-base"
-                        :clickable="isPointTarget(stack.baseToken)"
-                        :is-valid-target="isPointTarget(stack.baseToken)"
-                        :data-cutthroat-point-card="stack.baseToken"
-                        @click="handlePointTargetClick(stack.baseToken)"
+                        v-for="jack in stack.attachments"
+                        :key="`right-jack-${stack.baseToken}-${jack.token}`"
+                        :card="jack.card"
+                        class="mini-card"
+                        :is-jack="true"
+                        :clickable="isJackTarget(jack.token)"
+                        :is-valid-target="isJackTarget(jack.token)"
+                        :data-cutthroat-jack-card="jack.token"
+                        @click="handleJackTargetClick(jack.token)"
                       />
-                      <div class="attachments-overlay">
-                        <CutthroatCard
-                          v-for="jack in stack.attachments"
-                          :key="`right-jack-${stack.baseToken}-${jack.token}`"
-                          :card="jack.card"
-                          class="mini-card"
-                          :is-jack="true"
-                          :clickable="isJackTarget(jack.token)"
-                          :is-valid-target="isJackTarget(jack.token)"
-                          :data-cutthroat-jack-card="jack.token"
-                          @click="handleJackTargetClick(jack.token)"
-                        />
-                      </div>
-                    </div>
-                    <div class="stack-meta">
-                      <div class="stack-controller">
-                        {{ seatLabel(stack.controller) }}
-                      </div>
                     </div>
                   </div>
-                  <div v-if="rightPointStacks.length === 0" class="stack-empty">
-                    {{ t('cutthroat.game.noPoints') }}
-                  </div>
                 </div>
-              </div>
-              <div class="stack-group">
-                <div class="stack-title">
-                  {{ t('cutthroat.game.royals') }}
-                </div>
-                <div class="stack-list">
-                  <div
-                    v-for="stack in rightRoyalStacks"
-                    :key="`right-royal-${stack.baseToken}`"
-                    class="stack"
-                  >
-                    <div class="stack-card-container">
+              </TransitionGroup>
+              <TransitionGroup tag="div" name="in-above-out-below" class="stack-list stack-list-royals">
+                <div
+                  v-for="stack in rightRoyalStacks"
+                  :key="`right-royal-${stack.baseToken}`"
+                  class="stack transition-all"
+                >
+                  <div class="stack-card-container">
+                    <CutthroatCard
+                      :card="stack.baseCard"
+                      class="stack-base"
+                      :is-glasses="stack.isGlasses"
+                      :clickable="isRoyalTarget(stack.baseToken)"
+                      :is-valid-target="isRoyalTarget(stack.baseToken)"
+                      :data-cutthroat-royal-card="stack.baseToken"
+                      @click="handleRoyalTargetClick(stack.baseToken)"
+                    />
+                    <div class="attachments-overlay">
                       <CutthroatCard
-                        :card="stack.baseCard"
-                        class="stack-base"
-                        :is-glasses="stack.isGlasses"
-                        :clickable="isRoyalTarget(stack.baseToken)"
-                        :is-valid-target="isRoyalTarget(stack.baseToken)"
-                        :data-cutthroat-royal-card="stack.baseToken"
-                        @click="handleRoyalTargetClick(stack.baseToken)"
+                        v-for="joker in stack.attachments"
+                        :key="`right-joker-${stack.baseToken}-${joker.token}`"
+                        :card="joker.card"
+                        class="mini-card"
+                        :is-jack="true"
+                        :clickable="isJokerTarget(joker.token)"
+                        :is-valid-target="isJokerTarget(joker.token)"
+                        :data-cutthroat-joker-card="joker.token"
+                        @click="handleJokerTargetClick(joker.token)"
                       />
-                      <div class="attachments-overlay">
-                        <CutthroatCard
-                          v-for="joker in stack.attachments"
-                          :key="`right-joker-${stack.baseToken}-${joker.token}`"
-                          :card="joker.card"
-                          class="mini-card"
-                          :is-jack="true"
-                          :clickable="isJokerTarget(joker.token)"
-                          :is-valid-target="isJokerTarget(joker.token)"
-                          :data-cutthroat-joker-card="joker.token"
-                          @click="handleJokerTargetClick(joker.token)"
-                        />
-                      </div>
                     </div>
-                    <div class="stack-meta">
-                      <div class="stack-controller">
-                        {{ seatLabel(stack.controller) }}
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="rightRoyalStacks.length === 0" class="stack-empty">
-                    {{ t('cutthroat.game.noRoyals') }}
                   </div>
                 </div>
-              </div>
+              </TransitionGroup>
             </div>
           </div>
         </div>
@@ -463,95 +411,69 @@
               </span>
             </div>
             <div class="player-stacks">
-              <div class="stack-group">
-                <div class="stack-title">
-                  {{ t('cutthroat.game.points') }}
-                </div>
-                <div class="stack-list">
-                  <div
-                    v-for="stack in myPointStacks"
-                    :key="`me-point-${stack.baseToken}`"
-                    class="stack"
-                  >
-                    <div class="stack-card-container">
+              <TransitionGroup tag="div" name="in-below-out-left" class="stack-list stack-list-points">
+                <div
+                  v-for="stack in myPointStacks"
+                  :key="`me-point-${stack.baseToken}`"
+                  class="stack transition-all"
+                >
+                  <div class="stack-card-container">
+                    <CutthroatCard
+                      :card="stack.baseCard"
+                      class="stack-base"
+                      :clickable="isPointTarget(stack.baseToken)"
+                      :is-valid-target="isPointTarget(stack.baseToken)"
+                      :data-cutthroat-point-card="stack.baseToken"
+                      @click="handlePointTargetClick(stack.baseToken)"
+                    />
+                    <div class="attachments-overlay">
                       <CutthroatCard
-                        :card="stack.baseCard"
-                        class="stack-base"
-                        :clickable="isPointTarget(stack.baseToken)"
-                        :is-valid-target="isPointTarget(stack.baseToken)"
-                        :data-cutthroat-point-card="stack.baseToken"
-                        @click="handlePointTargetClick(stack.baseToken)"
+                        v-for="jack in stack.attachments"
+                        :key="`me-jack-${stack.baseToken}-${jack.token}`"
+                        :card="jack.card"
+                        class="mini-card"
+                        :is-jack="true"
+                        :clickable="isJackTarget(jack.token)"
+                        :is-valid-target="isJackTarget(jack.token)"
+                        :data-cutthroat-jack-card="jack.token"
+                        @click="handleJackTargetClick(jack.token)"
                       />
-                      <div class="attachments-overlay">
-                        <CutthroatCard
-                          v-for="jack in stack.attachments"
-                          :key="`me-jack-${stack.baseToken}-${jack.token}`"
-                          :card="jack.card"
-                          class="mini-card"
-                          :is-jack="true"
-                          :clickable="isJackTarget(jack.token)"
-                          :is-valid-target="isJackTarget(jack.token)"
-                          :data-cutthroat-jack-card="jack.token"
-                          @click="handleJackTargetClick(jack.token)"
-                        />
-                      </div>
-                    </div>
-                    <div class="stack-meta">
-                      <div class="stack-controller">
-                        {{ seatLabel(stack.controller) }}
-                      </div>
                     </div>
                   </div>
-                  <div v-if="myPointStacks.length === 0" class="stack-empty">
-                    {{ t('cutthroat.game.noPoints') }}
-                  </div>
                 </div>
-              </div>
-              <div class="stack-group">
-                <div class="stack-title">
-                  {{ t('cutthroat.game.royals') }}
-                </div>
-                <div class="stack-list">
-                  <div
-                    v-for="stack in myRoyalStacks"
-                    :key="`me-royal-${stack.baseToken}`"
-                    class="stack"
-                  >
-                    <div class="stack-card-container">
+              </TransitionGroup>
+              <TransitionGroup tag="div" name="in-below-out-left" class="stack-list stack-list-royals">
+                <div
+                  v-for="stack in myRoyalStacks"
+                  :key="`me-royal-${stack.baseToken}`"
+                  class="stack transition-all"
+                >
+                  <div class="stack-card-container">
+                    <CutthroatCard
+                      :card="stack.baseCard"
+                      class="stack-base"
+                      :is-glasses="stack.isGlasses"
+                      :clickable="isRoyalTarget(stack.baseToken)"
+                      :is-valid-target="isRoyalTarget(stack.baseToken)"
+                      :data-cutthroat-royal-card="stack.baseToken"
+                      @click="handleRoyalTargetClick(stack.baseToken)"
+                    />
+                    <div class="attachments-overlay">
                       <CutthroatCard
-                        :card="stack.baseCard"
-                        class="stack-base"
-                        :is-glasses="stack.isGlasses"
-                        :clickable="isRoyalTarget(stack.baseToken)"
-                        :is-valid-target="isRoyalTarget(stack.baseToken)"
-                        :data-cutthroat-royal-card="stack.baseToken"
-                        @click="handleRoyalTargetClick(stack.baseToken)"
+                        v-for="joker in stack.attachments"
+                        :key="`me-joker-${stack.baseToken}-${joker.token}`"
+                        :card="joker.card"
+                        class="mini-card"
+                        :is-jack="true"
+                        :clickable="isJokerTarget(joker.token)"
+                        :is-valid-target="isJokerTarget(joker.token)"
+                        :data-cutthroat-joker-card="joker.token"
+                        @click="handleJokerTargetClick(joker.token)"
                       />
-                      <div class="attachments-overlay">
-                        <CutthroatCard
-                          v-for="joker in stack.attachments"
-                          :key="`me-joker-${stack.baseToken}-${joker.token}`"
-                          :card="joker.card"
-                          class="mini-card"
-                          :is-jack="true"
-                          :clickable="isJokerTarget(joker.token)"
-                          :is-valid-target="isJokerTarget(joker.token)"
-                          :data-cutthroat-joker-card="joker.token"
-                          @click="handleJokerTargetClick(joker.token)"
-                        />
-                      </div>
                     </div>
-                    <div class="stack-meta">
-                      <div class="stack-controller">
-                        {{ seatLabel(stack.controller) }}
-                      </div>
-                    </div>
-                  </div>
-                  <div v-if="myRoyalStacks.length === 0" class="stack-empty">
-                    {{ t('cutthroat.game.noRoyals') }}
                   </div>
                 </div>
-              </div>
+              </TransitionGroup>
             </div>
             <div
               v-if="isTargeting && selectedSourceCard && !showFourPlayerTargetDialog"
@@ -563,19 +485,25 @@
                 @cancel="cancelTargeting"
               />
             </div>
-            <div v-else class="player-hand me" :class="{ 'my-turn': isMyTurn }">
+            <TransitionGroup
+              v-else
+              tag="div"
+              name="slide-below"
+              class="player-hand me"
+              :class="{ 'my-turn': isMyTurn }"
+            >
               <CutthroatCard
                 v-for="card in myHandCards"
                 :key="card.key"
                 :card="card.card"
-                class="hand-card"
+                class="hand-card transition-all"
                 :clickable="card.isKnown && (!isActionDisabled || isSpectatorMode)"
                 :is-selected="isHandSourceSelected(card)"
                 :is-frozen="isFrozenToken(card.token)"
                 :data-cutthroat-hand-card="card.token"
                 @click="handleHandCardClick(card)"
               />
-            </div>
+            </TransitionGroup>
           </div>
         </div>
 
@@ -1723,41 +1651,40 @@ onBeforeUnmount(() => {
 
 .player-hand {
   display: flex;
+  justify-content: center;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.player-area.opponent .player-hand {
-  align-items: flex-start;
+  position: relative;
 }
 
 .player-area.opponent .hand-card {
-  flex: 1 1 clamp(50px, 15%, 88px);
-  max-width: clamp(50px, 15%, 88px);
-  min-width: 42px;
+  flex: 1 1 clamp(60px, 17%, 102px);
+  max-width: clamp(60px, 17%, 102px);
+  min-width: 50px;
 }
 
 .player-area.opponent .hand-card :deep(.player-card) {
   width: 100%;
   max-width: 100%;
   height: auto;
-  max-height: clamp(72px, 11vh, 118px);
+  max-height: clamp(86px, 13vh, 146px);
 }
 
 .player-hand.me {
-  justify-content: flex-start;
+  justify-content: center;
   margin-top: 16px;
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 4px;
-  min-height: clamp(98px, 15vh, 184px);
+  padding: 0 8px 4px;
+  min-height: clamp(108px, 16vh, 208px);
   align-items: flex-end;
 }
 
 .player-hand.me .hand-card {
   flex: 0 0 auto;
-  width: clamp(64px, 9.2vh, 126px);
+  width: clamp(72px, 10.2vh, 140px);
 }
 
 .player-hand.me .hand-card :deep(.player-card) {
@@ -1780,43 +1707,40 @@ onBeforeUnmount(() => {
 }
 
 .player-stacks {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 12px;
-}
-
-.stack-group {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 8px;
-}
-
-.stack-title {
-  font-size: 0.9rem;
-  margin-bottom: 6px;
 }
 
 .stack-list {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
+  justify-content: center;
   align-content: flex-start;
   gap: 8px;
+  position: relative;
+}
+
+.stack-list-points,
+.stack-list-royals {
+  flex: 0 1 auto;
 }
 
 .stack {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .stack-card-container {
   position: relative;
   flex: 0 0 auto;
-  width: clamp(58px, 8.4vh, 116px);
+  width: clamp(74px, 10.5vh, 144px);
   overflow: visible;
 }
 
@@ -1835,32 +1759,15 @@ onBeforeUnmount(() => {
   height: auto;
 }
 
-.stack-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.85rem;
-}
-
-.stack-controller {
-  opacity: 0.8;
-  margin-top: 2px;
-}
-
 .attachments-overlay {
   position: absolute;
-  right: -8%;
+  right: -6%;
   top: 0;
   width: 100%;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-}
-
-.stack-empty {
-  font-size: 0.8rem;
-  opacity: 0.7;
 }
 
 .pile {
@@ -2052,19 +1959,19 @@ onBeforeUnmount(() => {
 }
 
 :deep(.player-card) {
-  max-height: bh(16);
-  max-width: calc(bh(16) / 1.45);
+  max-height: bh(18);
+  max-width: calc(bh(18) / 1.45);
 }
 
 :deep(.player-card.glasses) {
-  max-height: bh(16);
-  max-width: calc(bh(16) / 1.45);
+  max-height: bh(18);
+  max-width: calc(bh(18) / 1.45);
   height: auto;
 }
 
 .mini-card :deep(.player-card) {
-  max-height: 6vh;
-  max-width: calc(6vh / 1.45);
+  max-height: 7vh;
+  max-width: calc(7vh / 1.45);
 }
 
 @media (max-width: 1280px) {
@@ -2107,19 +2014,7 @@ onBeforeUnmount(() => {
     font-size: 0.74rem;
   }
 
-  .stack-group {
-    padding: 6px;
-  }
-
-  .stack-title {
-    margin-bottom: 4px;
-  }
-
   .stack-list {
-    gap: 6px;
-  }
-
-  .stack {
     gap: 6px;
   }
 
@@ -2128,19 +2023,19 @@ onBeforeUnmount(() => {
   }
 
   :deep(.player-card) {
-    max-height: bh(13);
-    max-width: calc(bh(13) / 1.45);
+    max-height: bh(15);
+    max-width: calc(bh(15) / 1.45);
   }
 
   :deep(.player-card.glasses) {
-    max-height: bh(13);
-    max-width: calc(bh(13) / 1.45);
+    max-height: bh(15);
+    max-width: calc(bh(15) / 1.45);
     height: auto;
   }
 
   .mini-card :deep(.player-card) {
-    max-height: 5vh;
-    max-width: calc(5vh / 1.45);
+    max-height: 5.8vh;
+    max-width: calc(5.8vh / 1.45);
   }
 }
 
@@ -2203,22 +2098,18 @@ onBeforeUnmount(() => {
   }
 
   .player-area.opponent .hand-card {
-    flex: 0 0 clamp(34px, 8.2vw, 52px);
-    max-width: clamp(34px, 8.2vw, 52px);
-    min-width: 30px;
+    flex: 0 0 clamp(42px, 9.6vw, 62px);
+    max-width: clamp(42px, 9.6vw, 62px);
+    min-width: 36px;
   }
 
   .player-area.opponent .player-stacks {
-    grid-template-columns: 1fr 1fr;
+    justify-content: center;
     gap: 6px;
   }
 
   .player-area.me .player-stacks {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .stack-controller {
-    display: none;
+    justify-content: center;
   }
 
   .player-area.opponent .stack-list {
@@ -2245,28 +2136,20 @@ onBeforeUnmount(() => {
     max-height: none;
   }
 
-  .stack-title {
-    font-size: 0.8rem;
-  }
-
-  .stack-meta {
-    font-size: 0.76rem;
-  }
-
   .stack-card-container {
-    width: clamp(34px, 5.6vh, 54px);
+    width: clamp(42px, 6.8vh, 66px);
   }
 
   .player-hand.me {
-    min-height: clamp(70px, 10vh, 108px);
+    min-height: clamp(78px, 11vh, 126px);
   }
 
   .player-hand.me .hand-card {
-    width: clamp(48px, 7vh, 78px);
+    width: clamp(54px, 8vh, 90px);
   }
 
   .attachments-overlay {
-    right: 0;
+    right: -2%;
   }
 
   .pile {
@@ -2280,19 +2163,19 @@ onBeforeUnmount(() => {
   }
 
   :deep(.player-card) {
-    max-height: bh(8.8);
-    max-width: calc(bh(8.8) / 1.45);
+    max-height: bh(10.5);
+    max-width: calc(bh(10.5) / 1.45);
   }
 
   :deep(.player-card.glasses) {
-    max-height: bh(8.8);
-    max-width: calc(bh(8.8) / 1.45);
+    max-height: bh(10.5);
+    max-width: calc(bh(10.5) / 1.45);
     height: auto;
   }
 
   .mini-card :deep(.player-card) {
-    max-height: 3.8vh;
-    max-width: calc(3.8vh / 1.45);
+    max-height: 4.4vh;
+    max-width: calc(4.4vh / 1.45);
   }
 
   .debug-actions {
@@ -2345,9 +2228,9 @@ onBeforeUnmount(() => {
   }
 
   .player-area.opponent .hand-card {
-    flex-basis: clamp(30px, 18vw, 46px);
-    max-width: clamp(30px, 18vw, 46px);
-    min-width: 26px;
+    flex-basis: clamp(34px, 19vw, 54px);
+    max-width: clamp(34px, 19vw, 54px);
+    min-width: 30px;
   }
 
   .player-area.me {
@@ -2382,14 +2265,14 @@ onBeforeUnmount(() => {
 
   .player-hand.me {
     margin-top: 4px;
-    justify-content: flex-start;
+    justify-content: center;
     flex-wrap: nowrap;
     overflow-x: auto;
-    min-height: clamp(62px, 9vh, 92px);
+    min-height: clamp(70px, 10vh, 104px);
   }
 
   .player-hand.me .hand-card {
-    width: clamp(40px, 6.8vh, 58px);
+    width: clamp(46px, 7.8vh, 68px);
   }
 
   .player-area.opponent .player-stacks {
@@ -2399,13 +2282,8 @@ onBeforeUnmount(() => {
     margin-top: 4px;
   }
 
-  .player-area.opponent .stack-group {
-    min-width: 0;
-    flex: 1;
-  }
-
   .player-area.opponent .stack-list {
-    max-height: clamp(34px, 6.2vh, 58px);
+    max-height: clamp(42px, 7.4vh, 72px);
   }
 
   .player-stacks {
@@ -2414,34 +2292,12 @@ onBeforeUnmount(() => {
     min-height: 0;
   }
 
-  .player-area.me .player-stacks {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .stack-group {
-    padding: 4px;
-  }
-
-  .stack-title {
-    font-size: 0.7rem;
-    margin-bottom: 2px;
-  }
-
   .stack-list {
     gap: 2px;
   }
 
-  .stack {
-    gap: 2px;
-  }
-
-  .stack-meta {
-    gap: 1px;
-    font-size: 0.62rem;
-  }
-
   .stack-card-container {
-    width: clamp(26px, 4.6vh, 40px);
+    width: clamp(32px, 5.4vh, 52px);
   }
 
   .pile {
@@ -2473,19 +2329,19 @@ onBeforeUnmount(() => {
   }
 
   :deep(.player-card) {
-    max-height: bh(6.2);
-    max-width: calc(bh(6.2) / 1.45);
+    max-height: bh(7.4);
+    max-width: calc(bh(7.4) / 1.45);
   }
 
   :deep(.player-card.glasses) {
-    max-height: bh(6.2);
-    max-width: calc(bh(6.2) / 1.45);
+    max-height: bh(7.4);
+    max-width: calc(bh(7.4) / 1.45);
     height: auto;
   }
 
   .mini-card :deep(.player-card) {
-    max-height: 2.8vh;
-    max-width: calc(2.8vh / 1.45);
+    max-height: 3.2vh;
+    max-width: calc(3.2vh / 1.45);
   }
 }
 </style>

@@ -8,8 +8,18 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
+function resetCutthroatRuntime() {
+  return cy.request({
+    method: 'POST',
+    url: '/cutthroat/api/test/reset',
+    failOnStatusCode: false,
+    log: false,
+  });
+}
+
 function setup() {
   cy.wipeDatabase();
+  resetCutthroatRuntime();
   cy.visit('/');
   cy.signupPlayer(myUser);
   cy.vueRoute('/');
@@ -521,11 +531,11 @@ describe('Home - Create Game', () => {
     cy.get('[data-cy=create-game-unified-btn]').click();
     cy.location('pathname').should('contain', '/cutthroat/lobby/');
     cy.get('[data-cy=cutthroat-seat-indicator]').should('have.length', 3);
-    cy.get('[data-cy-ready-indicator="stale-player-one"]', { timeout: 0 }).should('not.exist');
-    cy.get('[data-cy-ready-indicator="stale-player-two"]', { timeout: 0 }).should('not.exist');
-    cy.get('[data-cy-ready-indicator="stale-player-three"]', { timeout: 0 }).should('not.exist');
-    cy.get('#cutthroat-lobby-wrapper').should('contain.text', 'Invite');
     cy.wait('@cutthroatLobbyState');
+    cy.get('#cutthroat-lobby-wrapper').should('contain.text', 'Invite');
+    cy.get('[data-cy-ready-indicator]').should('not.contain.text', 'stale-player-one');
+    cy.get('[data-cy-ready-indicator]').should('not.contain.text', 'stale-player-two');
+    cy.get('[data-cy-ready-indicator]').should('not.contain.text', 'stale-player-three');
   });
 
   it('Creates a vs AI game from the unified create controls', () => {

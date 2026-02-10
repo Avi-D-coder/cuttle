@@ -1,8 +1,18 @@
 import { myUser } from '../../fixtures/userFixtures';
 import { announcementData } from '../../../../src/routes/home/components/announcementDialog/data/announcementData';
 
+function resetCutthroatRuntime() {
+  return cy.request({
+    method: 'POST',
+    url: '/cutthroat/api/test/reset',
+    failOnStatusCode: false,
+    log: false,
+  });
+}
+
 export function setupCutthroatUser() {
   cy.wipeDatabase();
+  resetCutthroatRuntime();
   cy.visit('/', {
     onBeforeLoad(win) {
       win.localStorage.setItem('announcement', announcementData.id);

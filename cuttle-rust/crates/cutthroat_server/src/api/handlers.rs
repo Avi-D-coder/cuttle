@@ -1,7 +1,8 @@
 use crate::auth::{AuthUser, authorize};
 use crate::game_runtime::{
-    GameCommand, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED,
-    STATUS_STARTED, SeatEntry, create_game_for_user, create_rematch_for_user, game_sender,
+    GameCommand, GameEntry, GameStreamSubscription, GlobalRuntimeState, LobbySnapshotInternal,
+    STATUS_FINISHED, STATUS_STARTED, SeatEntry, create_game_for_user, create_rematch_for_user,
+    game_sender,
 };
 #[cfg(feature = "e2e-seed")]
 use crate::game_runtime::{
@@ -218,6 +219,12 @@ pub(crate) struct SeedGameFromTokenlogResponse {
 #[cfg(feature = "e2e-seed")]
 pub(crate) type SeedGameFromTranscriptResponse = SeedGameFromTokenlogResponse;
 
+#[cfg(feature = "e2e-seed")]
+#[derive(Serialize)]
+pub(crate) struct ResetRuntimeResponse {
+    pub(crate) ok: bool,
+}
+
 pub(crate) async fn get_health() -> Json<HealthResponse> {
     Json(HealthResponse {
         alive: true,
@@ -395,6 +402,16 @@ pub(crate) async fn seed_game_from_transcript(
         created,
         replaced_existing,
     }))
+}
+
+#[cfg(feature = "e2e-seed")]
+pub(crate) async fn reset_runtime_for_e2e(
+    State(state): State<AppState>,
+) -> Json<ResetRuntimeResponse> {
+    let mut runtime = state.runtime.write().await;
+    let next_id = runtime.next_id.max(1);
+    *runtime = GlobalRuntimeState::new(next_id);
+    Json(ResetRuntimeResponse { ok: true })
 }
 
 pub(crate) async fn create_game(
