@@ -56,9 +56,9 @@ jobs:
           parallel: true
           start: npm run start:cutthroat:e2e-seed, npm start, npm run start:client
           config-file: cypress.config.js
-          # wait for 2 minutes for the server to respond
+          # allow extra startup time for cold Rust toolchain/crate builds in CI shards
           wait-on: 'http://localhost:1337, http://localhost:4000/cutthroat/api/v1/health, http://localhost:8080'
-          wait-on-timeout: 120
+          wait-on-timeout: 300
 
         env:
           VITE_API_URL: http://localhost:1337

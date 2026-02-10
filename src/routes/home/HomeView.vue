@@ -82,7 +82,7 @@
               </v-window-item>
               <v-window-item :value="TABS.SPECTATE">
                 <p
-                  v-if="spectateGameList.length === 0 && cutthroatSpectateGameList.length === 0"
+                  v-if="spectateGameList.length === 0 && visibleCutthroatSpectateGameList.length === 0"
                   data-cy="no-spectate-game-text"
                   class="text-surface-1"
                 >
@@ -102,7 +102,7 @@
                     @error="handleError"
                   />
                 </div>
-                <div v-for="game in cutthroatSpectateGameList" :key="`cutthroat-spectate-${game.id}`">
+                <div v-for="game in visibleCutthroatSpectateGameList" :key="`cutthroat-spectate-${game.id}`">
                   <CutthroatLobbyListItem :lobby="game" mode="spectate" />
                 </div>
               </v-window-item>
@@ -265,6 +265,12 @@ export default {
     },
     cutthroatSpectateGameList() {
       return this.cutthroatStore.spectateGames;
+    },
+    visibleCutthroatSpectateGameList() {
+      if (!this.isCutthroatAvailable) {
+        return [];
+      }
+      return this.cutthroatSpectateGameList;
     },
     buttonSize() {
       return this.$vuetify.display.mdAndDown ? 'small' : 'medium';
