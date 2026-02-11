@@ -105,7 +105,14 @@ function isValidGameStatePayload(payload) {
     && typeof payload.is_spectator === 'boolean'
     && isStringArray(payload.spectating_usernames)
     && typeof payload.scrap_straightened === 'boolean'
-    && isOptionalBoolean(payload.archived);
+    && isOptionalBoolean(payload.archived)
+    && (
+      payload.next_game_id === undefined
+      || payload.next_game_id === null
+      || isFiniteNumber(payload.next_game_id)
+    )
+    && isOptionalBoolean(payload.next_game_finished)
+    && isOptionalBoolean(payload.has_active_seated_players);
 }
 
 function isValidLobbySummary(lobbyEntry) {
@@ -124,6 +131,11 @@ function isValidSpectatableGame(gameEntry) {
     && typeof gameEntry.name === 'string'
     && isFiniteNumber(gameEntry.seat_count)
     && isFiniteNumber(gameEntry.status)
+    && (
+      gameEntry.rematch_from_game_id === undefined
+      || gameEntry.rematch_from_game_id === null
+      || isFiniteNumber(gameEntry.rematch_from_game_id)
+    )
     && isStringArray(gameEntry.spectating_usernames);
 }
 
@@ -173,6 +185,9 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const pendingAction = ref(null);
   const isScrapStraightened = ref(false);
   const isArchived = ref(false);
+  const nextGameId = ref(null);
+  const nextGameFinished = ref(false);
+  const hasActiveSeatedPlayers = ref(false);
   let gameSocketShouldReconnect = false;
   let gameSocketReconnectTimer = null;
   let gameSocketReconnectDelayMs = WS_RECONNECT_INITIAL_DELAY_MS;
@@ -231,6 +246,9 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     lastEvent.value = null;
     isScrapStraightened.value = false;
     isArchived.value = false;
+    nextGameId.value = null;
+    nextGameFinished.value = false;
+    hasActiveSeatedPlayers.value = false;
   }
 
   function clearGameReconnectTimer() {
@@ -338,6 +356,9 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     replayTotalStates.value = payload.replay_total_states;
     isScrapStraightened.value = payload.scrap_straightened;
     isArchived.value = payload.archived === true;
+    nextGameId.value = payload.next_game_id ?? null;
+    nextGameFinished.value = payload.next_game_finished === true;
+    hasActiveSeatedPlayers.value = payload.has_active_seated_players === true;
     lastEvent.value = playerView.value?.last_event ?? null;
   }
 
@@ -683,6 +704,9 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     lastError,
     isScrapStraightened,
     isArchived,
+    nextGameId,
+    nextGameFinished,
+    hasActiveSeatedPlayers,
     clearLastError,
     fetchState,
     createGame,

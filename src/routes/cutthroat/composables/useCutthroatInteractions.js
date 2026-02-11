@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { parseCardToken } from '@/util/cutthroat-cards';
 import {
   deriveCounterDialogContextFromPhase,
@@ -35,6 +35,7 @@ export function useCutthroatInteractions({
   snackbarStore,
   t,
   legalActions,
+  deckCount,
   phaseType,
   isActionDisabled,
   isFinished,
@@ -56,6 +57,7 @@ export function useCutthroatInteractions({
   const selectedChoice = ref(null);
   const selectedResolveFourTokens = ref([]);
   const selectedResolveFiveToken = ref(null);
+  const waitingForOpponentStalemate = ref(false);
 
   const selectedSourceChoices = computed(() => {
     return deriveMoveChoicesForSource(legalActions.value, selectedSource.value, phaseType.value);
@@ -186,6 +188,68 @@ export function useCutthroatInteractions({
     const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass', null, phaseType.value);
     return !!(draw || pass);
   });
+
+  const stalemateRequestAction = computed(() => {
+    return findMatchingAction(
+      legalActions.value,
+      { zone: 'stalemate', token: 'request' },
+      'stalemateRequest',
+      null,
+      phaseType.value,
+    );
+  });
+
+  const stalemateAcceptAction = computed(() => {
+    return findMatchingAction(
+      legalActions.value,
+      { zone: 'stalemate', token: 'accept' },
+      'stalemateAccept',
+      null,
+      phaseType.value,
+    );
+  });
+
+  const stalemateRejectAction = computed(() => {
+    return findMatchingAction(
+      legalActions.value,
+      { zone: 'stalemate', token: 'reject' },
+      'stalemateReject',
+      null,
+      phaseType.value,
+    );
+  });
+
+  const canRequestStalemate = computed(() => {
+    if (isSpectatorMode.value || isActionDisabled.value || isFinished.value) {return false;}
+    return !!stalemateRequestAction.value;
+  });
+
+  const canAcceptStalemate = computed(() => {
+    if (isSpectatorMode.value || isActionDisabled.value || isFinished.value) {return false;}
+    return !!stalemateAcceptAction.value;
+  });
+
+  const canRejectStalemate = computed(() => {
+    if (isSpectatorMode.value || isActionDisabled.value || isFinished.value) {return false;}
+    return !!stalemateRejectAction.value;
+  });
+
+  const consideringOpponentStalemateRequest = computed(() => {
+    return canAcceptStalemate.value && canRejectStalemate.value;
+  });
+
+  watch(
+    () => [
+      canRequestStalemate.value,
+      consideringOpponentStalemateRequest.value,
+      isFinished.value,
+    ],
+    ([ canRequest, consideringOpponent, finished ]) => {
+      if (finished || canRequest || consideringOpponent) {
+        waitingForOpponentStalemate.value = false;
+      }
+    },
+  );
 
   const selectedSourceCard = computed(() => {
     if (!selectedSource.value) {return null;}
@@ -428,7 +492,25 @@ export function useCutthroatInteractions({
   }
 
   async function handleDeckClick() {
-    if (!canUseDeck.value) {return;}
+    if (!canUseDeck.value) {
+      const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw', null, phaseType.value);
+      const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass', null, phaseType.value);
+      const hasDeckCards = Number(deckCount.value) > 0;
+      const hasOtherActions = legalActions.value.length > 0;
+      if (
+        !isSpectatorMode.value
+        && isMainPhase.value
+        && !isActionDisabled.value
+        && !isFinished.value
+        && !draw
+        && !pass
+        && hasDeckCards
+        && hasOtherActions
+      ) {
+        snackbarStore.alert(t('game.snackbar.draw.handLimit'));
+      }
+      return;
+    }
     const draw = findMatchingAction(legalActions.value, { zone: 'deck' }, 'draw', null, phaseType.value);
     const pass = findMatchingAction(legalActions.value, { zone: 'deck' }, 'pass', null, phaseType.value);
     await sendResolvedAction(draw ?? pass);
@@ -618,6 +700,33 @@ export function useCutthroatInteractions({
     });
   }
 
+  async function requestStalemate() {
+    if (!canRequestStalemate.value) {return false;}
+    const succeeded = await sendResolvedAction(stalemateRequestAction.value);
+    if (succeeded) {
+      waitingForOpponentStalemate.value = true;
+    }
+    return succeeded;
+  }
+
+  async function acceptStalemate() {
+    if (!canAcceptStalemate.value) {return false;}
+    const succeeded = await sendResolvedAction(stalemateAcceptAction.value);
+    if (succeeded) {
+      waitingForOpponentStalemate.value = false;
+    }
+    return succeeded;
+  }
+
+  async function rejectStalemate() {
+    if (!canRejectStalemate.value) {return false;}
+    const succeeded = await sendResolvedAction(stalemateRejectAction.value);
+    if (succeeded) {
+      waitingForOpponentStalemate.value = false;
+    }
+    return succeeded;
+  }
+
   return {
     actionInFlight,
     actionInFlightKey,
@@ -646,6 +755,11 @@ export function useCutthroatInteractions({
     showCannotCounterDialog,
     counterDialogInvariantError,
     canUseDeck,
+    canRequestStalemate,
+    canAcceptStalemate,
+    canRejectStalemate,
+    consideringOpponentStalemateRequest,
+    waitingForOpponentStalemate,
     selectedSourceCard,
     selectedSourceIsFrozen,
     resolveFiveActions,
@@ -689,5 +803,8 @@ export function useCutthroatInteractions({
     handleJackTargetClick,
     handleJokerTargetClick,
     handlePlayerTargetClick,
+    requestStalemate,
+    acceptStalemate,
+    rejectStalemate,
   };
 }

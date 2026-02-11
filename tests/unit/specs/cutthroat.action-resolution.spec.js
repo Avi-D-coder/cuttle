@@ -17,6 +17,9 @@ describe('cutthroat action resolution helpers (token actions)', () => {
     expect(extractActionSource('P1 resolve')).toEqual({ zone: 'counter', token: 'pass' });
     expect(extractActionSource('P1 resolve 4D')).toEqual({ zone: 'scrap', token: '4D' });
     expect(extractActionSource('P1 points KD', 'ResolvingSeven')).toEqual({ zone: 'reveal', token: 'KD' });
+    expect(extractActionSource('P1 stalemate-propose')).toEqual({ zone: 'stalemate', token: 'request' });
+    expect(extractActionSource('P1 stalemate-accept')).toEqual({ zone: 'stalemate', token: 'accept' });
+    expect(extractActionSource('P1 stalemate-reject')).toEqual({ zone: 'stalemate', token: 'reject' });
   });
 
   it('derives stable move choices for a selected source', () => {
@@ -26,6 +29,7 @@ describe('cutthroat action resolution helpers (token actions)', () => {
       'P1 oneOff 7C',
       'P1 playRoyal KC',
       'P1 resolve',
+      'P1 stalemate-propose',
     ];
 
     expect(deriveMoveChoicesForSource(actions, { zone: 'hand', token: '7C' })).toEqual([
@@ -38,6 +42,9 @@ describe('cutthroat action resolution helpers (token actions)', () => {
     ]);
     expect(deriveMoveChoicesForSource(actions, { zone: 'hand', token: 'KC' })).toEqual([
       { type: 'royal' },
+    ]);
+    expect(deriveMoveChoicesForSource(actions, { zone: 'stalemate', token: 'request' })).toEqual([
+      { type: 'stalemateRequest' },
     ]);
   });
 

@@ -1,9 +1,9 @@
 #[cfg(feature = "e2e-seed")]
+use crate::api::handlers::reset_runtime_for_e2e;
+#[cfg(feature = "e2e-seed")]
 use crate::api::handlers::seed_game_from_tokenlog;
 #[cfg(feature = "e2e-seed")]
 use crate::api::handlers::seed_game_from_transcript;
-#[cfg(feature = "e2e-seed")]
-use crate::api::handlers::reset_runtime_for_e2e;
 use crate::api::handlers::{
     create_game, get_health, get_history, get_spectate_state, get_state, join_game, leave_game,
     post_action, rematch_game, set_ready, start_game,

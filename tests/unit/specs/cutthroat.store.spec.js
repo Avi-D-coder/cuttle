@@ -82,6 +82,9 @@ function buildStatePayload(version = 1) {
     legal_actions: [ 'P1 draw' ],
     spectating_usernames: [],
     scrap_straightened: false,
+    next_game_id: null,
+    next_game_finished: false,
+    has_active_seated_players: false,
     lobby: {
       seats: [ { seat: 1, user_id: 10, username: 'avi', ready: true } ],
     },
@@ -133,6 +136,45 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.isSpectator).toBe(true);
     expect(store.playerView.deck_count).toBe(0);
     expect(store.spectatorView.deck_count).toBe(0);
+  });
+
+  it('stores next game replay metadata from state payload', () => {
+    const store = useCutthroatStore();
+    store.connectWs(42);
+    const [ ws ] = FakeWebSocket.instances;
+    const payload = buildStatePayload(5);
+    payload.next_game_id = 99;
+    payload.next_game_finished = true;
+    ws.emitMessage({ type: 'state', state: payload });
+
+    expect(store.nextGameId).toBe(99);
+    expect(store.nextGameFinished).toBe(true);
+  });
+
+  it('stores active seated player presence metadata from state payload', () => {
+    const store = useCutthroatStore();
+    store.connectWs(42);
+    const [ ws ] = FakeWebSocket.instances;
+    const payload = buildStatePayload(5);
+    payload.has_active_seated_players = true;
+    ws.emitMessage({ type: 'state', state: payload });
+
+    expect(store.hasActiveSeatedPlayers).toBe(true);
+  });
+
+  it('accepts legacy game state payloads without next_game metadata', () => {
+    const store = useCutthroatStore();
+    store.connectWs(42);
+    const [ ws ] = FakeWebSocket.instances;
+    const payload = buildStatePayload(5);
+    delete payload.next_game_id;
+    delete payload.next_game_finished;
+    delete payload.has_active_seated_players;
+    ws.emitMessage({ type: 'state', state: payload });
+
+    expect(store.nextGameId).toBeNull();
+    expect(store.nextGameFinished).toBe(false);
+    expect(store.hasActiveSeatedPlayers).toBe(false);
   });
 
   it('ignores stale websocket game state versions', () => {
@@ -360,13 +402,39 @@ describe('cutthroat store websocket behavior', () => {
         id: 1, name: 'lobby', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
       } ],
       spectatable_games: [
-        { id: 2, name: 'active', seat_count: 3, status: 1, spectating_usernames: [] },
+        {
+          id: 2,
+          name: 'active',
+          seat_count: 3,
+          status: 1,
+          rematch_from_game_id: 1,
+          spectating_usernames: [],
+        },
       ],
     });
 
     expect(store.lobbies).toHaveLength(1);
     expect(store.spectateGames).toHaveLength(1);
     expect(store.spectateGames[0].id).toBe(2);
+    expect(store.spectateGames[0].rematch_from_game_id).toBe(1);
+  });
+
+  it('accepts legacy spectatable game payloads without rematch_from_game_id', () => {
+    const store = useCutthroatStore();
+    store.connectLobbyWs();
+    const [ ws ] = FakeWebSocket.instances;
+
+    ws.emitMessage({
+      type: 'lobbies',
+      version: 1,
+      lobbies: [],
+      spectatable_games: [
+        { id: 22, name: 'active', seat_count: 3, status: 1, spectating_usernames: [] },
+      ],
+    });
+
+    expect(store.spectateGames).toHaveLength(1);
+    expect(store.spectateGames[0].id).toBe(22);
   });
 
   it('ignores stale lobby versions', () => {

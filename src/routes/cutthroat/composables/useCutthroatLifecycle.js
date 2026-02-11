@@ -28,9 +28,46 @@ export function useCutthroatLifecycle({
   revealedCardEntries,
   isRevealSelectable,
 }) {
+  let observedStartedDuringSession = false;
+
   function setBrowserHeightVariable() {
     const viewportHeight = window.innerHeight * 0.01;
     document.documentElement.style.setProperty('--browserHeight', `${viewportHeight}px`);
+  }
+
+  async function normalizeFinishedSpectateDeepLinkToReplayStart() {
+    const currentRoute = router.currentRoute.value;
+    const hasReplayIndex = Object.prototype.hasOwnProperty.call(currentRoute.query, 'gameStateIndex');
+    if (!isSpectateRoute.value || hasReplayIndex || store.status !== 2) {return;}
+    await router.replace({
+      ...currentRoute,
+      query: {
+        ...currentRoute.query,
+        gameStateIndex: 0,
+      },
+    });
+  }
+
+  async function fallbackGameRouteToSpectateReplay() {
+    const currentRoute = router.currentRoute.value;
+    const hasReplayIndex = Object.prototype.hasOwnProperty.call(currentRoute.query, 'gameStateIndex');
+    await store.fetchState(gameId.value, {
+      spectateIntent: true,
+      gameStateIndex: replayStateIndex.value,
+    });
+    if (store.status === 1) {
+      observedStartedDuringSession = true;
+    }
+    const query = { ...currentRoute.query };
+    if (!hasReplayIndex && store.status === 2) {
+      query.gameStateIndex = 0;
+    } else if (hasReplayIndex) {
+      query.gameStateIndex = replayStateIndex.value;
+    }
+    await router.replace({
+      path: `/cutthroat/spectate/${gameId.value}`,
+      query,
+    });
   }
 
   onMounted(async () => {
@@ -44,6 +81,9 @@ export function useCutthroatLifecycle({
         spectateIntent: isSpectateRoute.value,
         gameStateIndex: replayStateIndex.value,
       });
+      if (store.status === 1 && (!isSpectateRoute.value || replayStateIndex.value < 0)) {
+        observedStartedDuringSession = true;
+      }
       if (store.status === 0 && !isSpectatorMode.value) {
         router.replace(`/cutthroat/lobby/${gameId.value}`);
         return;
@@ -55,22 +95,20 @@ export function useCutthroatLifecycle({
       }
       if (isSpectateRoute.value && !isSpectatorMode.value) {
         snackbarStore.alert(t('cutthroat.game.cannotSpectateOwnGame'));
-        router.replace(`/cutthroat/game/${gameId.value}`);
+        await router.replace(`/cutthroat/game/${gameId.value}`);
       } else if (!isSpectateRoute.value && isSpectatorMode.value) {
-        router.replace(`/cutthroat/spectate/${gameId.value}`);
-      }
-
-      const currentRoute = router.currentRoute.value;
-      const hasReplayIndex = Object.prototype.hasOwnProperty.call(currentRoute.query, 'gameStateIndex');
-      if (isSpectateRoute.value && !hasReplayIndex && store.status === 2) {
+        const currentRoute = router.currentRoute.value;
+        const hasReplayIndex = Object.prototype.hasOwnProperty.call(currentRoute.query, 'gameStateIndex');
+        const query = { ...currentRoute.query };
+        if (!hasReplayIndex && store.status === 2) {
+          query.gameStateIndex = 0;
+        }
         await router.replace({
-          ...currentRoute,
-          query: {
-            ...currentRoute.query,
-            gameStateIndex: 0,
-          },
+          path: `/cutthroat/spectate/${gameId.value}`,
+          query,
         });
       }
+      await normalizeFinishedSpectateDeepLinkToReplayStart();
     } catch (err) {
       if (isSpectateRoute.value && err?.status === 409) {
         try {
@@ -91,17 +129,41 @@ export function useCutthroatLifecycle({
           return;
         }
       }
-      try {
-        await store.joinGame(gameId.value);
-        await store.fetchState(gameId.value, { spectateIntent: false, gameStateIndex: -1 });
-        if (store.status === 0) {
-          router.replace(`/cutthroat/lobby/${gameId.value}`);
-          return;
-        }
-      } catch (joinErr) {
-        snackbarStore.alert(joinErr?.message ?? t('cutthroat.game.loadFailed'));
+      if (isSpectateRoute.value) {
+        snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
         router.push('/');
         return;
+      }
+      if (err?.status === 404 || err?.status === 503) {
+        try {
+          await fallbackGameRouteToSpectateReplay();
+        } catch (_) {
+          try {
+            await store.joinGame(gameId.value);
+            await store.fetchState(gameId.value, { spectateIntent: false, gameStateIndex: -1 });
+            if (store.status === 0) {
+              router.replace(`/cutthroat/lobby/${gameId.value}`);
+              return;
+            }
+          } catch (joinErr) {
+            snackbarStore.alert(joinErr?.message ?? t('cutthroat.game.loadFailed'));
+            router.push('/');
+            return;
+          }
+        }
+      } else {
+        try {
+          await store.joinGame(gameId.value);
+          await store.fetchState(gameId.value, { spectateIntent: false, gameStateIndex: -1 });
+          if (store.status === 0) {
+            router.replace(`/cutthroat/lobby/${gameId.value}`);
+            return;
+          }
+        } catch (joinErr) {
+          snackbarStore.alert(joinErr?.message ?? t('cutthroat.game.loadFailed'));
+          router.push('/');
+          return;
+        }
       }
     }
 
@@ -128,12 +190,32 @@ export function useCutthroatLifecycle({
 
   watch(
     () => store.status,
-    (status) => {
+    async (status, oldStatus) => {
+      if (status === 1 && (!isSpectateRoute.value || replayStateIndex.value < 0)) {
+        observedStartedDuringSession = true;
+      }
       if (status === 0 && !isSpectatorMode.value) {
         router.replace(`/cutthroat/lobby/${gameId.value}`);
       } else if (status === 0 && isSpectatorMode.value) {
         snackbarStore.alert(t('cutthroat.game.spectateUnavailable'));
         router.push('/');
+      }
+      if (
+        isSpectateRoute.value
+        && status === 2
+        && oldStatus !== 2
+        && observedStartedDuringSession
+      ) {
+        const currentRoute = router.currentRoute.value;
+        if (Number(currentRoute.query.gameStateIndex) !== -1) {
+          await router.replace({
+            ...currentRoute,
+            query: {
+              ...currentRoute.query,
+              gameStateIndex: -1,
+            },
+          });
+        }
       }
       if (status === 2) {
         clearInteractionState();

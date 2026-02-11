@@ -29,4 +29,27 @@ describe('Cutthroat 3P Layout', () => {
     cy.openCutthroatGame(gameId, 'game');
     assertBottomGapWithin(18);
   });
+
+  it('keeps local stolen-point jack attachment visible on desktop', () => {
+    const gameId = 7323;
+    const transcript = transcriptWithActions({
+      dealer: 'P2',
+      actions: [
+        'P0 points 4C',
+        'P1 playRoyal JC 4C',
+      ],
+    });
+
+    cy.seedCutthroatGameFromTranscript({
+      gameId,
+      ...transcript,
+      status: 1,
+      playerSeat: 1,
+    });
+
+    cy.viewport(1440, 900);
+    cy.openCutthroatGame(gameId, 'game');
+    cy.get('.table-bottom [data-cutthroat-point-card="4C"]').should('be.visible');
+    cy.get('.table-bottom [data-cutthroat-jack-card="JC"]').should('be.visible');
+  });
 });

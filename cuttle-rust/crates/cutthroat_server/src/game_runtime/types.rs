@@ -117,11 +117,7 @@ impl LobbyCacheEntry {
             game_id: game.id,
             name: game.name.clone(),
             status: game.status,
-            seat_count: if game.is_rematch_lobby {
-                game.series_player_order.len()
-            } else {
-                game.seats.len()
-            },
+            seat_count: game.seats.len(),
             ready_count: game.seats.iter().filter(|seat| seat.ready).count(),
             is_rematch_lobby: game.is_rematch_lobby,
             seat_user_ids,
@@ -218,6 +214,10 @@ impl GlobalRuntimeState {
                 name: entry.name.clone(),
                 seat_count: entry.seat_count,
                 status: entry.status,
+                rematch_from_game_id: self
+                    .game_meta
+                    .get(&entry.game_id)
+                    .and_then(|meta| meta.rematch_from_game_id),
                 spectating_usernames: entry.spectating_usernames.clone(),
             })
             .collect();

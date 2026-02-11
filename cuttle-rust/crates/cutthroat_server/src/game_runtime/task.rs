@@ -8,7 +8,7 @@ use crate::game_runtime::types::{
     SeatEntry, active_spectator_usernames,
 };
 use crate::game_runtime::{STATUS_FINISHED, STATUS_LOBBY, STATUS_STARTED};
-use crate::persistence::CompletedGameRecord;
+use crate::persistence::{CompletedGameRecord, PersistenceWriteMessage};
 use crate::view::history::{build_history_log_for_viewer, build_history_log_for_viewer_with_limit};
 use crate::view::response::{
     build_last_event, build_spectator_view, legal_action_tokens_for_seat, normal_lobby_name,
@@ -30,6 +30,7 @@ use tokio::sync::{RwLock, mpsc, watch};
 use tracing::error;
 
 const GAME_COMMAND_BUFFER: usize = 256;
+const FINISHED_CLEANUP_GRACE_SECONDS: i64 = 5;
 
 struct GameWatchSet {
     seat_tx: [watch::Sender<Arc<GameStateResponse>>; 3],
@@ -38,7 +39,7 @@ struct GameWatchSet {
 
 struct GameActor {
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     game: GameEntry,
     streams: GameWatchSet,
     seat_connections: [usize; 3],
@@ -78,7 +79,7 @@ pub(crate) async fn game_sender(
 
 pub(crate) async fn create_game_for_user(
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     user: AuthUser,
 ) -> i64 {
     let id = {
@@ -95,7 +96,7 @@ pub(crate) async fn create_game_for_user(
 
 pub(crate) async fn create_rematch_for_user(
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     source_game_id: i64,
     user: AuthUser,
 ) -> Result<i64, RuntimeError> {
@@ -124,6 +125,15 @@ pub(crate) async fn create_rematch_for_user(
                 .map(|meta| meta.status == STATUS_LOBBY)
                 .unwrap_or(false)
         {
+            if persistence_tx
+                .try_send(PersistenceWriteMessage::LinkRematch {
+                    source_game_id,
+                    next_game_id: existing_id,
+                })
+                .is_err()
+            {
+                error!("persistence worker channel full/closed; dropping rematch link write");
+            }
             return Ok(existing_id);
         }
     }
@@ -149,6 +159,15 @@ pub(crate) async fn create_rematch_for_user(
                 .map(|meta| meta.status == STATUS_LOBBY)
                 .unwrap_or(false)
         {
+            if persistence_tx
+                .try_send(PersistenceWriteMessage::LinkRematch {
+                    source_game_id,
+                    next_game_id: existing_id,
+                })
+                .is_err()
+            {
+                error!("persistence worker channel full/closed; dropping rematch link write");
+            }
             return Ok(existing_id);
         }
 
@@ -188,13 +207,28 @@ pub(crate) async fn create_rematch_for_user(
         engine,
     };
 
-    let _ = spawn_game_actor_internal(runtime, persistence_tx, rematch, Some(source_game_id)).await;
+    let _ = spawn_game_actor_internal(
+        runtime.clone(),
+        persistence_tx.clone(),
+        rematch,
+        Some(source_game_id),
+    )
+    .await;
+    if persistence_tx
+        .try_send(PersistenceWriteMessage::LinkRematch {
+            source_game_id,
+            next_game_id: id,
+        })
+        .is_err()
+    {
+        error!("persistence worker channel full/closed; dropping rematch link write");
+    }
     Ok(id)
 }
 
 pub(crate) async fn spawn_game_actor(
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     game: GameEntry,
 ) -> mpsc::Sender<GameCommand> {
     spawn_game_actor_internal(runtime, persistence_tx, game, None).await
@@ -202,7 +236,7 @@ pub(crate) async fn spawn_game_actor(
 
 async fn spawn_game_actor_internal(
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     game: GameEntry,
     rematch_source_game_id: Option<i64>,
 ) -> mpsc::Sender<GameCommand> {
@@ -226,7 +260,7 @@ async fn spawn_game_actor_internal(
 impl GameActor {
     fn new(
         runtime: Arc<RwLock<GlobalRuntimeState>>,
-        persistence_tx: mpsc::Sender<CompletedGameRecord>,
+        persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
         game: GameEntry,
     ) -> Self {
         let seat0 = Arc::new(
@@ -382,7 +416,10 @@ impl GameActor {
                     match result {
                         Ok(outcome) => {
                             if let Some(record) = outcome.completed_record
-                                && self.persistence_tx.try_send(record).is_err()
+                                && self
+                                    .persistence_tx
+                                    .try_send(PersistenceWriteMessage::CompletedGame(record))
+                                    .is_err()
                             {
                                 error!(
                                     "persistence worker channel full/closed; dropping completed game record"
@@ -685,8 +722,8 @@ impl GameActor {
         let original_len = self.game.seats.len();
         self.game.seats.retain(|seat| {
             let seat_idx = seat.seat as usize;
-            let active_rematch_connection = seat_idx < self.seat_connections.len()
-                && self.seat_connections[seat_idx] > 0;
+            let active_rematch_connection =
+                seat_idx < self.seat_connections.len() && self.seat_connections[seat_idx] > 0;
             if active_rematch_connection {
                 return true;
             }
@@ -710,11 +747,13 @@ impl GameActor {
             .find(|seat| seat.user_id == user.id)
             .map(|seat| seat.seat);
 
-        if spectate_intent || maybe_seat.is_none() {
-            return Ok(build_spectator_state_response(&self.game));
-        }
-
-        build_state_response(&self.game, maybe_seat.unwrap_or(0))
+        let mut response = if spectate_intent || maybe_seat.is_none() {
+            build_spectator_state_response(&self.game)
+        } else {
+            build_state_response(&self.game, maybe_seat.unwrap_or(0))?
+        };
+        response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
+        Ok(response)
     }
 
     fn build_spectator_replay_state_for_user(
@@ -725,11 +764,17 @@ impl GameActor {
         self.validate_viewer(user, true)?;
 
         if game_state_index < 0 {
-            return Ok(build_spectator_state_response(&self.game));
+            let mut response = build_spectator_state_response(&self.game);
+            response.has_active_seated_players =
+                self.seat_connections.iter().any(|count| *count > 0);
+            return Ok(response);
         }
 
         if self.game.status != STATUS_FINISHED {
-            return Ok(build_spectator_state_response(&self.game));
+            let mut response = build_spectator_state_response(&self.game);
+            response.has_active_seated_players =
+                self.seat_connections.iter().any(|count| *count > 0);
+            return Ok(response);
         }
 
         let replay_index =
@@ -758,6 +803,7 @@ impl GameActor {
         response.replay_total_states = replay_total_states(&self.game);
         response.log_tail =
             build_history_log_for_viewer_with_limit(&replay_game, 0, Some(replay_index));
+        response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
         Ok(response)
     }
 
@@ -845,16 +891,21 @@ impl GameActor {
     }
 
     fn publish_game_watch(&self) {
-        let Ok(seat0) = build_state_response(&self.game, 0) else {
+        let Ok(mut seat0) = build_state_response(&self.game, 0) else {
             return;
         };
-        let Ok(seat1) = build_state_response(&self.game, 1) else {
+        let Ok(mut seat1) = build_state_response(&self.game, 1) else {
             return;
         };
-        let Ok(seat2) = build_state_response(&self.game, 2) else {
+        let Ok(mut seat2) = build_state_response(&self.game, 2) else {
             return;
         };
-        let spectator = build_spectator_state_response(&self.game);
+        let mut spectator = build_spectator_state_response(&self.game);
+        let has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
+        seat0.has_active_seated_players = has_active_seated_players;
+        seat1.has_active_seated_players = has_active_seated_players;
+        seat2.has_active_seated_players = has_active_seated_players;
+        spectator.has_active_seated_players = has_active_seated_players;
 
         self.streams.seat_tx[0].send_replace(Arc::new(seat0));
         self.streams.seat_tx[1].send_replace(Arc::new(seat1));
@@ -930,6 +981,12 @@ impl GameActor {
 
     async fn should_cleanup(&self) -> bool {
         if self.game.status != STATUS_FINISHED {
+            return false;
+        }
+        if self.persistence_tx.is_closed() {
+            return false;
+        }
+        if (Utc::now() - self.game.finished_at).num_seconds() < FINISHED_CLEANUP_GRACE_SECONDS {
             return false;
         }
 
@@ -1017,6 +1074,9 @@ fn build_spectator_state_response(game: &GameEntry) -> GameStateResponse {
         spectating_usernames: active_spectator_usernames(game),
         scrap_straightened: game.scrap_straightened,
         archived: false,
+        next_game_id: None,
+        next_game_finished: false,
+        has_active_seated_players: false,
     }
 }
 
@@ -1066,6 +1126,9 @@ fn build_state_response(game: &GameEntry, seat: Seat) -> Result<GameStateRespons
         spectating_usernames: active_spectator_usernames(game),
         scrap_straightened: game.scrap_straightened,
         archived: false,
+        next_game_id: None,
+        next_game_finished: false,
+        has_active_seated_players: false,
     })
 }
 
@@ -1096,6 +1159,7 @@ fn build_completed_record(
     let [p0_user_id, p1_user_id, p2_user_id] = user_ids_by_seat(game)?;
     Some(CompletedGameRecord {
         rust_game_id: game.id,
+        next_rust_game_id: None,
         tokenlog: serialize_tokenlog(&game.transcript),
         p0_user_id,
         p1_user_id,
@@ -1148,7 +1212,7 @@ fn new_lobby_game(id: i64, user: AuthUser) -> GameEntry {
 #[cfg(feature = "e2e-seed")]
 pub(crate) async fn seed_game_from_tokenlog(
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     seed: SeedGameInput,
 ) -> Result<SeedGameResult, RuntimeError> {
     let game = seeded_game_from_tokenlog(seed)?;
@@ -1190,7 +1254,7 @@ pub(crate) async fn seed_game_from_tokenlog(
 #[cfg(feature = "e2e-seed")]
 pub(crate) async fn seed_game_from_transcript(
     runtime: Arc<RwLock<GlobalRuntimeState>>,
-    persistence_tx: mpsc::Sender<CompletedGameRecord>,
+    persistence_tx: mpsc::Sender<PersistenceWriteMessage>,
     seed: SeedGameFromTranscriptInput,
 ) -> Result<SeedGameResult, RuntimeError> {
     if seed.game_id <= 0 {
@@ -1413,7 +1477,12 @@ mod tests {
         (game_id, p0, p1, p2)
     }
 
-    fn finished_source_game(game_id: i64, p0: &AuthUser, p1: &AuthUser, p2: &AuthUser) -> GameEntry {
+    fn finished_source_game(
+        game_id: i64,
+        p0: &AuthUser,
+        p1: &AuthUser,
+        p2: &AuthUser,
+    ) -> GameEntry {
         let mut game = new_lobby_game(game_id, p0.clone());
         game.seats = vec![
             SeatEntry {
@@ -1540,6 +1609,40 @@ mod tests {
         let (_game_id, _p0, _p1, _p2) = create_started_game(runtime);
     }
 
+    #[test]
+    fn started_non_rematch_game_exposes_no_rematch_source_in_spectatable_summary() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(90)));
+        let (game_id, _p0, _p1, _p2) = create_started_game(runtime.clone());
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let guard = runtime.read().await;
+            let lobby_snapshot = guard.lobby_tx.borrow();
+            let spectatable_game = lobby_snapshot
+                .spectatable_games
+                .iter()
+                .find(|entry| entry.id == game_id)
+                .expect("started game should be spectatable");
+            assert_eq!(spectatable_game.rematch_from_game_id, None);
+        });
+    }
+
+    #[tokio::test]
+    async fn finished_game_is_not_cleaned_up_when_persistence_channel_is_closed() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(180)));
+        let (persistence_tx, persistence_rx) = mpsc::channel(8);
+        drop(persistence_rx);
+
+        let p0 = user(81, "p0");
+        let p1 = user(82, "p1");
+        let p2 = user(83, "p2");
+        let mut finished_game = finished_source_game(180, &p0, &p1, &p2);
+        finished_game.finished_at =
+            Utc::now() - chrono::Duration::seconds(FINISHED_CLEANUP_GRACE_SECONDS + 1);
+
+        let actor = GameActor::new(runtime, persistence_tx, finished_game);
+        assert!(!actor.should_cleanup().await);
+    }
+
     #[tokio::test]
     async fn source_disconnect_clears_unstarted_rematch_active_presence_but_keeps_reservations() {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(100)));
@@ -1560,10 +1663,14 @@ mod tests {
         subscribe_as_seat(&source_tx, p1.clone()).await;
         subscribe_as_seat(&source_tx, p2.clone()).await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
         {
             let guard = runtime.read().await;
             assert_eq!(guard.rematches.get(&source_id), Some(&rematch_id));
@@ -1598,7 +1705,7 @@ mod tests {
                 .lobby_cache
                 .get(&rematch_id)
                 .map(|entry| entry.seat_count),
-            Some(3)
+            Some(0)
         );
         assert_eq!(
             guard
@@ -1608,7 +1715,10 @@ mod tests {
             Some(vec![p0.id, p1.id, p2.id])
         );
         assert_eq!(
-            guard.game_meta.get(&rematch_id).map(|meta| meta.seats.len()),
+            guard
+                .game_meta
+                .get(&rematch_id)
+                .map(|meta| meta.seats.len()),
             Some(0)
         );
     }
@@ -1634,10 +1744,14 @@ mod tests {
         subscribe_as_seat(&source_tx, p2.clone()).await;
         subscribe_as_spectator(&source_tx, p0.clone()).await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
         let rematch_tx = game_sender(&runtime, rematch_id)
             .await
             .expect("rematch sender");
@@ -1671,6 +1785,13 @@ mod tests {
             guard.game_meta.get(&rematch_id).map(|meta| meta.status),
             Some(STATUS_STARTED)
         );
+        let lobby_snapshot = guard.lobby_tx.borrow();
+        let spectatable_game = lobby_snapshot
+            .spectatable_games
+            .iter()
+            .find(|entry| entry.id == rematch_id)
+            .expect("started rematch should be spectatable");
+        assert_eq!(spectatable_game.rematch_from_game_id, Some(source_id));
     }
 
     #[tokio::test]
@@ -1689,16 +1810,58 @@ mod tests {
         )
         .await;
 
-        let first_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("first rematch");
-        let second_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p1.clone())
-                .await
-                .expect("second rematch");
+        let first_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("first rematch");
+        let second_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p1.clone(),
+        )
+        .await
+        .expect("second rematch");
 
         assert_eq!(first_id, second_id);
+    }
+
+    #[tokio::test]
+    async fn rematch_creation_emits_persistence_link_message() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(360)));
+        let (persistence_tx, mut persistence_rx) = mpsc::channel(8);
+        let p0 = user(33, "p0");
+        let p1 = user(34, "p1");
+        let p2 = user(35, "p2");
+        let source_id = 140;
+
+        let _source_tx = spawn_game_actor(
+            runtime.clone(),
+            persistence_tx.clone(),
+            finished_source_game(source_id, &p0, &p1, &p2),
+        )
+        .await;
+
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
+        let write = persistence_rx.recv().await.expect("persistence write");
+        assert_eq!(
+            write,
+            PersistenceWriteMessage::LinkRematch {
+                source_game_id: source_id,
+                next_game_id: rematch_id,
+            }
+        );
     }
 
     #[tokio::test]
@@ -1716,14 +1879,24 @@ mod tests {
 
         let _source_tx = spawn_game_actor(runtime.clone(), persistence_tx.clone(), source).await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
 
         let guard = runtime.read().await;
-        assert_eq!(guard.game_meta.get(&source_id).map(|meta| meta.dealer), Some(2));
-        assert_eq!(guard.game_meta.get(&rematch_id).map(|meta| meta.dealer), Some(0));
+        assert_eq!(
+            guard.game_meta.get(&source_id).map(|meta| meta.dealer),
+            Some(2)
+        );
+        assert_eq!(
+            guard.game_meta.get(&rematch_id).map(|meta| meta.dealer),
+            Some(0)
+        );
     }
 
     #[tokio::test]
@@ -1742,10 +1915,14 @@ mod tests {
         )
         .await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
         let rematch_tx = game_sender(&runtime, rematch_id)
             .await
             .expect("rematch sender");
@@ -1777,10 +1954,14 @@ mod tests {
         subscribe_as_seat(&source_tx, p1.clone()).await;
         subscribe_as_seat(&source_tx, p2.clone()).await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
         let rematch_tx = game_sender(&runtime, rematch_id)
             .await
             .expect("rematch sender");
@@ -1798,6 +1979,24 @@ mod tests {
             }
         })
         .await;
+
+        {
+            let guard = runtime.read().await;
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&rematch_id)
+                    .map(|entry| entry.seat_count),
+                Some(2)
+            );
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&rematch_id)
+                    .map(|entry| entry.seat_user_ids.clone()),
+                Some(vec![p0.id, p1.id, p2.id])
+            );
+        }
 
         let seat = join_game_result(&rematch_tx, p1.clone())
             .await
@@ -1825,10 +2024,14 @@ mod tests {
         subscribe_as_seat(&source_tx, p1.clone()).await;
         subscribe_as_seat(&source_tx, p2.clone()).await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
         let rematch_tx = game_sender(&runtime, rematch_id)
             .await
             .expect("rematch sender");
@@ -1871,10 +2074,14 @@ mod tests {
         subscribe_as_seat(&source_tx, p1.clone()).await;
         subscribe_as_seat(&source_tx, p2.clone()).await;
 
-        let rematch_id =
-            create_rematch_for_user(runtime.clone(), persistence_tx.clone(), source_id, p0.clone())
-                .await
-                .expect("create rematch");
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
         let rematch_tx = game_sender(&runtime, rematch_id)
             .await
             .expect("rematch sender");

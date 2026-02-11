@@ -10,7 +10,13 @@
         class="cutthroat-top-controls d-flex align-center justify-end"
         :style="menuWrapperStyle"
       >
-        <CutthroatGameMenu :is-spectating="isSpectatorMode" @go-home="goToHome" />
+        <SpectatorListMenu :spectating-users="spectatorNames" :vuetify-display="$vuetify" />
+        <CutthroatGameMenu
+          :is-spectating="isSpectatorMode"
+          :can-request-stalemate="canRequestStalemate"
+          @go-home="goToHome"
+          @request-stalemate="handleStalemateRequest"
+        />
         <v-icon
           v-if="smAndDown"
           class="history-toggle-icon"
@@ -102,11 +108,12 @@
                 {{ t('game.score.goal') }}: {{ leftSeatStatus.goal }}
               </span>
               <span
+                v-if="leftSeatStatus.showTurnLabel"
                 class="turn-status seat-status-turn"
                 :class="{
-                  'my-turn': leftSeatStatus.isActiveTurn,
-                  'text-black': leftSeatStatus.isActiveTurn,
-                  'text-white': !leftSeatStatus.isActiveTurn,
+                  'my-turn': leftSeatStatus.showYourTurn,
+                  'text-black': leftSeatStatus.showYourTurn,
+                  'text-white': !leftSeatStatus.showYourTurn,
                 }"
                 :data-cy="`cutthroat-seat-turn-${leftSeatStatus.seat}`"
               >
@@ -192,9 +199,6 @@
             <h3 class="history-title">
               {{ t('game.history.title') }}
             </h3>
-            <p v-if="spectatorNames.length > 0" class="history-spectators">
-              {{ t('game.menus.spectatorListMenu.spectators') }}: {{ spectatorNames.join(', ') }}
-            </p>
             <div ref="logsContainerDesktop" class="history-logs">
               <p
                 v-for="(log, index) in historyLines"
@@ -241,11 +245,12 @@
                 {{ t('game.score.goal') }}: {{ rightSeatStatus.goal }}
               </span>
               <span
+                v-if="rightSeatStatus.showTurnLabel"
                 class="turn-status seat-status-turn"
                 :class="{
-                  'my-turn': rightSeatStatus.isActiveTurn,
-                  'text-black': rightSeatStatus.isActiveTurn,
-                  'text-white': !rightSeatStatus.isActiveTurn,
+                  'my-turn': rightSeatStatus.showYourTurn,
+                  'text-black': rightSeatStatus.showYourTurn,
+                  'text-white': !rightSeatStatus.showYourTurn,
                 }"
                 :data-cy="`cutthroat-seat-turn-${rightSeatStatus.seat}`"
               >
@@ -399,11 +404,12 @@
                 {{ t('game.score.goal') }}: {{ mySeatStatus.goal }}
               </span>
               <span
+                v-if="mySeatStatus.showTurnLabel"
                 class="turn-status seat-status-turn"
                 :class="{
-                  'my-turn': mySeatStatus.isActiveTurn,
-                  'text-black': mySeatStatus.isActiveTurn,
-                  'text-white': !mySeatStatus.isActiveTurn,
+                  'my-turn': mySeatStatus.showYourTurn,
+                  'text-black': mySeatStatus.showYourTurn,
+                  'text-white': !mySeatStatus.showYourTurn,
                 }"
                 :data-cy="`cutthroat-seat-turn-${mySeatStatus.seat}`"
               >
@@ -573,6 +579,15 @@
       </template>
     </BaseOverlay>
 
+    <BaseOverlay
+      id="waiting-for-opponent-stalemate-scrim"
+      :model-value="waitingForOpponentStalemate"
+    >
+      <template #header>
+        {{ t('game.overlays.consideringStalemate', { opponentUsername: actingPlayerLabel }) }}
+      </template>
+    </BaseOverlay>
+
     <CutthroatMoveChoiceOverlay
       :model-value="showMoveChoiceOverlay"
       :selected-card="selectedSourceCard"
@@ -639,6 +654,49 @@
       :twos-played="counterDialogTwosPlayed"
       @resolve="handleCounterPass"
     />
+
+    <BaseDialog
+      id="opponent-requested-stalemate-dialog"
+      :model-value="consideringOpponentStalemateRequest"
+      :title="t('game.dialogs.opponentRequestedStalemateDialog.title')"
+      minimizable
+    >
+      <template #body>
+        <p>{{ t('game.dialogs.opponentRequestedStalemateDialog.opponentHasRequested') }}</p>
+        <div class="d-flex justify-center">
+          <v-icon
+            class="mr-8"
+            size="80px"
+            icon="mdi-offer"
+            aria-hidden="true"
+          />
+          <v-icon
+            size="80px"
+            icon="mdi-help-circle"
+            aria-hidden="true"
+          />
+        </div>
+      </template>
+      <template #actions>
+        <v-btn
+          variant="outlined"
+          color="surface-1"
+          class="mr-4"
+          data-cy="reject-stalemate"
+          @click="handleStalemateReject"
+        >
+          {{ t('game.dialogs.opponentRequestedStalemateDialog.reject') }}
+        </v-btn>
+        <v-btn
+          color="error"
+          variant="flat"
+          data-cy="accept-stalemate"
+          @click="handleStalemateAccept"
+        >
+          {{ t('game.dialogs.opponentRequestedStalemateDialog.accept') }}
+        </v-btn>
+      </template>
+    </BaseDialog>
 
     <div
       v-if="isDevMode && counterDialogInvariantError"
@@ -730,7 +788,7 @@
           {{ gameResultText }}
         </div>
         <div
-          v-if="!isSpectatorMode && rematchOfferPending"
+          v-if="isRematchWaiting"
           class="finished-subtitle"
           data-cy="cutthroat-rematch-waiting"
         >
@@ -740,15 +798,26 @@
       <template #actions>
         <div class="finished-actions">
           <v-btn
-            v-if="!isSpectatorMode"
+            v-if="showRematchActionButton"
             size="small"
             color="primary"
             variant="flat"
             :loading="rematchLoading"
+            :disabled="rematchButtonDisabled"
             data-cy="cutthroat-rematch-btn"
             @click="handleRematch"
           >
             {{ rematchButtonText }}
+          </v-btn>
+          <v-btn
+            v-if="showReplayNextGameButton"
+            size="small"
+            color="surface-1"
+            variant="flat"
+            data-cy="cutthroat-replay-next-game-btn"
+            @click="replayNextGame"
+          >
+            Replay Next Game
           </v-btn>
           <v-btn
             size="small"
@@ -788,6 +857,7 @@ import CutthroatMoveChoiceOverlay from '@/routes/cutthroat/components/CutthroatM
 import CutthroatTargetSelectionOverlay from '@/routes/cutthroat/components/CutthroatTargetSelectionOverlay.vue';
 import CutthroatPlaybackControls from '@/routes/cutthroat/components/CutthroatPlaybackControls.vue';
 import CutthroatGameMenu from '@/routes/cutthroat/components/CutthroatGameMenu.vue';
+import SpectatorListMenu from '@/routes/game/components/SpectatorListMenu.vue';
 import { parseCardToken, formatCardToken } from '@/util/cutthroat-cards';
 import {
   deriveFallbackChoiceTypesForSelectedCard,
@@ -856,6 +926,7 @@ const logsContainerDrawer = ref(null);
 const rematchLoading = ref(false);
 const rematchLobbyId = ref(null);
 const rematchOfferPending = ref(false);
+const spectatorFollowPending = ref(false);
 let rematchLobbyWsConnected = false;
 
 const isMainPhase = computed(() => phaseType.value === 'Main');
@@ -874,10 +945,28 @@ const showGameOverDialog = computed(() => {
     replayStateCount: replayStateCount.value,
   });
 });
+const isAtReplayEnd = computed(() => {
+  if (!isSpectateRoute.value || !isFinished.value) {return false;}
+  if (replayStateIndex.value === -1) {return true;}
+  return replayStateIndex.value >= replayStateCount.value - 1;
+});
 const rematchButtonText = computed(() => {
+  if (isSpectatorMode.value) {
+    return 'Spectate';
+  }
   return rematchOfferPending.value
     ? t('cutthroat.lobby.unready')
     : t('game.dialogs.gameOverDialog.rematch');
+});
+const rematchButtonDisabled = computed(() => {
+  if (!isSpectatorMode.value) {return false;}
+  return spectatorFollowPending.value;
+});
+const isRematchWaiting = computed(() => {
+  if (isSpectatorMode.value) {
+    return spectatorFollowPending.value;
+  }
+  return rematchOfferPending.value;
 });
 const rematchLobbyIsOpen = computed(() => {
   if (!rematchLobbyId.value) {return false;}
@@ -886,6 +975,41 @@ const rematchLobbyIsOpen = computed(() => {
 const rematchGameHasStarted = computed(() => {
   if (!rematchLobbyId.value) {return false;}
   return store.spectateGames.some((game) => game.id === rematchLobbyId.value);
+});
+const spectatorNextGameId = computed(() => {
+  const nextGame = store.spectateGames.find((game) => game.rematch_from_game_id === gameId.value);
+  return nextGame?.id ?? null;
+});
+const replayNextGameId = computed(() => {
+  return Number.isInteger(store.nextGameId) ? store.nextGameId : null;
+});
+const hasUnfinishedLinkedNextGame = computed(() => {
+  return Number.isInteger(replayNextGameId.value)
+    && replayNextGameId.value !== gameId.value
+    && store.nextGameFinished !== true;
+});
+const showReplayNextGameButton = computed(() => {
+  return isSpectatorMode.value
+    && isSpectateRoute.value
+    && showGameOverDialog.value
+    && isAtReplayEnd.value
+    && Number.isInteger(replayNextGameId.value)
+    && replayNextGameId.value !== gameId.value
+    && store.nextGameFinished === true;
+});
+const showSpectateFollowButton = computed(() => {
+  if (!isSpectatorMode.value) {return false;}
+  if (!isSpectateRoute.value || !showGameOverDialog.value) {return false;}
+  if (showReplayNextGameButton.value) {return false;}
+  return store.hasActiveSeatedPlayers === true
+    || hasUnfinishedLinkedNextGame.value
+    || Number.isInteger(spectatorNextGameId.value);
+});
+const showRematchActionButton = computed(() => {
+  if (isSpectatorMode.value) {
+    return showSpectateFollowButton.value;
+  }
+  return !showReplayNextGameButton.value;
 });
 
 const localHandActionTokens = computed(() => {
@@ -974,16 +1098,36 @@ function turnLabelForSeat(seat) {
   if (!playerView.value) {return '';}
   if (isFinished.value) {return t('cutthroat.game.gameOverTitle');}
   if (!Number.isInteger(activeTurnSeat.value)) {return t('cutthroat.game.waiting');}
+
+  // Match 2P behavior: only the local seat renders turn text, as YOUR/OPPONENT'S turn.
+  if (Number.isInteger(mySeat.value) && mySeat.value >= 0) {
+    return activeTurnSeat.value === mySeat.value && seat === mySeat.value
+      ? t('game.turn.yourTurn')
+      : t('game.turn.opponentTurn');
+  }
+
   return activeTurnSeat.value === seat ? t('game.turn.yourTurn') : t('game.turn.opponentTurn');
 }
 
 function seatStatus(seat) {
+  const isActiveTurn = !isFinished.value && activeTurnSeat.value === seat;
+  const showTurnLabel = Number.isInteger(mySeat.value) && mySeat.value >= 0 && seat === mySeat.value;
+
+  const showYourTurn = !isFinished.value
+    && Number.isInteger(activeTurnSeat.value)
+    && Number.isInteger(mySeat.value)
+    && mySeat.value >= 0
+    && activeTurnSeat.value === mySeat.value
+    && seat === mySeat.value;
+
   return {
     seat,
     points: seatPointTotal(seat),
     goal: seatGoalTotal(seat),
     turnLabel: turnLabelForSeat(seat),
-    isActiveTurn: !isFinished.value && activeTurnSeat.value === seat,
+    isActiveTurn,
+    showTurnLabel,
+    showYourTurn,
   };
 }
 
@@ -1041,8 +1185,8 @@ function cardTokenToDialogCard(token) {
   };
 }
 
-const isActionDisabled = computed(() => {
-  return isActionInteractionDisabled(store.status, actionInFlight.value, isSpectatorMode.value);
+const isActionBlockedByStatus = computed(() => {
+  return isActionInteractionDisabled(store.status, false, isSpectatorMode.value);
 });
 
 const {
@@ -1066,6 +1210,9 @@ const {
   showCannotCounterDialog,
   counterDialogInvariantError,
   canUseDeck,
+  canRequestStalemate,
+  consideringOpponentStalemateRequest,
+  waitingForOpponentStalemate,
   selectedSourceCard,
   selectedSourceIsFrozen,
   resolveFiveDiscardTokens,
@@ -1105,13 +1252,17 @@ const {
   handleJokerTargetClick,
   handlePlayerTargetClick,
   isRevealSelectable,
+  requestStalemate,
+  acceptStalemate,
+  rejectStalemate,
 } = useCutthroatInteractions({
   store,
   snackbarStore,
   t,
   legalActions,
+  deckCount: computed(() => playerView.value?.deck_count ?? 0),
   phaseType,
-  isActionDisabled,
+  isActionDisabled: isActionBlockedByStatus,
   isFinished,
   isMainPhase,
   isCounteringPhase,
@@ -1124,6 +1275,10 @@ const {
   isSpectatorMode,
   localHandActionTokens,
   cardTokenToDialogCard,
+});
+
+const isActionDisabled = computed(() => {
+  return isActionInteractionDisabled(store.status, actionInFlight.value, isSpectatorMode.value);
 });
 
 const isMyTurn = computed(() => !isFinished.value && activeTurnSeat.value === mySeat.value);
@@ -1166,9 +1321,25 @@ const gameResultText = computed(() => {
   return t('cutthroat.game.gameOverGeneric');
 });
 
-const actingPlayerLabel = computed(() => {
+const waitingActorSeat = computed(() => {
+  if (phaseType.value === 'Countering' && Number.isInteger(phaseData.value?.next_seat)) {
+    return phaseData.value.next_seat;
+  }
+  if (
+    (phaseType.value === 'ResolvingThree' || phaseType.value === 'ResolvingFour' || phaseType.value === 'ResolvingFive')
+    && Number.isInteger(phaseData.value?.seat)
+  ) {
+    return phaseData.value.seat;
+  }
   if (Number.isInteger(activeTurnSeat.value)) {
-    return seatLabel(activeTurnSeat.value);
+    return activeTurnSeat.value;
+  }
+  return null;
+});
+
+const actingPlayerLabel = computed(() => {
+  if (Number.isInteger(waitingActorSeat.value)) {
+    return seatLabel(waitingActorSeat.value);
   }
   return t('global.player');
 });
@@ -1322,12 +1493,33 @@ function describeChoice(choiceType) {
 function fallbackDisabledExplanation() {
   if (!isMyTurn.value) {return t('game.moves.disabledMove.notTurn');}
   if (selectedSourceIsFrozen.value) {return t('game.moves.disabledMove.frozenCard');}
-  return t('cutthroat.game.waiting');
+  return t('cutthroat.game.noActions');
 }
 
 function formatAction(actionToken) {
   if (typeof actionToken !== 'string') {return t('cutthroat.game.action');}
   return actionToken;
+}
+
+async function handleStalemateRequest() {
+  const succeeded = await requestStalemate();
+  if (!succeeded && !store.lastError) {
+    snackbarStore.alert(t('cutthroat.game.actionFailed'));
+  }
+}
+
+async function handleStalemateAccept() {
+  const succeeded = await acceptStalemate();
+  if (!succeeded && !store.lastError) {
+    snackbarStore.alert(t('cutthroat.game.actionFailed'));
+  }
+}
+
+async function handleStalemateReject() {
+  const succeeded = await rejectStalemate();
+  if (!succeeded && !store.lastError) {
+    snackbarStore.alert(t('cutthroat.game.actionFailed'));
+  }
 }
 
 function scrollHistoryLogs() {
@@ -1360,12 +1552,54 @@ async function goToHome() {
     }
     rematchOfferPending.value = false;
   }
+  spectatorFollowPending.value = false;
   stopRematchLobbyWatch();
   router.push('/');
 }
 
+async function navigateToSpectateGame(nextGameId, gameStateIndex) {
+  spectatorFollowPending.value = false;
+  stopRematchLobbyWatch();
+  store.disconnectWs();
+  try {
+    await store.fetchState(nextGameId, {
+      spectateIntent: true,
+      gameStateIndex,
+    });
+    if (!store.isArchived) {
+      store.connectWs(nextGameId, { spectateIntent: true });
+    }
+    await router.push({
+      path: `/cutthroat/spectate/${nextGameId}`,
+      query: {
+        gameStateIndex,
+      },
+    });
+  } catch (err) {
+    snackbarStore.alert(err?.message ?? t('cutthroat.game.spectateUnavailable'));
+    await router.push('/');
+  }
+}
+
+async function followSpectatorRematch(nextGameId) {
+  await navigateToSpectateGame(nextGameId, -1);
+}
+
+async function replayNextGame() {
+  if (!showReplayNextGameButton.value || !replayNextGameId.value) {return;}
+  await navigateToSpectateGame(replayNextGameId.value, 0);
+}
+
 async function handleRematch() {
-  if (isSpectatorMode.value) {return;}
+  if (isSpectatorMode.value) {
+    if (spectatorFollowPending.value) {return;}
+    spectatorFollowPending.value = true;
+    startRematchLobbyWatch();
+    if (spectatorNextGameId.value) {
+      await followSpectatorRematch(spectatorNextGameId.value);
+    }
+    return;
+  }
   if (rematchLoading.value) {return;}
   rematchLoading.value = true;
   try {
@@ -1388,9 +1622,9 @@ async function handleRematch() {
 }
 
 watch(
-  () => rematchOfferPending.value,
-  (pending) => {
-    if (pending && !isSpectatorMode.value) {
+  () => [ rematchOfferPending.value, spectatorFollowPending.value, isSpectatorMode.value ],
+  ([ playerPending, spectatorPending, spectatorMode ]) => {
+    if ((!spectatorMode && playerPending) || (spectatorMode && spectatorPending)) {
       startRematchLobbyWatch();
       return;
     }
@@ -1401,6 +1635,7 @@ watch(
 watch(
   () => rematchGameHasStarted.value,
   async (started) => {
+    if (isSpectatorMode.value) {return;}
     if (!started || !rematchOfferPending.value || !rematchLobbyId.value) {return;}
     const nextGameId = rematchLobbyId.value;
     rematchOfferPending.value = false;
@@ -1410,6 +1645,23 @@ watch(
     await store.fetchState(nextGameId);
     store.connectWs(nextGameId);
     await router.push(`/cutthroat/game/${nextGameId}`);
+  },
+);
+
+watch(
+  () => spectatorNextGameId.value,
+  async (nextGameId) => {
+    if (!isSpectatorMode.value || !spectatorFollowPending.value || !nextGameId) {return;}
+    await followSpectatorRematch(nextGameId);
+  },
+);
+
+watch(
+  () => isAtReplayEnd.value,
+  (atReplayEnd) => {
+    if (!isSpectatorMode.value || !spectatorFollowPending.value || atReplayEnd) {return;}
+    spectatorFollowPending.value = false;
+    stopRematchLobbyWatch();
   },
 );
 
@@ -1633,20 +1885,10 @@ onBeforeUnmount(() => {
 }
 
 .turn-status {
-  font-family: 'Cormorant Infant', serif;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
+  font-weight: 700;
   letter-spacing: 0.3px;
-  background: rgba(0, 0, 0, 0.32);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  padding: 2px 10px;
   line-height: 1.2;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.turn-status.my-turn {
-  background: rgba(255, 255, 255, 0.78);
-  border-color: rgba(var(--v-theme-accent), 0.8);
 }
 
 .player-hand {
@@ -1770,6 +2012,11 @@ onBeforeUnmount(() => {
   align-items: flex-end;
 }
 
+.mini-card {
+  flex: 0 0 50%;
+  width: 50%;
+}
+
 .pile {
   background: rgba(255, 255, 255, 0.06);
   border-radius: 16px;
@@ -1855,12 +2102,6 @@ onBeforeUnmount(() => {
     AppleGothic,
     sans-serif;
   margin-bottom: 8px;
-}
-
-.history-spectators {
-  margin-bottom: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
 }
 
 .history-logs {
@@ -1970,8 +2211,31 @@ onBeforeUnmount(() => {
 }
 
 .mini-card :deep(.player-card) {
+  width: 100%;
+  max-width: 100%;
   max-height: 7vh;
-  max-width: calc(7vh / 1.45);
+}
+
+@media (min-width: 961px) {
+  .table-center {
+    position: relative;
+    z-index: 1;
+  }
+
+  .table-bottom {
+    position: relative;
+    z-index: 2;
+  }
+
+  .player-area.me .player-stacks {
+    position: relative;
+    z-index: 2;
+  }
+
+  .player-area.me .player-hand {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 @media (max-width: 1280px) {
@@ -2256,7 +2520,6 @@ onBeforeUnmount(() => {
 
   .turn-status {
     font-size: 0.62rem;
-    padding: 1px 7px;
   }
 
   .player-hand {
@@ -2320,12 +2583,7 @@ onBeforeUnmount(() => {
   }
 
   .reveal-group .hand-card {
-    width: clamp(30px, 4.7vh, 42px);
-  }
-
-  .reveal-group .hand-card :deep(.player-card) {
-    max-height: bh(5.5);
-    max-width: calc(bh(5.5) / 1.45);
+    width: clamp(40px, 6.2vh, 54px);
   }
 
   :deep(.player-card) {

@@ -20,6 +20,7 @@ function buildInteractions(overrides = {}) {
   const isFinished = ref(overrides.isFinished ?? false);
   const myHandCards = ref(overrides.myHandCards ?? []);
   const isSpectatorMode = ref(overrides.isSpectatorMode ?? false);
+  const deckCount = ref(overrides.deckCount ?? 10);
 
   return {
     ...useCutthroatInteractions({
@@ -27,6 +28,7 @@ function buildInteractions(overrides = {}) {
       snackbarStore,
       t: (k) => k,
       legalActions: computed(() => legalActions.value),
+      deckCount: computed(() => deckCount.value),
       phaseType: computed(() => phaseType.value),
       isActionDisabled: computed(() => isActionDisabled.value),
       isFinished: computed(() => isFinished.value),
@@ -51,6 +53,8 @@ function buildInteractions(overrides = {}) {
     isFinished,
     myHandCards,
     isSpectatorMode,
+    deckCount,
+    snackbarStore,
   };
 }
 
@@ -163,5 +167,52 @@ describe('useCutthroatInteractions', () => {
     handleRoyalTargetClick('QH');
 
     expect(store.sendAction).toHaveBeenCalledWith('P1 oneOff 9C QH');
+  });
+
+  it('supports requesting stalemate from legal propose token', async () => {
+    const { store, requestStalemate, waitingForOpponentStalemate } = buildInteractions({
+      legalActions: [ 'P1 stalemate-propose' ],
+      store: {
+        sendAction: vi.fn(async () => {}),
+      },
+    });
+
+    const succeeded = await requestStalemate();
+
+    expect(succeeded).toBe(true);
+    expect(store.sendAction).toHaveBeenCalledWith('P1 stalemate-propose');
+    expect(waitingForOpponentStalemate.value).toBe(true);
+  });
+
+  it('supports accepting and rejecting opponent stalemate request', async () => {
+    const { store, acceptStalemate, rejectStalemate, consideringOpponentStalemateRequest } = buildInteractions({
+      legalActions: [ 'P1 stalemate-accept', 'P1 stalemate-reject' ],
+      store: {
+        sendAction: vi.fn(async () => {}),
+      },
+    });
+
+    expect(consideringOpponentStalemateRequest.value).toBe(true);
+
+    const accepted = await acceptStalemate();
+    const rejected = await rejectStalemate();
+
+    expect(accepted).toBe(true);
+    expect(rejected).toBe(true);
+    expect(store.sendAction).toHaveBeenNthCalledWith(1, 'P1 stalemate-accept');
+    expect(store.sendAction).toHaveBeenNthCalledWith(2, 'P1 stalemate-reject');
+  });
+
+  it('shows hand-limit snackbar when deck click cannot draw despite cards in deck', async () => {
+    const { handleDeckClick, store, snackbarStore } = buildInteractions({
+      phaseType: 'Main',
+      deckCount: 5,
+      legalActions: [ 'P1 points 7C' ],
+    });
+
+    await handleDeckClick();
+
+    expect(store.sendAction).not.toHaveBeenCalled();
+    expect(snackbarStore.alert).toHaveBeenCalledWith('game.snackbar.draw.handLimit');
   });
 });

@@ -1,8 +1,9 @@
 use crate::auth::{AuthUser, authorize};
+#[cfg(feature = "e2e-seed")]
+use crate::game_runtime::GlobalRuntimeState;
 use crate::game_runtime::{
-    GameCommand, GameEntry, GameStreamSubscription, GlobalRuntimeState, LobbySnapshotInternal,
-    STATUS_FINISHED, STATUS_STARTED, SeatEntry, create_game_for_user, create_rematch_for_user,
-    game_sender,
+    GameCommand, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED,
+    STATUS_STARTED, SeatEntry, create_game_for_user, create_rematch_for_user, game_sender,
 };
 #[cfg(feature = "e2e-seed")]
 use crate::game_runtime::{
@@ -56,6 +57,7 @@ pub(crate) struct SpectatableGameSummary {
     pub(crate) name: String,
     pub(crate) seat_count: usize,
     pub(crate) status: i16,
+    pub(crate) rematch_from_game_id: Option<i64>,
     pub(crate) spectating_usernames: Vec<String>,
 }
 
@@ -75,6 +77,9 @@ pub(crate) struct GameStateResponse {
     pub(crate) spectating_usernames: Vec<String>,
     pub(crate) scrap_straightened: bool,
     pub(crate) archived: bool,
+    pub(crate) next_game_id: Option<i64>,
+    pub(crate) next_game_finished: bool,
+    pub(crate) has_active_seated_players: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -155,6 +160,7 @@ pub(crate) struct HistoryCursor {
 #[derive(Clone, Debug, FromRow)]
 struct PersistedCutthroatGameRow {
     rust_game_id: i64,
+    next_rust_game_id: Option<i64>,
     tokenlog: String,
     p0_user_id: i64,
     p1_user_id: i64,
@@ -166,8 +172,81 @@ struct PersistedCutthroatGameRow {
     finished_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct NextGameLink {
+    id: i64,
+    finished: bool,
+}
+
 fn db_pool(state: &AppState) -> Result<&PgPool, StatusCode> {
     state.db.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)
+}
+
+async fn load_persisted_next_game_link(
+    pool: &PgPool,
+    source_game_id: i64,
+) -> Result<Option<NextGameLink>, StatusCode> {
+    let next_id = sqlx::query_scalar::<_, Option<i64>>(
+        r#"
+        SELECT next_rust_game_id
+        FROM cutthroat_games
+        WHERE rust_game_id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(source_game_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .flatten();
+
+    let Some(next_id) = next_id else {
+        return Ok(None);
+    };
+
+    let finished = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM cutthroat_games
+            WHERE rust_game_id = $1
+        )
+        "#,
+    )
+    .bind(next_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Some(NextGameLink {
+        id: next_id,
+        finished,
+    }))
+}
+
+async fn resolve_next_game_link(
+    state: &AppState,
+    source_game_id: i64,
+) -> Result<Option<NextGameLink>, StatusCode> {
+    {
+        let guard = state.runtime.read().await;
+        if let Some(next_id) = guard.rematches.get(&source_game_id).copied() {
+            let finished = guard
+                .game_meta
+                .get(&next_id)
+                .map(|meta| meta.status == STATUS_FINISHED)
+                .unwrap_or(false);
+            return Ok(Some(NextGameLink {
+                id: next_id,
+                finished,
+            }));
+        }
+    }
+
+    let Some(pool) = state.db.as_ref() else {
+        return Ok(None);
+    };
+    load_persisted_next_game_link(pool, source_game_id).await
 }
 
 #[cfg(feature = "e2e-seed")]
@@ -257,7 +336,7 @@ pub(crate) async fn get_history(
     let rows = sqlx::query_as::<_, PersistedCutthroatGameRow>(
         r#"
         SELECT
-          cg.rust_game_id, cg.tokenlog,
+          cg.rust_game_id, cg.next_rust_game_id, cg.tokenlog,
           cg.p0_user_id, cg.p1_user_id, cg.p2_user_id,
           COALESCE(u0.username, CONCAT('User ', cg.p0_user_id::text)) AS p0_username,
           COALESCE(u1.username, CONCAT('User ', cg.p1_user_id::text)) AS p1_username,
@@ -593,7 +672,15 @@ async fn get_state_inner(
     }
     let runtime_result = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     match runtime_result {
-        Ok(resp) => Ok(Json(resp)),
+        Ok(mut resp) => {
+            if spectate_intent && resp.status == STATUS_FINISHED {
+                if let Some(next_link) = resolve_next_game_link(&state, id).await? {
+                    resp.next_game_id = Some(next_link.id);
+                    resp.next_game_finished = next_link.finished;
+                }
+            }
+            Ok(Json(resp))
+        }
         Err(err) => {
             if spectate_intent
                 && err.status_code() == StatusCode::NOT_FOUND
@@ -615,14 +702,14 @@ async fn get_state_inner(
 async fn load_archived_spectate_state(
     state: &AppState,
     id: i64,
-    user: &AuthUser,
+    _user: &AuthUser,
     game_state_index: i64,
 ) -> Result<Option<GameStateResponse>, StatusCode> {
     let pool = db_pool(state)?;
     let row = sqlx::query_as::<_, PersistedCutthroatGameRow>(
         r#"
         SELECT
-          cg.rust_game_id, cg.tokenlog,
+          cg.rust_game_id, cg.next_rust_game_id, cg.tokenlog,
           cg.p0_user_id, cg.p1_user_id, cg.p2_user_id,
           COALESCE(u0.username, CONCAT('User ', cg.p0_user_id::text)) AS p0_username,
           COALESCE(u1.username, CONCAT('User ', cg.p1_user_id::text)) AS p1_username,
@@ -644,11 +731,29 @@ async fn load_archived_spectate_state(
     let Some(row) = row else {
         return Ok(None);
     };
-    if user.id != row.p0_user_id && user.id != row.p1_user_id && user.id != row.p2_user_id {
-        return Err(StatusCode::FORBIDDEN);
-    }
 
     let game = build_game_entry_from_row(&row).ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let next_link = if let Some(next_id) = row.next_rust_game_id {
+        let finished = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM cutthroat_games
+                WHERE rust_game_id = $1
+            )
+            "#,
+        )
+        .bind(next_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Some(NextGameLink {
+            id: next_id,
+            finished,
+        })
+    } else {
+        None
+    };
     let parsed = game.transcript.clone();
     let replay_index = if game_state_index < 0 {
         parsed.actions.len()
@@ -709,6 +814,9 @@ async fn load_archived_spectate_state(
         spectating_usernames: Vec::new(),
         scrap_straightened: false,
         archived: true,
+        next_game_id: next_link.map(|link| link.id),
+        next_game_finished: next_link.map(|link| link.finished).unwrap_or(false),
+        has_active_seated_players: false,
     }))
 }
 
@@ -901,4 +1009,161 @@ pub(crate) async fn set_socket_disconnected(
     let _ = sender
         .send(GameCommand::SocketDisconnected { user_id, audience })
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_archived_spectate_state;
+    use crate::auth::{AuthCacheEntry, AuthUser};
+    use crate::game_runtime::{GlobalRuntimeState, STATUS_STARTED};
+    use crate::persistence::{PersistenceWriteMessage, ensure_schema_ready};
+    use crate::state::AppState;
+    use chrono::Utc;
+    use sqlx::postgres::PgPoolOptions;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::{Mutex, RwLock, mpsc};
+
+    const TEST_TOKENLOG: &str = concat!(
+        "V1 CUTTHROAT3P DEALER P0 DECK ",
+        "AC 2C 3C 4C 5C 6C 7C 8C 9C TC JC QC KC ",
+        "AD 2D 3D 4D 5D 6D 7D 8D 9D TD JD QD KD ",
+        "AH 2H 3H 4H 5H 6H 7H 8H 9H TH JH QH KH ",
+        "AS 2S 3S 4S 5S 6S 7S 8S 9S TS JS QS KS ",
+        "J0 J1 ENDDECK"
+    );
+
+    async fn test_pool() -> Option<sqlx::PgPool> {
+        let database_url = std::env::var("CUTTHROAT_DATABASE_URL")
+            .ok()
+            .or_else(|| std::env::var("DATABASE_URL").ok())?;
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .ok()?;
+        ensure_schema_ready(&pool, true).await.ok()?;
+        Some(pool)
+    }
+
+    async fn delete_games(pool: &sqlx::PgPool, game_ids: &[i64]) {
+        for game_id in game_ids {
+            let _ = sqlx::query("DELETE FROM cutthroat_games WHERE rust_game_id = $1")
+                .bind(*game_id)
+                .execute(pool)
+                .await;
+        }
+    }
+
+    async fn insert_finished_game(
+        pool: &sqlx::PgPool,
+        game_id: i64,
+        next_game_id: Option<i64>,
+        user_id: i64,
+    ) {
+        let now = Utc::now();
+        sqlx::query(
+            r#"
+            INSERT INTO cutthroat_games (
+                rust_game_id,
+                next_rust_game_id,
+                tokenlog,
+                p0_user_id,
+                p1_user_id,
+                p2_user_id,
+                started_at,
+                finished_at
+            )
+            VALUES ($1, $2, $3, $4, $4, $4, $5, $6)
+            "#,
+        )
+        .bind(game_id)
+        .bind(next_game_id)
+        .bind(TEST_TOKENLOG)
+        .bind(user_id)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("insert finished game");
+    }
+
+    #[tokio::test]
+    async fn archived_spectate_state_handles_persisted_next_game_link() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let user_id = 9_910_001_i64;
+        let source_game_id = 9_910_101_i64;
+        let next_game_id = 9_910_102_i64;
+        delete_games(&pool, &[source_game_id, next_game_id]).await;
+
+        insert_finished_game(&pool, next_game_id, None, user_id).await;
+        insert_finished_game(&pool, source_game_id, Some(next_game_id), user_id).await;
+
+        let (persistence_tx, _persistence_rx) = mpsc::channel::<PersistenceWriteMessage>(1);
+        let state = AppState {
+            js_base: "http://localhost:1337".to_string(),
+            http: reqwest::Client::new(),
+            db: Some(pool.clone()),
+            auth_cache: Arc::new(Mutex::new(HashMap::<String, AuthCacheEntry>::new())),
+            runtime: Arc::new(RwLock::new(GlobalRuntimeState::new(1))),
+            persistence_tx,
+        };
+        let user = AuthUser {
+            id: user_id,
+            username: "test-user".to_string(),
+        };
+
+        let response = load_archived_spectate_state(&state, source_game_id, &user, -1)
+            .await
+            .expect("load archived state should not return status code error")
+            .expect("archived state should be present");
+
+        assert!(response.archived);
+        assert_eq!(response.next_game_id, Some(next_game_id));
+        assert!(response.next_game_finished);
+
+        delete_games(&pool, &[source_game_id, next_game_id]).await;
+    }
+
+    #[tokio::test]
+    async fn archived_spectate_state_allows_non_participant_viewer() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let game_user_id = 9_920_001_i64;
+        let viewer_user_id = 9_920_999_i64;
+        let game_id = 9_920_101_i64;
+        delete_games(&pool, &[game_id]).await;
+
+        insert_finished_game(&pool, game_id, None, game_user_id).await;
+
+        let (persistence_tx, _persistence_rx) = mpsc::channel::<PersistenceWriteMessage>(1);
+        let state = AppState {
+            js_base: "http://localhost:1337".to_string(),
+            http: reqwest::Client::new(),
+            db: Some(pool.clone()),
+            auth_cache: Arc::new(Mutex::new(HashMap::<String, AuthCacheEntry>::new())),
+            runtime: Arc::new(RwLock::new(GlobalRuntimeState::new(1))),
+            persistence_tx,
+        };
+        let viewer = AuthUser {
+            id: viewer_user_id,
+            username: "viewer".to_string(),
+        };
+
+        let response = load_archived_spectate_state(&state, game_id, &viewer, 0)
+            .await
+            .expect("load archived state should not return status code error")
+            .expect("archived state should be present");
+
+        assert!(response.archived);
+        assert_eq!(response.status, STATUS_STARTED);
+        assert!(response.is_spectator);
+
+        delete_games(&pool, &[game_id]).await;
+    }
 }

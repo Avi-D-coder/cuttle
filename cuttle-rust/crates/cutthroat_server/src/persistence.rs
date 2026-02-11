@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use sqlx::migrate::Migrator;
 use tokio::sync::mpsc;
-use tracing::error;
+use tracing::{error, warn};
 
 const TABLE_NAME: &str = "public.cutthroat_games";
 static MIGRATOR: Migrator = sqlx::migrate!();
@@ -11,12 +11,22 @@ static MIGRATOR: Migrator = sqlx::migrate!();
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompletedGameRecord {
     pub rust_game_id: i64,
+    pub next_rust_game_id: Option<i64>,
     pub tokenlog: String,
     pub p0_user_id: i64,
     pub p1_user_id: i64,
     pub p2_user_id: i64,
     pub started_at: DateTime<Utc>,
     pub finished_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PersistenceWriteMessage {
+    CompletedGame(CompletedGameRecord),
+    LinkRematch {
+        source_game_id: i64,
+        next_game_id: i64,
+    },
 }
 
 pub async fn ensure_schema_ready(
@@ -57,14 +67,31 @@ pub async fn fetch_max_cutthroat_game_id_in_db(pool: &PgPool) -> Result<i64, any
     Ok(max_id.unwrap_or(0))
 }
 
-pub async fn run_persistence_worker(mut rx: mpsc::Receiver<CompletedGameRecord>, pool: PgPool) {
-    while let Some(record) = rx.recv().await {
-        if let Err(err) = persist_completed_game(&pool, &record).await {
-            error!(
-                game_id = record.rust_game_id,
-                error = ?err,
-                "failed to persist completed cutthroat game"
-            );
+pub async fn run_persistence_worker(mut rx: mpsc::Receiver<PersistenceWriteMessage>, pool: PgPool) {
+    while let Some(message) = rx.recv().await {
+        match message {
+            PersistenceWriteMessage::CompletedGame(record) => {
+                if let Err(err) = persist_completed_game(&pool, &record).await {
+                    error!(
+                        game_id = record.rust_game_id,
+                        error = ?err,
+                        "failed to persist completed cutthroat game"
+                    );
+                }
+            }
+            PersistenceWriteMessage::LinkRematch {
+                source_game_id,
+                next_game_id,
+            } => {
+                if let Err(err) = persist_rematch_link(&pool, source_game_id, next_game_id).await {
+                    error!(
+                        source_game_id,
+                        next_game_id,
+                        error = ?err,
+                        "failed to persist cutthroat rematch link"
+                    );
+                }
+            }
         }
     }
 }
@@ -77,6 +104,7 @@ async fn persist_completed_game(
         r#"
         INSERT INTO cutthroat_games (
             rust_game_id,
+            next_rust_game_id,
             tokenlog,
             p0_user_id,
             p1_user_id,
@@ -84,10 +112,11 @@ async fn persist_completed_game(
             started_at,
             finished_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(record.rust_game_id)
+    .bind(record.next_rust_game_id)
     .bind(&record.tokenlog)
     .bind(record.p0_user_id)
     .bind(record.p1_user_id)
@@ -97,6 +126,34 @@ async fn persist_completed_game(
     .execute(pool)
     .await
     .context("insert into cutthroat_games failed")?;
+    Ok(())
+}
+
+async fn persist_rematch_link(
+    pool: &PgPool,
+    source_game_id: i64,
+    next_game_id: i64,
+) -> Result<(), anyhow::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE cutthroat_games
+        SET next_rust_game_id = $2
+        WHERE rust_game_id = $1
+        "#,
+    )
+    .bind(source_game_id)
+    .bind(next_game_id)
+    .execute(pool)
+    .await
+    .context("update cutthroat_games rematch link failed")?;
+
+    if result.rows_affected() == 0 {
+        warn!(
+            source_game_id,
+            next_game_id,
+            "rematch link update skipped because source game row is not persisted yet"
+        );
+    }
     Ok(())
 }
 

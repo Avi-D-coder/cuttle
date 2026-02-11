@@ -1,13 +1,14 @@
 const CARD_TOKEN_RE = /^(?:[A2-9TJQK][CDHS]|J[01])$/;
 const SEAT_TOKEN_RE = /^P([0-2])$/;
 
-const PRIMARY_CHOICES = new Set([ 'draw', 'pass', 'points', 'scuttle', 'royal', 'jack', 'joker', 'oneOff' ]);
+const PRIMARY_CHOICES = new Set([ 'draw', 'pass', 'points', 'scuttle', 'royal', 'jack', 'joker', 'oneOff', 'stalemateRequest' ]);
 const COUNTER_CHOICES = new Set([ 'counterTwo', 'counterPass' ]);
-const RESOLUTION_CHOICES = new Set([ 'resolveThreePick', 'resolveFourDiscard', 'resolveFiveDiscard', 'discard' ]);
+const RESOLUTION_CHOICES = new Set([ 'resolveThreePick', 'resolveFourDiscard', 'resolveFiveDiscard', 'discard', 'stalemateAccept', 'stalemateReject' ]);
 
 const CHOICE_ORDER = [
   'draw',
   'pass',
+  'stalemateRequest',
   'points',
   'scuttle',
   'royal',
@@ -20,7 +21,46 @@ const CHOICE_ORDER = [
   'resolveThreePick',
   'resolveFourDiscard',
   'resolveFiveDiscard',
+  'stalemateAccept',
+  'stalemateReject',
 ];
+
+function normalizeVerb(verb = '') {
+  return String(verb ?? '').trim()
+    .toLowerCase();
+}
+
+function isStalemateRequestVerb(verb = '') {
+  const normalized = normalizeVerb(verb);
+  return normalized === 'stalemate-propose'
+    || normalized === 'stalemate_propose'
+    || normalized === 'stalemate_request'
+    || normalized === 'requeststalemate'
+    || normalized === 'stalemateoffer'
+    || normalized === 'offerstalemate'
+    || normalized === 'drawoffer'
+    || normalized === 'offerdraw';
+}
+
+function isStalemateAcceptVerb(verb = '') {
+  const normalized = normalizeVerb(verb);
+  return normalized === 'stalemate-accept'
+    || normalized === 'stalemate_accept'
+    || normalized === 'stalemateaccept'
+    || normalized === 'acceptstalemate'
+    || normalized === 'acceptdraw'
+    || normalized === 'drawaccept';
+}
+
+function isStalemateRejectVerb(verb = '') {
+  const normalized = normalizeVerb(verb);
+  return normalized === 'stalemate-reject'
+    || normalized === 'stalemate_reject'
+    || normalized === 'stalematereject'
+    || normalized === 'rejectstalemate'
+    || normalized === 'rejectdraw'
+    || normalized === 'drawreject';
+}
 
 function sourceKey(source) {
   if (!source || !source.zone) {return '';}
@@ -96,6 +136,9 @@ function playRoyalChoiceForCard(cardToken) {
 function choiceFromParsed(parsed, phaseType = null) {
   if (!parsed) {return null;}
   const { verb, args } = parsed;
+  if (isStalemateRequestVerb(verb)) {return 'stalemateRequest';}
+  if (isStalemateAcceptVerb(verb)) {return 'stalemateAccept';}
+  if (isStalemateRejectVerb(verb)) {return 'stalemateReject';}
   if (verb === 'draw') {return 'draw';}
   if (verb === 'pass') {return 'pass';}
   if (verb === 'points') {return 'points';}
@@ -126,6 +169,15 @@ function sourceFromParsed(parsed, phaseType = null) {
   }
   if (choice === 'counterPass') {
     return { zone: 'counter', token: 'pass' };
+  }
+  if (choice === 'stalemateRequest') {
+    return { zone: 'stalemate', token: 'request' };
+  }
+  if (choice === 'stalemateAccept') {
+    return { zone: 'stalemate', token: 'accept' };
+  }
+  if (choice === 'stalemateReject') {
+    return { zone: 'stalemate', token: 'reject' };
   }
   if (choice === 'counterTwo') {
     return { zone: 'hand', token: normalizeCardToken(parsed.args[0]) };

@@ -11,6 +11,7 @@ CREATE TABLE cutthroat_games (
     p0_user_id BIGINT NOT NULL,
     p1_user_id BIGINT NOT NULL,
     p2_user_id BIGINT NOT NULL,
+    next_rust_game_id BIGINT,
     started_at TIMESTAMPTZ NOT NULL,
     finished_at TIMESTAMPTZ NOT NULL,
     persisted_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -22,3 +23,4 @@ CREATE INDEX cutthroat_games_p0_user_time_idx ON cutthroat_games (p0_user_id, fi
 CREATE INDEX cutthroat_games_p1_user_time_idx ON cutthroat_games (p1_user_id, finished_at DESC, rust_game_id DESC);
 CREATE INDEX cutthroat_games_p2_user_time_idx ON cutthroat_games (p2_user_id, finished_at DESC, rust_game_id DESC);
 CREATE INDEX cutthroat_games_started_at_desc_idx ON cutthroat_games (started_at DESC);
+CREATE INDEX cutthroat_games_next_rust_game_id_idx ON cutthroat_games (next_rust_game_id);

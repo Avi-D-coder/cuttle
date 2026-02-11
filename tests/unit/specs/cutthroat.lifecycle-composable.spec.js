@@ -42,6 +42,7 @@ function buildLifecycleArgs(overrides = {}) {
     router: {
       push: vi.fn(),
       replace: vi.fn(async () => {}),
+      currentRoute: { value: { query: {} } },
       ...overrides.router,
     },
     t: overrides.t ?? ((k) => k),
@@ -108,7 +109,8 @@ describe('useCutthroatLifecycle', () => {
     const actionInFlightKey = { value: 'abc' };
     const syncInteractionState = vi.fn();
     const snackbarStore = { alert: vi.fn() };
-    const store = {
+    let store;
+    store = {
       status: 1,
       lastError: null,
       clearLastError: vi.fn(),
@@ -225,5 +227,255 @@ describe('useCutthroatLifecycle', () => {
     expect(snackbarStore.alert).toHaveBeenCalledWith('cutthroat.game.spectateUnavailable');
     expect(router.push).toHaveBeenCalledWith('/');
     vi.unstubAllGlobals();
+  });
+
+  it('finished spectate deep-link without query normalizes to replay start (0)', async () => {
+    vi.resetModules();
+    vi.stubGlobal('window', {
+      innerHeight: 1000,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      documentElement: {
+        style: {
+          setProperty: vi.fn(),
+        },
+      },
+    });
+    const { useCutthroatLifecycle, getOnMountedCb } = await loadLifecycleComposable();
+    const router = {
+      push: vi.fn(),
+      replace: vi.fn(async () => {}),
+      currentRoute: {
+        value: {
+          name: 'CutthroatSpectate',
+          path: '/cutthroat/spectate/1',
+          query: {},
+        },
+      },
+    };
+    const store = {
+      status: 2,
+      lastError: null,
+      clearLastError: vi.fn(),
+      disconnectWs: vi.fn(),
+      fetchState: vi.fn(async () => {}),
+      joinGame: vi.fn(async () => {}),
+      connectWs: vi.fn(),
+      isArchived: true,
+    };
+    useCutthroatLifecycle(buildLifecycleArgs({
+      store,
+      router,
+      isSpectateRoute: { value: true },
+      isSpectatorMode: { value: true },
+      replayStateIndex: { value: -1 },
+    }));
+
+    await getOnMountedCb()();
+
+    expect(router.replace).toHaveBeenCalledWith(expect.objectContaining({
+      query: expect.objectContaining({
+        gameStateIndex: 0,
+      }),
+    }));
+    vi.unstubAllGlobals();
+  });
+
+  it('spectate-route fetch failure does not attempt join fallback', async () => {
+    vi.resetModules();
+    vi.stubGlobal('window', {
+      innerHeight: 1000,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      documentElement: {
+        style: {
+          setProperty: vi.fn(),
+        },
+      },
+    });
+    const { useCutthroatLifecycle, getOnMountedCb } = await loadLifecycleComposable();
+    const joinGame = vi.fn(async () => {});
+    const router = {
+      push: vi.fn(),
+      replace: vi.fn(async () => {}),
+      currentRoute: {
+        value: {
+          name: 'CutthroatSpectate',
+          path: '/cutthroat/spectate/1',
+          query: {},
+        },
+      },
+    };
+    const store = {
+      status: 1,
+      lastError: null,
+      clearLastError: vi.fn(),
+      disconnectWs: vi.fn(),
+      fetchState: vi.fn().mockRejectedValue({ status: 503 }),
+      joinGame,
+      connectWs: vi.fn(),
+    };
+    const snackbarStore = { alert: vi.fn() };
+    useCutthroatLifecycle(buildLifecycleArgs({
+      store,
+      router,
+      snackbarStore,
+      isSpectateRoute: { value: true },
+      isSpectatorMode: { value: true },
+    }));
+
+    await getOnMountedCb()();
+
+    expect(joinGame).not.toHaveBeenCalled();
+    expect(snackbarStore.alert).toHaveBeenCalledWith('cutthroat.game.spectateUnavailable');
+    expect(router.push).toHaveBeenCalledWith('/');
+    vi.unstubAllGlobals();
+  });
+
+  it('game-route 404 falls back to spectate replay instead of join flow', async () => {
+    vi.resetModules();
+    vi.stubGlobal('window', {
+      innerHeight: 1000,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      documentElement: {
+        style: {
+          setProperty: vi.fn(),
+        },
+      },
+    });
+    const { useCutthroatLifecycle, getOnMountedCb } = await loadLifecycleComposable();
+    const router = {
+      push: vi.fn(),
+      replace: vi.fn(async () => {}),
+      currentRoute: {
+        value: {
+          name: 'CutthroatGame',
+          path: '/cutthroat/game/1',
+          query: {},
+        },
+      },
+    };
+    const fetchState = vi.fn()
+      .mockRejectedValueOnce({ status: 404 })
+      .mockResolvedValueOnce({});
+    const joinGame = vi.fn(async () => {});
+    const store = {
+      status: 2,
+      lastError: null,
+      clearLastError: vi.fn(),
+      disconnectWs: vi.fn(),
+      fetchState,
+      joinGame,
+      connectWs: vi.fn(),
+      isArchived: true,
+      isSpectator: true,
+    };
+    useCutthroatLifecycle(buildLifecycleArgs({
+      store,
+      router,
+      isSpectateRoute: { value: false },
+      isSpectatorMode: { value: false },
+      replayStateIndex: { value: -1 },
+    }));
+
+    await getOnMountedCb()();
+
+    expect(joinGame).not.toHaveBeenCalled();
+    expect(fetchState).toHaveBeenCalledTimes(2);
+    expect(fetchState).toHaveBeenNthCalledWith(2, 1, {
+      spectateIntent: true,
+      gameStateIndex: -1,
+    });
+    expect(router.replace).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/cutthroat/spectate/1',
+      query: expect.objectContaining({
+        gameStateIndex: 0,
+      }),
+    }));
+    vi.unstubAllGlobals();
+  });
+
+  it('forces spectate replay to latest when status transitions from started to finished', async () => {
+    vi.resetModules();
+    const { useCutthroatLifecycle, watches } = await loadLifecycleComposable();
+    const router = {
+      push: vi.fn(),
+      replace: vi.fn(async () => {}),
+      currentRoute: {
+        value: {
+          name: 'CutthroatSpectate',
+          query: {},
+        },
+      },
+    };
+    const store = {
+      status: 1,
+      lastError: null,
+      clearLastError: vi.fn(),
+      disconnectWs: vi.fn(),
+      fetchState: vi.fn(async () => {}),
+      joinGame: vi.fn(async () => {}),
+      connectWs: vi.fn(),
+    };
+    useCutthroatLifecycle(buildLifecycleArgs({
+      store,
+      router,
+      gameId: { value: 42 },
+      isSpectateRoute: { value: true },
+      isSpectatorMode: { value: true },
+    }));
+
+    const statusWatch = watches.find((entry) => entry.source() === 1);
+    await statusWatch.cb(1, 0);
+    await statusWatch.cb(2, 1);
+
+    expect(router.replace).toHaveBeenCalledWith(expect.objectContaining({
+      query: expect.objectContaining({
+        gameStateIndex: -1,
+      }),
+    }));
+  });
+
+  it('does not replace route when spectate replay is already at latest index', async () => {
+    vi.resetModules();
+    const { useCutthroatLifecycle, watches } = await loadLifecycleComposable();
+    const router = {
+      push: vi.fn(),
+      replace: vi.fn(async () => {}),
+      currentRoute: {
+        value: {
+          name: 'CutthroatSpectate',
+          query: { gameStateIndex: -1 },
+        },
+      },
+    };
+    const store = {
+      status: 1,
+      lastError: null,
+      clearLastError: vi.fn(),
+      disconnectWs: vi.fn(),
+      fetchState: vi.fn(async () => {}),
+      joinGame: vi.fn(async () => {}),
+      connectWs: vi.fn(),
+    };
+    useCutthroatLifecycle(buildLifecycleArgs({
+      store,
+      router,
+      gameId: { value: 42 },
+      isSpectateRoute: { value: true },
+      isSpectatorMode: { value: true },
+    }));
+
+    const statusWatch = watches.find((entry) => entry.source() === 1);
+    await statusWatch.cb(2, 1);
+
+    expect(router.replace).not.toHaveBeenCalled();
   });
 });
