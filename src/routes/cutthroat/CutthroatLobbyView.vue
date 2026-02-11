@@ -73,7 +73,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useCutthroatStore } from '@/stores/cutthroat';
 import { useSnackbarStore } from '@/stores/snackbar';
-import { shouldRedirectToCutthroatGame } from '@/routes/cutthroat/cutthroat-view-helpers';
+import { shouldRedirectToCutthroatGame } from '@/routes/cutthroat/helpers/game-state';
 import PlayerReadyIndicator from '@/components/PlayerReadyIndicator.vue';
 import TheLanguageSelector from '@/components/TheLanguageSelector.vue';
 

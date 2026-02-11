@@ -140,7 +140,7 @@ impl<'de> Deserialize<'de> for Card {
 
 impl Card {
     pub fn from_token(token: &str) -> Option<Self> {
-        Token::from_str(token).and_then(Token::card)
+        token.parse::<Token>().ok().and_then(Token::card)
     }
 
     pub fn to_token(self) -> String {

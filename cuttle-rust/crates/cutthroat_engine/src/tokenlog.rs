@@ -624,7 +624,7 @@ fn ensure_seven_revealed_contains_card(
     let Phase::ResolvingSeven { revealed, .. } = &state.phase else {
         return Err(TokenError::UnknownAction);
     };
-    if revealed.iter().any(|revealed_card| *revealed_card == card) {
+    if revealed.contains(&card) {
         Ok(())
     } else {
         Err(TokenError::InvalidFormat)

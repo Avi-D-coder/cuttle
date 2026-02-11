@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use crate::card::{Card, Rank, Suit};
 use crate::state::Seat;
@@ -159,7 +160,7 @@ impl Token {
         }
     }
 
-    pub fn from_str(token: &str) -> Option<Self> {
+    pub fn parse(token: &str) -> Option<Self> {
         Some(match token {
             "V1" => Token::V1,
             "CUTTHROAT3P" => Token::Cutthroat3P,
@@ -716,6 +717,14 @@ impl fmt::Display for Token {
     }
 }
 
+impl FromStr for Token {
+    type Err = ();
+
+    fn from_str(token: &str) -> Result<Self, Self::Err> {
+        Token::parse(token).ok_or(())
+    }
+}
+
 pub fn join_tokens(tokens: &[Token]) -> String {
     let mut out = String::new();
     for (idx, token) in tokens.iter().enumerate() {
@@ -730,7 +739,7 @@ pub fn join_tokens(tokens: &[Token]) -> String {
 pub fn parse_token_slice(input: &str) -> Option<Vec<Token>> {
     let mut out = Vec::new();
     for part in input.split_whitespace() {
-        out.push(Token::from_str(part)?);
+        out.push(part.parse::<Token>().ok()?);
     }
     Some(out)
 }
@@ -818,7 +827,7 @@ mod tests {
             "J1",
         ];
         for raw in all {
-            let token = Token::from_str(raw).expect("token should parse");
+            let token = raw.parse::<Token>().expect("token should parse");
             assert_eq!(token.as_str(), raw);
         }
     }

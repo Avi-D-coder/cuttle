@@ -673,11 +673,12 @@ async fn get_state_inner(
     let runtime_result = rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     match runtime_result {
         Ok(mut resp) => {
-            if spectate_intent && resp.status == STATUS_FINISHED {
-                if let Some(next_link) = resolve_next_game_link(&state, id).await? {
-                    resp.next_game_id = Some(next_link.id);
-                    resp.next_game_finished = next_link.finished;
-                }
+            if spectate_intent
+                && resp.status == STATUS_FINISHED
+                && let Some(next_link) = resolve_next_game_link(&state, id).await?
+            {
+                resp.next_game_id = Some(next_link.id);
+                resp.next_game_finished = next_link.finished;
             }
             Ok(Json(resp))
         }
