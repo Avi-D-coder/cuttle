@@ -114,11 +114,13 @@ describe('Cutthroat 3P Rematch UX', () => {
       players: spectatorPlayers,
     });
 
-    cy.openCutthroatGame(gameId, 'spectate');
+    cy.visit(`/cutthroat/spectate/${gameId}?gameStateIndex=0`);
+    cy.get('#cutthroat-game-wrapper').should('be.visible');
     cy.location('search').should('include', 'gameStateIndex=0');
     cy.window()
       .its('cuttle.cutthroatStore')
       .then((store) => {
+        store.disconnectWs();
         store.hasActiveSeatedPlayers = true;
         store.spectateGames = [];
       });
@@ -130,6 +132,7 @@ describe('Cutthroat 3P Rematch UX', () => {
     cy.window()
       .its('cuttle.cutthroatStore')
       .then((store) => {
+        store.disconnectLobbyWs();
         store.spectateGames = [
           {
             id: nextGameId,
@@ -161,6 +164,7 @@ describe('Cutthroat 3P Rematch UX', () => {
       { seat: 1, user_id: 93102, username: 'r1', ready: true },
       { seat: 2, user_id: 93103, username: 'r2', ready: true },
     ];
+    cy.intercept('GET', `/cutthroat/api/v1/games/${gameId}/spectate/state?gameStateIndex=-1`).as('spectateReplayEnd');
 
     cy.seedCutthroatGameFromTranscript({
       gameId,
@@ -175,15 +179,18 @@ describe('Cutthroat 3P Rematch UX', () => {
       players: spectatorPlayers,
     });
 
-    cy.openCutthroatGame(gameId, 'spectate');
+    cy.visit(`/cutthroat/spectate/${gameId}?gameStateIndex=0`);
+    cy.get('#cutthroat-game-wrapper').should('be.visible');
     cy.location('search').should('include', 'gameStateIndex=0');
     cy.get('[data-cy=skip-forward]').then(($btn) => {
       $btn[0].click();
     });
     cy.location('search').should('include', 'gameStateIndex=-1');
+    cy.wait('@spectateReplayEnd');
     cy.window()
       .its('cuttle.cutthroatStore')
       .then((store) => {
+        store.disconnectWs();
         store.hasActiveSeatedPlayers = true;
       });
 
@@ -231,7 +238,8 @@ describe('Cutthroat 3P Rematch UX', () => {
       players: spectatorPlayers,
     });
 
-    cy.openCutthroatGame(gameId, 'spectate');
+    cy.visit(`/cutthroat/spectate/${gameId}?gameStateIndex=0`);
+    cy.get('#cutthroat-game-wrapper').should('be.visible');
     cy.location('search').should('include', 'gameStateIndex=0');
     cy.get('[data-cy=cutthroat-rematch-btn]').should('not.exist');
     cy.get('[data-cy=cutthroat-replay-next-game-btn]').should('not.exist');
@@ -265,7 +273,8 @@ describe('Cutthroat 3P Rematch UX', () => {
       players: spectatorPlayers,
     });
 
-    cy.openCutthroatGame(gameId, 'spectate');
+    cy.visit(`/cutthroat/spectate/${gameId}?gameStateIndex=0`);
+    cy.get('#cutthroat-game-wrapper').should('be.visible');
     cy.location('search').should('include', 'gameStateIndex=0');
     cy.wait('@spectateReplayStart');
     cy.window()

@@ -75,6 +75,21 @@ describe('cutthroat action resolution helpers (token actions)', () => {
     expect(findMatchingAction(actions, { zone: 'hand', token: '4C' }, 'resolveFourDiscard')).toBe('P1 resolve discard 4C');
   });
 
+  it('classifies joker targets as jack or royal from tokenized actions', () => {
+    const actions = [
+      'P1 playRoyal J0 JH',
+      'P1 playRoyal J0 QH',
+    ];
+    const source = { zone: 'hand', token: 'J0' };
+
+    expect(deriveTargetsForChoice(actions, source, 'joker')).toEqual([
+      { targetType: 'jack', token: 'JH', key: 'jack:JH' },
+      { targetType: 'royal', token: 'QH', key: 'royal:QH' },
+    ]);
+    expect(findMatchingAction(actions, source, 'joker', { targetType: 'jack', token: 'JH' })).toBe('P1 playRoyal J0 JH');
+    expect(findMatchingAction(actions, source, 'joker', { targetType: 'royal', token: 'QH' })).toBe('P1 playRoyal J0 QH');
+  });
+
   it('filters seven actions by selected reveal token and groups by choice category', () => {
     const actions = [ 'P1 points 3C', 'P1 resolve', 'P1 points KD', 'P1 discard 9C' ];
     const filtered = filterVisibleActions(actions, true, 'KD', 'ResolvingSeven');

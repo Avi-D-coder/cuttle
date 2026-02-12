@@ -185,6 +185,93 @@ fn queen_protection_blocks_joker_targets() {
 }
 
 #[test]
+fn joker_can_steal_top_jack_and_move_point_stack() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(Card::Joker(0));
+    state.players[1].points.push(PointStack {
+        base: c("5C"),
+        base_owner: 1,
+        jacks: vec![JackOnStack {
+            card: c("JD"),
+            owner: 2,
+        }],
+    });
+
+    let legal = state.legal_actions(0);
+    assert!(legal.contains(&Action::PlayJoker {
+        joker: Card::Joker(0),
+        target_royal_card: c("JD"),
+    }));
+
+    state
+        .apply(
+            0,
+            Action::PlayJoker {
+                joker: Card::Joker(0),
+                target_royal_card: c("JD"),
+            },
+        )
+        .unwrap();
+
+    assert!(state.players[1].points.is_empty());
+    assert_eq!(state.players[0].points.len(), 1);
+    let stolen = &state.players[0].points[0];
+    assert_eq!(stolen.base, c("5C"));
+    assert_eq!(stolen.jacks.len(), 2);
+    assert_eq!(
+        stolen.jacks.last().map(|jack| jack.card),
+        Some(Card::Joker(0))
+    );
+    assert_eq!(stolen.controller(), 0);
+}
+
+#[test]
+fn seven_joker_can_target_top_jack() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.phase = Phase::ResolvingSeven {
+        seat: 0,
+        base_player: 0,
+        revealed: vec![Card::Joker(0)],
+    };
+    state.players[1].points.push(PointStack {
+        base: c("5C"),
+        base_owner: 1,
+        jacks: vec![JackOnStack {
+            card: c("JD"),
+            owner: 2,
+        }],
+    });
+
+    let legal = state.legal_actions(0);
+    assert!(legal.contains(&Action::ResolveSevenChoose {
+        card: Card::Joker(0),
+        play: SevenPlay::Joker { target: c("JD") },
+    }));
+
+    state
+        .apply(
+            0,
+            Action::ResolveSevenChoose {
+                card: Card::Joker(0),
+                play: SevenPlay::Joker { target: c("JD") },
+            },
+        )
+        .unwrap();
+
+    assert!(state.players[1].points.is_empty());
+    assert_eq!(state.players[0].points.len(), 1);
+    assert_eq!(
+        state.players[0].points[0]
+            .jacks
+            .last()
+            .map(|jack| jack.card),
+        Some(Card::Joker(0))
+    );
+}
+
+#[test]
 fn countering_parity_fizzles() {
     let mut state = empty_state();
     state.turn = 0;

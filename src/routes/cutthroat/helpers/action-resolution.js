@@ -211,7 +211,12 @@ function targetFromParsed(parsed, phaseType = null) {
     return { targetType: 'point', token: normalizeCardToken(parsed.args[1]) };
   }
   if (choice === 'joker') {
-    return { targetType: 'royal', token: normalizeCardToken(parsed.args[1]) };
+    const token = normalizeCardToken(parsed.args[1]);
+    if (!token) {
+      return null;
+    }
+    const targetType = token[0] === 'J' ? 'jack' : 'royal';
+    return { targetType, token };
   }
   if (choice !== 'oneOff') {
     return null;

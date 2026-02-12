@@ -20,6 +20,11 @@ export function pointStackTransitionForSeat(lastEvent, seat, mySeat) {
     case 'jack':
     case 'sevenJack':
       return isLocalSeat ? 'slide-above' : 'slide-below';
+    case 'joker':
+      if (lastEvent.target_type === 'jack') {
+        return isLocalSeat ? 'slide-above' : 'slide-below';
+      }
+      return defaultPointTransition(isLocalSeat);
     case 'resolve':
       switch (lastEvent.oneoff_rank) {
         case 2:

@@ -1,8 +1,9 @@
 use crate::game_runtime::{GameEntry, SeatEntry};
 use cutthroat_engine::state::PublicCard;
 use cutthroat_engine::{
-    Action, CutthroatState, LastEventView, OneOffTarget, Phase, PublicView, Seat, SevenPlay,
-    TokenLog, append_action, encode_action_token_vec_for_input, encode_header, join_tokens,
+    Action, Card, CutthroatState, LastEventView, OneOffTarget, Phase, PublicView, Rank, Seat,
+    SevenPlay, TokenLog, append_action, encode_action_token_vec_for_input, encode_header,
+    join_tokens,
 };
 
 const UNKNOWN_CARD_TOKEN: &str = "UNKNOWN";
@@ -103,6 +104,19 @@ fn oneoff_target_fields(target: &OneOffTarget) -> (Option<String>, Option<Seat>,
     }
 }
 
+fn joker_target_type(target_card: Card) -> &'static str {
+    if matches!(
+        target_card,
+        Card::Standard {
+            rank: Rank::Jack,
+            ..
+        } | Card::Joker(_)
+    ) {
+        return "jack";
+    }
+    "royal"
+}
+
 pub(crate) fn build_last_event(
     actor: Seat,
     action: &Action,
@@ -160,7 +174,7 @@ pub(crate) fn build_last_event(
             source_zone = Some("hand".to_string());
             source_token = Some(joker.to_token());
             target_token = Some(target_royal_card.to_token());
-            target_type = Some("royal".to_string());
+            target_type = Some(joker_target_type(*target_royal_card).to_string());
         }
         Action::PlayOneOff { card, target } => {
             change = "counter".to_string();
@@ -220,7 +234,7 @@ pub(crate) fn build_last_event(
                 SevenPlay::Joker { target } => {
                     change = "joker".to_string();
                     target_token = Some(target.to_token());
-                    target_type = Some("royal".to_string());
+                    target_type = Some(joker_target_type(*target).to_string());
                 }
                 SevenPlay::OneOff { target } => {
                     change = "resolve".to_string();

@@ -323,6 +323,17 @@ impl CutthroatState {
                         });
                     }
                 }
+                for (owner, _stack, jack) in self.iter_jack_targets() {
+                    if owner == seat {
+                        continue;
+                    }
+                    if self.can_target(owner, TargetKind::Jack, jack) {
+                        actions.push(Action::PlayJoker {
+                            joker: card,
+                            target_royal_card: jack,
+                        });
+                    }
+                }
             }
         }
 
@@ -394,6 +405,14 @@ impl CutthroatState {
                         }
                         if self.can_target(owner, TargetKind::Royal, stack.base) {
                             plays.push(SevenPlay::Joker { target: stack.base });
+                        }
+                    }
+                    for (owner, _stack, jack) in self.iter_jack_targets() {
+                        if owner == seat {
+                            continue;
+                        }
+                        if self.can_target(owner, TargetKind::Jack, jack) {
+                            plays.push(SevenPlay::Joker { target: jack });
                         }
                     }
                 }
@@ -654,23 +673,41 @@ impl CutthroatState {
                 if !matches!(joker, Card::Joker(_)) {
                     return Err(RuleError::InvalidAction);
                 }
-                let (stack_seat, idx) = self
-                    .find_royal_stack_by_base(target_royal_card)
-                    .ok_or(RuleError::InvalidAction)?;
-                let target_owner = self.players[stack_seat as usize].royals[idx].controller();
-                if target_owner == seat {
+                if let Some((stack_seat, idx)) = self.find_royal_stack_by_base(target_royal_card) {
+                    let target_owner = self.players[stack_seat as usize].royals[idx].controller();
+                    if target_owner == seat {
+                        return Err(RuleError::InvalidAction);
+                    }
+                    if !self.can_target(target_owner, TargetKind::Royal, target_royal_card) {
+                        return Err(RuleError::InvalidAction);
+                    }
+                    self.remove_from_hand(seat, joker)?;
+                    let mut stack = self.players[stack_seat as usize].royals.remove(idx);
+                    stack.jokers.push(JokerOnStack {
+                        card: joker,
+                        owner: seat,
+                    });
+                    self.players[seat as usize].royals.push(stack);
+                } else if let Some((stack_seat, idx)) =
+                    self.find_point_stack_by_top_jack(target_royal_card)
+                {
+                    let target_owner = self.players[stack_seat as usize].points[idx].controller();
+                    if target_owner == seat {
+                        return Err(RuleError::InvalidAction);
+                    }
+                    if !self.can_target(target_owner, TargetKind::Jack, target_royal_card) {
+                        return Err(RuleError::InvalidAction);
+                    }
+                    self.remove_from_hand(seat, joker)?;
+                    let mut stack = self.players[stack_seat as usize].points.remove(idx);
+                    stack.jacks.push(JackOnStack {
+                        card: joker,
+                        owner: seat,
+                    });
+                    self.players[seat as usize].points.push(stack);
+                } else {
                     return Err(RuleError::InvalidAction);
                 }
-                if !self.can_target(target_owner, TargetKind::Royal, target_royal_card) {
-                    return Err(RuleError::InvalidAction);
-                }
-                self.remove_from_hand(seat, joker)?;
-                let mut stack = self.players[stack_seat as usize].royals.remove(idx);
-                stack.jokers.push(JokerOnStack {
-                    card: joker,
-                    owner: seat,
-                });
-                self.players[seat as usize].royals.push(stack);
                 self.reset_pass_streak();
                 self.finish_turn(seat);
             }
@@ -1008,20 +1045,35 @@ impl CutthroatState {
                 if !matches!(chosen, Card::Joker(_)) {
                     return Err(RuleError::InvalidAction);
                 }
-                let (stack_seat, idx) = self
-                    .find_royal_stack_by_base(target)
-                    .ok_or(RuleError::InvalidAction)?;
-                let target_owner = self.players[stack_seat as usize].royals[idx].controller();
-                if target_owner == seat || !self.can_target(target_owner, TargetKind::Royal, target)
-                {
+                if let Some((stack_seat, idx)) = self.find_royal_stack_by_base(target) {
+                    let target_owner = self.players[stack_seat as usize].royals[idx].controller();
+                    if target_owner == seat
+                        || !self.can_target(target_owner, TargetKind::Royal, target)
+                    {
+                        return Err(RuleError::InvalidAction);
+                    }
+                    let mut stack = self.players[stack_seat as usize].royals.remove(idx);
+                    stack.jokers.push(JokerOnStack {
+                        card: chosen,
+                        owner: seat,
+                    });
+                    self.players[seat as usize].royals.push(stack);
+                } else if let Some((stack_seat, idx)) = self.find_point_stack_by_top_jack(target) {
+                    let target_owner = self.players[stack_seat as usize].points[idx].controller();
+                    if target_owner == seat
+                        || !self.can_target(target_owner, TargetKind::Jack, target)
+                    {
+                        return Err(RuleError::InvalidAction);
+                    }
+                    let mut stack = self.players[stack_seat as usize].points.remove(idx);
+                    stack.jacks.push(JackOnStack {
+                        card: chosen,
+                        owner: seat,
+                    });
+                    self.players[seat as usize].points.push(stack);
+                } else {
                     return Err(RuleError::InvalidAction);
                 }
-                let mut stack = self.players[stack_seat as usize].royals.remove(idx);
-                stack.jokers.push(JokerOnStack {
-                    card: chosen,
-                    owner: seat,
-                });
-                self.players[seat as usize].royals.push(stack);
             }
             SevenPlay::Jack { target } => {
                 if !matches!(
@@ -1156,53 +1208,41 @@ impl CutthroatState {
     }
 
     fn scrap_top_jack(&mut self, jack: Card) -> Result<(), RuleError> {
-        for seat in 0..PLAYER_COUNT {
-            for idx in 0..self.players[seat as usize].points.len() {
-                if let Some(top) = self.players[seat as usize].points[idx].jacks.last()
-                    && top.card == jack
-                {
-                    let target_owner = self.players[seat as usize].points[idx].controller();
-                    if !self.can_target(target_owner, TargetKind::Jack, jack) {
-                        return Err(RuleError::InvalidAction);
-                    }
-                    let mut stack = self.players[seat as usize].points.remove(idx);
-                    let removed = stack.jacks.pop().expect("jack exists");
-                    self.scrap.push(removed.card);
-                    let new_owner = stack.controller();
-                    self.players[new_owner as usize].points.push(stack);
-                    return Ok(());
-                }
-            }
+        let (stack_seat, idx) = self
+            .find_point_stack_by_top_jack(jack)
+            .ok_or(RuleError::InvalidAction)?;
+        let target_owner = self.players[stack_seat as usize].points[idx].controller();
+        if !self.can_target(target_owner, TargetKind::Jack, jack) {
+            return Err(RuleError::InvalidAction);
         }
-        Err(RuleError::InvalidAction)
+        let mut stack = self.players[stack_seat as usize].points.remove(idx);
+        let removed = stack.jacks.pop().expect("jack exists");
+        self.scrap.push(removed.card);
+        let new_owner = stack.controller();
+        self.players[new_owner as usize].points.push(stack);
+        Ok(())
     }
 
     fn return_top_jack(&mut self, jack: Card) -> Result<(), RuleError> {
-        for seat in 0..PLAYER_COUNT {
-            for idx in 0..self.players[seat as usize].points.len() {
-                if let Some(top) = self.players[seat as usize].points[idx].jacks.last()
-                    && top.card == jack
-                {
-                    let target_owner = self.players[seat as usize].points[idx].controller();
-                    if !self.can_target(target_owner, TargetKind::Jack, jack) {
-                        return Err(RuleError::InvalidAction);
-                    }
-                    let mut stack = self.players[seat as usize].points.remove(idx);
-                    let removed = stack.jacks.pop().expect("jack exists");
-                    self.players[removed.owner as usize].hand.push(removed.card);
-                    self.players[removed.owner as usize]
-                        .frozen
-                        .push(FrozenCard {
-                            card: removed.card,
-                            remaining_turns: 1,
-                        });
-                    let new_owner = stack.controller();
-                    self.players[new_owner as usize].points.push(stack);
-                    return Ok(());
-                }
-            }
+        let (stack_seat, idx) = self
+            .find_point_stack_by_top_jack(jack)
+            .ok_or(RuleError::InvalidAction)?;
+        let target_owner = self.players[stack_seat as usize].points[idx].controller();
+        if !self.can_target(target_owner, TargetKind::Jack, jack) {
+            return Err(RuleError::InvalidAction);
         }
-        Err(RuleError::InvalidAction)
+        let mut stack = self.players[stack_seat as usize].points.remove(idx);
+        let removed = stack.jacks.pop().expect("jack exists");
+        self.players[removed.owner as usize].hand.push(removed.card);
+        self.players[removed.owner as usize]
+            .frozen
+            .push(FrozenCard {
+                card: removed.card,
+                remaining_turns: 1,
+            });
+        let new_owner = stack.controller();
+        self.players[new_owner as usize].points.push(stack);
+        Ok(())
     }
 
     fn scrap_top_joker(&mut self, joker: Card) -> Result<(), RuleError> {
@@ -1430,6 +1470,19 @@ impl CutthroatState {
         for seat in 0..PLAYER_COUNT {
             for (idx, stack) in self.players[seat as usize].royals.iter().enumerate() {
                 if stack.base == base {
+                    return Some((seat, idx));
+                }
+            }
+        }
+        None
+    }
+
+    fn find_point_stack_by_top_jack(&self, jack: Card) -> Option<(Seat, usize)> {
+        for seat in 0..PLAYER_COUNT {
+            for (idx, stack) in self.players[seat as usize].points.iter().enumerate() {
+                if let Some(top) = stack.jacks.last()
+                    && top.card == jack
+                {
                     return Some((seat, idx));
                 }
             }

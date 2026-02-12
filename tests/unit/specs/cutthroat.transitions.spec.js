@@ -16,6 +16,7 @@ describe('cutthroat transition helpers', () => {
   it('returns special point transitions for jack/resolve events', () => {
     expect(pointStackTransitionForSeat({ change: 'jack' }, 0, 0)).toBe('slide-above');
     expect(pointStackTransitionForSeat({ change: 'sevenJack' }, 1, 0)).toBe('slide-below');
+    expect(pointStackTransitionForSeat({ change: 'joker', target_type: 'jack' }, 0, 0)).toBe('slide-above');
     expect(pointStackTransitionForSeat({ change: 'resolve', oneoff_rank: 2 }, 0, 0)).toBe('slide-above');
     expect(pointStackTransitionForSeat({ change: 'resolve', oneoff_rank: 9, target_type: 'point' }, 0, 0)).toBe('slide-below');
   });
