@@ -6,7 +6,7 @@
     :opacity="1"
     data-cy="create-game-dialog"
   >
-    <template #activator>
+    <template v-if="showActivator" #activator>
       <v-btn
         class="px-16 w-100"
         color="primary"
@@ -86,6 +86,16 @@ import { getLocalStorage, setLocalStorage, LS_PREFERS_RANKED_NAME } from '_/util
 export default {
   name: 'CreateGameDialog',
   components: { StatsScoringDialog, BaseDialog },
+  props: {
+    openSignal: {
+      type: Number,
+      default: 0,
+    },
+    showActivator: {
+      type: Boolean,
+      default: true,
+    },
+  },
   emits: [ 'error' ],
   setup() {
     const { t } = useI18n();
@@ -105,6 +115,12 @@ export default {
   watch: {
     isRanked(isRanked) {
       this.setRankedPreference(isRanked);
+    },
+    openSignal(newValue, oldValue) {
+      if (newValue === oldValue) {
+        return;
+      }
+      this.show = true;
     },
   },
   created() {

@@ -228,6 +228,75 @@ describe('Profile Page', () => {
         .and('include', '/spectate/');
     });
 
+    it('Merges 2P and mocked 3P history entries in one timeline', function() {
+      const olderTwoPlayerDate = dayjs.utc().subtract(2, 'day');
+      const newerThreePlayerDate = dayjs.utc().subtract(1, 'day');
+
+      cy.intercept('GET', '**/cutthroat/api/v1/history*', {
+        statusCode: 200,
+        body: {
+          finished_games: [
+            {
+              rust_game_id: 99123,
+              name: 'Newer Three Player Game',
+              finished_at: newerThreePlayerDate.toISOString(),
+              winner_user_id: this[`${myUser.username}Id`],
+              viewer_won: true,
+              players: [
+                { seat: 0, user_id: this[`${myUser.username}Id`], username: myUser.username },
+                { seat: 1, user_id: this[`${playerOne.username}Id`], username: playerOne.username },
+                { seat: 2, user_id: this[`${playerTwo.username}Id`], username: playerTwo.username },
+              ],
+              mode: 'cutthroat'
+            }
+          ],
+          has_more: false,
+          next_cursor: null
+        }
+      }).as('cutthroatHistory');
+
+      cy.loadFinishedGameFixtures([
+        {
+          name: 'Older Two Player Game',
+          status: GameStatus.FINISHED,
+          isRanked: true,
+          createdAt: olderTwoPlayerDate.toDate(),
+          p0: this[`${playerOne.username}Id`],
+          p1: this[`${myUser.username}Id`],
+          winner: this[`${myUser.username}Id`],
+        }
+      ]);
+
+      cy.loginPlayer(myUser);
+      cy.vueRoute('/my-profile');
+      cy.wait('@cutthroatHistory');
+
+      cy.window()
+        .its('cuttle.myGamesStore.loading')
+        .should('eq', false);
+      cy.contains('[data-cy="game-list-item"]', 'Newer Three Player Game').should('be.visible');
+      cy.contains('[data-cy="game-list-item"]', 'Older Two Player Game').should('be.visible');
+
+      cy.contains('[data-cy="game-list-item"]', 'Newer Three Player Game')
+        .find('[data-cy="replay-link"]')
+        .should('have.attr', 'href')
+        .and('include', '/cutthroat/spectate/99123');
+
+      cy.contains('[data-cy="game-list-item"]', 'Older Two Player Game')
+        .find('[data-cy="replay-link"]')
+        .should('have.attr', 'href')
+        .then((href) => {
+          expect(href).to.include('/spectate/');
+          expect(href).to.not.include('/cutthroat/spectate/');
+        });
+
+      cy.get('[data-cy="game-list-item"]').should('have.length', 2);
+      cy.get('[data-cy="game-list-item"]').eq(0)
+        .should('contain', 'Newer Three Player Game');
+      cy.get('[data-cy="game-list-item"]').eq(1)
+        .should('contain', 'Older Two Player Game');
+    });
+
     it('Shows correct icons for win/loss/stalemate', function() {
       cy.loadFinishedGameFixtures([
         {
@@ -271,15 +340,15 @@ describe('Profile Page', () => {
       cy.get('[data-cy="game-list-item"]')
         .should('have.length', 3);
 
-      cy.get('[data-cy="game-list-item"]').eq(0)
+      cy.contains('[data-cy="game-list-item"]', 'Opponent Won Game')
         .find('[data-cy=loser-icon]')
         .should('exist');
 
-      cy.get('[data-cy="game-list-item"]').eq(1)
+      cy.contains('[data-cy="game-list-item"]', 'Player Won Game')
         .find('[data-cy=winner-icon]')
         .should('exist');
 
-      cy.get('[data-cy="game-list-item"]').eq(2)
+      cy.contains('[data-cy="game-list-item"]', 'Stalemate Game')
         .find('[data-cy=stalemate-icon]')
         .should('exist');
     });

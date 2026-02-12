@@ -48,6 +48,32 @@ You can simultaneously run the server on `localhost:1337` and the client on `loc
 npm run start:dev
 ```
 
+#### Cutthroat (3P) Rust Server
+
+Cutthroat runs on a separate Rust server that the Vue dev server proxies via `/cutthroat/*`.
+
+1. Default JS-only workflow (no Rust required):
+
+- Run `npm run start:dev` and develop 2P features as usual.
+- When Rust is unavailable, Cutthroat UI is hidden and `/cutthroat/*` routes redirect to `/`.
+
+2. To enable Cutthroat locally, in `cuttle-rust` (located at `cuttle/cuttle-rust`), run:
+
+```
+cargo run -p cutthroat_server
+```
+
+3. Environment variables (defaults shown):
+
+- `JS_INTERNAL_BASE_URL=http://localhost:1337`
+- `RUST_BIND_ADDR=0.0.0.0:4000`
+- `CUTTLE_RUST_URL=http://localhost:4000` (for Vite proxy override)
+
+4. Start the JS server + client as usual (`npm run start:dev`). The client will reach the Rust server via:
+
+- `http://localhost:8080/cutthroat/api/...`
+- `ws://localhost:8080/cutthroat/ws/...`
+
 ##### Start the Server (sails backend)
 
 ```

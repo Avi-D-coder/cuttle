@@ -3,6 +3,7 @@
     id="counter-dialog"
     v-model="show"
     :title="t('game.dialogs.counterDialogs.counterTitle')"
+    :max-width="dialogMaxWidth"
     minimizable
   >
     <template #body>
@@ -124,6 +125,9 @@ export default {
       return this.thereAreTwos
         ? this.twosPlayed[this.twosPlayed.length - 2]
         : null;
+    },
+    dialogMaxWidth() {
+      return this.oneOff?.rank === 1 ? 920 : 650;
     },
   },
   methods: {
