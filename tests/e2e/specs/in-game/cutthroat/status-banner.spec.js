@@ -22,7 +22,6 @@ describe('Cutthroat 3P Status Banner', () => {
     cy.get(CUTTHROAT_SELECTORS.seatPoints).should('have.length', 3);
     cy.get(CUTTHROAT_SELECTORS.seatGoals).should('have.length', 3);
     cy.get(CUTTHROAT_SELECTORS.seatTurns).should('have.length', 1);
-    cy.get('.player-area.active-turn').should('have.length', 1);
 
     cy.request(`/cutthroat/api/v1/games/${gameId}/state`)
       .its('body')
@@ -30,8 +29,13 @@ describe('Cutthroat 3P Status Banner', () => {
         const activeSeat = state.player_view.turn;
         const localSeat = 0;
         const expectedMyTurnCount = activeSeat === localSeat ? 1 : 0;
+        const expectedActiveOpponentCount = activeSeat === localSeat ? 0 : 1;
 
         cy.get(`${CUTTHROAT_SELECTORS.turnIndicator}.my-turn`).should('have.length', expectedMyTurnCount);
+        cy.get('.player-area.opponent.active-turn').should('have.length', expectedActiveOpponentCount);
+        if (activeSeat !== localSeat) {
+          cy.get(`.player-area.opponent.active-turn [data-cy=cutthroat-seat-status-${activeSeat}]`).should('exist');
+        }
         [ 0, 1, 2 ].forEach((seat) => {
           cy.get(`[data-cy=cutthroat-seat-points-${seat}]`).should('contain', 'POINTS');
           cy.get(`[data-cy=cutthroat-seat-goal-${seat}]`).should('contain', 'GOAL');
