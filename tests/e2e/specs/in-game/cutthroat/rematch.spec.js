@@ -114,11 +114,15 @@ describe('Cutthroat 3P Rematch UX', () => {
       players: spectatorPlayers,
     });
 
+    cy.intercept('GET', `/cutthroat/api/v1/games/${gameId}/spectate/state?gameStateIndex=0`).as('spectateReplayStart');
+
     cy.openCutthroatGame(gameId, 'spectate');
     cy.location('search').should('include', 'gameStateIndex=0');
+    cy.wait('@spectateReplayStart');
     cy.window()
       .its('cuttle.cutthroatStore')
       .then((store) => {
+        store.disconnectWs();
         store.hasActiveSeatedPlayers = true;
         store.spectateGames = [];
       });

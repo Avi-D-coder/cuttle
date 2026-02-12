@@ -56,6 +56,7 @@ struct DisconnectOutcome {
     game_changed: bool,
     lobby_changed: bool,
     seat_connection_changed: bool,
+    remove_game: bool,
 }
 
 struct ApplyActionOutcome {
@@ -394,14 +395,23 @@ impl GameActor {
                 }
                 GameCommand::SocketDisconnected { user_id, audience } => {
                     let outcome = self.socket_disconnected(user_id, audience);
-                    publish_game |= outcome.game_changed;
-                    publish_lobby |= outcome.lobby_changed;
+                    if outcome.remove_game {
+                        self.deregister_self().await;
+                        stop = true;
+                    } else {
+                        publish_game |= outcome.game_changed;
+                        publish_lobby |= outcome.lobby_changed;
+                    }
                     maybe_cleanup_unstarted_rematch |= outcome.seat_connection_changed;
                 }
                 GameCommand::SyncRematchPresenceFromSource {
                     disconnected_user_ids,
                 } => {
                     if self.sync_rematch_presence_from_source(&disconnected_user_ids) {
+                        if self.game.seats.is_empty() {
+                            self.deregister_self().await;
+                            stop = true;
+                        }
                         publish_game = true;
                         publish_lobby = true;
                     }
@@ -683,10 +693,21 @@ impl GameActor {
                 if idx < 3 && self.seat_connections[idx] > 0 {
                     self.seat_connections[idx] -= 1;
                 }
+                let mut seat_removed = false;
+                if self.game.status == STATUS_LOBBY
+                    && self.game.is_rematch_lobby
+                    && idx < 3
+                    && self.seat_connections[idx] == 0
+                {
+                    let original_len = self.game.seats.len();
+                    self.game.seats.retain(|entry| entry.user_id != user_id);
+                    seat_removed = self.game.seats.len() != original_len;
+                }
                 DisconnectOutcome {
-                    game_changed: false,
-                    lobby_changed: false,
+                    game_changed: seat_removed,
+                    lobby_changed: seat_removed,
                     seat_connection_changed: true,
+                    remove_game: seat_removed && self.game.seats.is_empty(),
                 }
             }
             GameAudience::Spectator => {
@@ -704,6 +725,7 @@ impl GameActor {
                     game_changed: changed,
                     lobby_changed: changed,
                     seat_connection_changed: false,
+                    remove_game: false,
                 }
             }
         }
@@ -1644,7 +1666,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_disconnect_clears_unstarted_rematch_active_presence_but_keeps_reservations() {
+    async fn source_disconnect_removes_unstarted_rematch_when_all_seats_disconnect() {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(100)));
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
         let p0 = user(10, "p0");
@@ -1687,11 +1709,7 @@ mod tests {
 
         wait_until(|| {
             if let Ok(guard) = runtime.try_read() {
-                guard
-                    .game_meta
-                    .get(&rematch_id)
-                    .map(|meta| meta.seats.is_empty())
-                    .unwrap_or(false)
+                !guard.games.contains_key(&rematch_id)
             } else {
                 false
             }
@@ -1699,28 +1717,9 @@ mod tests {
         .await;
 
         let guard = runtime.read().await;
-        assert!(guard.games.contains_key(&rematch_id));
-        assert_eq!(
-            guard
-                .lobby_cache
-                .get(&rematch_id)
-                .map(|entry| entry.seat_count),
-            Some(0)
-        );
-        assert_eq!(
-            guard
-                .lobby_cache
-                .get(&rematch_id)
-                .map(|entry| entry.seat_user_ids.clone()),
-            Some(vec![p0.id, p1.id, p2.id])
-        );
-        assert_eq!(
-            guard
-                .game_meta
-                .get(&rematch_id)
-                .map(|meta| meta.seats.len()),
-            Some(0)
-        );
+        assert!(!guard.games.contains_key(&rematch_id));
+        assert!(!guard.lobby_cache.contains_key(&rematch_id));
+        assert!(!guard.rematches.contains_key(&source_id));
     }
 
     #[tokio::test]
@@ -2002,6 +2001,128 @@ mod tests {
             .await
             .expect("p1 rejoin should succeed");
         assert_eq!(seat, 1);
+    }
+
+    #[tokio::test]
+    async fn rematch_lobby_disconnect_marks_player_as_left_and_preserves_reserved_rejoin() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(575)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let p0 = user(65, "p0");
+        let p1 = user(66, "p1");
+        let p2 = user(67, "p2");
+        let source_id = 232;
+
+        let _source_tx = spawn_game_actor(
+            runtime.clone(),
+            persistence_tx.clone(),
+            finished_source_game(source_id, &p0, &p1, &p2),
+        )
+        .await;
+
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
+        let rematch_tx = game_sender(&runtime, rematch_id)
+            .await
+            .expect("rematch sender");
+
+        subscribe_as_seat(&rematch_tx, p0.clone()).await;
+        subscribe_as_seat(&rematch_tx, p1.clone()).await;
+        subscribe_as_seat(&rematch_tx, p2.clone()).await;
+
+        send_disconnect(&rematch_tx, p1.id, GameAudience::Seat(1)).await;
+        wait_until(|| {
+            if let Ok(guard) = runtime.try_read() {
+                guard
+                    .game_meta
+                    .get(&rematch_id)
+                    .map(|meta| !meta.seats.iter().any(|seat| seat.user_id == p1.id))
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        })
+        .await;
+
+        {
+            let guard = runtime.read().await;
+            assert!(guard.games.contains_key(&rematch_id));
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&rematch_id)
+                    .map(|entry| entry.seat_count),
+                Some(2)
+            );
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&rematch_id)
+                    .map(|entry| entry.seat_user_ids.clone()),
+                Some(vec![p0.id, p1.id, p2.id])
+            );
+        }
+
+        let seat = join_game_result(&rematch_tx, p1.clone())
+            .await
+            .expect("p1 rejoin should succeed");
+        assert_eq!(seat, 1);
+    }
+
+    #[tokio::test]
+    async fn rematch_lobby_disconnect_removes_lobby_when_all_players_disconnect() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(590)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let p0 = user(70, "p0");
+        let p1 = user(71, "p1");
+        let p2 = user(72, "p2");
+        let source_id = 242;
+
+        let _source_tx = spawn_game_actor(
+            runtime.clone(),
+            persistence_tx.clone(),
+            finished_source_game(source_id, &p0, &p1, &p2),
+        )
+        .await;
+
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
+        let rematch_tx = game_sender(&runtime, rematch_id)
+            .await
+            .expect("rematch sender");
+
+        subscribe_as_seat(&rematch_tx, p0.clone()).await;
+        subscribe_as_seat(&rematch_tx, p1.clone()).await;
+        subscribe_as_seat(&rematch_tx, p2.clone()).await;
+
+        send_disconnect(&rematch_tx, p0.id, GameAudience::Seat(0)).await;
+        send_disconnect(&rematch_tx, p1.id, GameAudience::Seat(1)).await;
+        send_disconnect(&rematch_tx, p2.id, GameAudience::Seat(2)).await;
+
+        wait_until(|| {
+            if let Ok(guard) = runtime.try_read() {
+                !guard.games.contains_key(&rematch_id)
+            } else {
+                false
+            }
+        })
+        .await;
+
+        let guard = runtime.read().await;
+        assert!(!guard.games.contains_key(&rematch_id));
+        assert!(!guard.lobby_cache.contains_key(&rematch_id));
+        assert!(!guard.rematches.contains_key(&source_id));
     }
 
     #[tokio::test]
