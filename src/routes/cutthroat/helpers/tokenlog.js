@@ -482,6 +482,7 @@ export function findActiveCounterChain(parsedActions = []) {
   }
 
   return {
+    oneOffSeat: Number.isInteger(oneOffAction.seat) ? oneOffAction.seat : null,
     oneOffCardToken: oneOffAction.cardToken,
     oneOffTarget: oneOffAction.target ?? { type: 'None' },
     twosPlayed,
@@ -494,6 +495,7 @@ export function deriveCounterDialogContextFromPhase(phase = null) {
   const oneoff = data.oneoff ?? null;
   if (!oneoff || oneoff.type !== 'PlayOneOff') {return null;}
   return {
+    oneOffSeat: Number.isInteger(data.base_player) ? data.base_player : null,
     oneOffCardToken: oneoff.data?.card ?? null,
     oneOffTarget: normalizePhaseOneOffTarget(oneoff.data?.target),
     twosPlayed: Array.isArray(data.twos)
@@ -511,6 +513,29 @@ export function deriveCounterDialogContextFromTokenlog(tokenlog = '', maxActions
     }
     const actionLimit = Math.min(maxActions, parsedActions.length);
     return findActiveCounterChain(parsedActions.slice(0, actionLimit));
+  } catch (_) {
+    return null;
+  }
+}
+
+export function deriveLatestOneOffContextFromTokenlog(tokenlog = '', maxActions = null) {
+  if (!tokenlog || typeof tokenlog !== 'string') {return null;}
+  try {
+    const parsedActions = parseTokenlogActions(tokenlog);
+    const limited = Number.isInteger(maxActions) && maxActions >= 0
+      ? parsedActions.slice(0, Math.min(maxActions, parsedActions.length))
+      : parsedActions;
+
+    for (let index = limited.length - 1; index >= 0; index -= 1) {
+      const action = limited[index];
+      if (action?.type !== 'ONEOFF' || !action.cardToken) {continue;}
+      return {
+        oneOffSeat: Number.isInteger(action.seat) ? action.seat : null,
+        oneOffCardToken: action.cardToken,
+        oneOffTarget: action.target ?? { type: 'None' },
+      };
+    }
+    return null;
   } catch (_) {
     return null;
   }

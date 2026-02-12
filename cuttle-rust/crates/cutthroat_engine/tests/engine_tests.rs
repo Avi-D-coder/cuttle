@@ -279,7 +279,7 @@ fn seven_oneoff_enters_countering() {
 }
 
 #[test]
-fn resolving_seven_revealed_cards_visible_only_to_resolver() {
+fn resolving_seven_revealed_cards_visible_to_all_players() {
     let mut state = empty_state();
     state.turn = 0;
     state.players[0].hand.push(c("7C"));
@@ -309,7 +309,7 @@ fn resolving_seven_revealed_cards_visible_only_to_resolver() {
 
     match view_other.phase {
         cutthroat_engine::state::PhaseView::ResolvingSeven { revealed_cards, .. } => {
-            assert!(revealed_cards.is_empty());
+            assert_eq!(revealed_cards, vec!["5C".to_string(), "KD".to_string()]);
         }
         _ => panic!("expected resolving seven for other player"),
     }
@@ -443,9 +443,6 @@ fn full_game_tokenlog_game_three_exercises_counters_and_resolves() {
             },
         ),
         (1, Action::CounterTwo { two_card: c("2H") }),
-        (2, Action::CounterTwo { two_card: c("2S") }),
-        (0, Action::CounterPass),
-        (1, Action::CounterPass),
         (
             1,
             Action::PlayOneOff {
@@ -453,8 +450,6 @@ fn full_game_tokenlog_game_three_exercises_counters_and_resolves() {
                 target: OneOffTarget::Player { seat: 0 },
             },
         ),
-        (2, Action::CounterPass),
-        (0, Action::CounterPass),
         (0, Action::ResolveFourDiscard { card: c("7D") }),
         (0, Action::ResolveFourDiscard { card: c("2C") }),
         (
@@ -475,16 +470,11 @@ fn full_game_tokenlog_game_three_exercises_counters_and_resolves() {
                 target: OneOffTarget::Point { base: c("3C") },
             },
         ),
-        (2, Action::CounterPass),
-        (0, Action::CounterPass),
     ];
-    assert!(script.len() >= 24, "script unexpectedly short");
+    assert!(script.len() >= 17, "script unexpectedly short");
     let (tokenlog, expected_state) = build_tokenlog_from_script(0, &deck, &script);
     let state = assert_tokenlog_roundtrip(&tokenlog);
-    assert_eq!(state.winner, expected_state.winner);
-    assert!(state.players.iter().all(|p| p.points.is_empty()));
-    assert!(state.players.iter().all(|p| p.royals.is_empty()));
-    assert!(state.players.iter().any(|player| !player.frozen.is_empty()));
+    assert_eq!(state, expected_state);
 }
 
 #[test]
@@ -751,6 +741,151 @@ fn counter_rotation_end_after_last_two_odd_fizzles() {
 
     assert!(state.players[1].points.iter().any(|p| p.base == c("9C")));
     assert!(matches!(state.phase, Phase::Main));
+}
+
+#[test]
+fn oneoff_from_player_with_queen_skips_counter_cycle() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("AC"));
+    state.players[0].royals.push(RoyalStack {
+        base: c("QH"),
+        base_owner: 0,
+        jokers: Vec::new(),
+    });
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.players[2].hand.push(c("2D"));
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("AC"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Main));
+    assert_eq!(state.turn, 1);
+    assert!(state.players.iter().all(|player| player.points.is_empty()));
+    assert!(state.scrap.contains(&c("AC")));
+    assert!(state.players[2].hand.contains(&c("2D")));
+}
+
+#[test]
+fn oneoff_with_all_twos_in_scrap_skips_counter_cycle() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("AC"));
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.scrap.extend([c("2C"), c("2D"), c("2H"), c("2S")]);
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("AC"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Main));
+    assert_eq!(state.turn, 1);
+    assert!(state.players.iter().all(|player| player.points.is_empty()));
+    assert!(state.scrap.contains(&c("AC")));
+}
+
+#[test]
+fn counter_from_player_with_queen_skips_followup_counter_cycle() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("AC"));
+    state.players[1].hand.push(c("2C"));
+    state.players[2].hand.push(c("2D"));
+    state.players[1].royals.push(RoyalStack {
+        base: c("QH"),
+        base_owner: 1,
+        jokers: Vec::new(),
+    });
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("AC"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+    state
+        .apply(1, Action::CounterTwo { two_card: c("2C") })
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Main));
+    assert_eq!(state.turn, 1);
+    assert!(state.players[1].points.iter().any(|stack| stack.base == c("9C")));
+    assert!(state.players[2].hand.contains(&c("2D")));
+    assert!(state.scrap.contains(&c("AC")));
+    assert!(state.scrap.contains(&c("2C")));
+}
+
+#[test]
+fn seven_oneoff_with_all_twos_in_scrap_skips_counter_cycle() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("7C"));
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.deck = vec![c("AC"), c("KD")];
+    state.scrap.extend([c("2C"), c("2D"), c("2H"), c("2S")]);
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::ResolvingSeven { .. }));
+
+    state
+        .apply(
+            0,
+            Action::ResolveSevenChoose {
+                card: c("AC"),
+                play: SevenPlay::OneOff {
+                    target: OneOffTarget::None,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Main));
+    assert_eq!(state.turn, 1);
+    assert!(state.players.iter().all(|player| player.points.is_empty()));
+    assert!(state.scrap.contains(&c("7C")));
+    assert!(state.scrap.contains(&c("AC")));
 }
 
 #[test]
@@ -1071,6 +1206,7 @@ fn nine_returns_royal_and_freezes() {
 fn public_view_with_glasses_reveals_hands() {
     let mut state = empty_state();
     state.turn = 0;
+    state.deck.push(c("3C"));
     state.players[0].royals.push(RoyalStack {
         base: c("8C"),
         base_owner: 0,
@@ -1096,6 +1232,28 @@ fn public_view_with_glasses_reveals_hands() {
 
     let view1 = state.public_view(1);
     assert!(matches!(view1.players[0].hand[0], PublicCard::Hidden));
+}
+
+#[test]
+fn public_view_with_empty_deck_reveals_hands() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.deck.clear();
+    state.players[0].hand = vec![c("9C")];
+    state.players[1].hand = vec![c("AC"), c("KD")];
+    state.players[2].hand = vec![c("2H")];
+
+    for viewer in 0..3 {
+        let view = state.public_view(viewer);
+        for player in &view.players {
+            assert!(
+                player
+                    .hand
+                    .iter()
+                    .all(|card| matches!(card, PublicCard::Known(_)))
+            );
+        }
+    }
 }
 
 #[test]

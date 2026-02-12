@@ -341,7 +341,7 @@
             @click="handleDeckClick"
           >
             <div class="pile-title">
-              {{ t('cutthroat.game.deck') }} ({{ playerView.deck_count }})
+              {{ t('cutthroat.game.deck') }} ({{ deckCount }})
             </div>
             <div class="pile-cards">
               <div
@@ -369,7 +369,12 @@
                   />
                 </button>
               </div>
-              <div v-else class="deck-face" />
+              <div v-else class="deck-stack">
+                <div class="deck-face" />
+                <div v-if="deckCount === 0" class="empty-deck-text">
+                  {{ t('cutthroat.game.pass') }}
+                </div>
+              </div>
             </div>
           </div>
           <CutthroatScrapPile
@@ -639,6 +644,8 @@
       :model-value="showCounterDialog"
       :one-off="counterDialogOneOff"
       :target="counterDialogTarget"
+      :played-by-label="triggeringPlayerLabel"
+      :target-player-label="triggeringTargetPlayerLabel"
       :twos-in-hand="counterDialogTwosInHand"
       :twos-played="counterDialogTwosPlayed"
       @counter="handleCounterTwoFromDialog"
@@ -649,6 +656,8 @@
       :model-value="showCannotCounterDialog"
       :one-off="counterDialogOneOff"
       :target="counterDialogTarget"
+      :played-by-label="triggeringPlayerLabel"
+      :target-player-label="triggeringTargetPlayerLabel"
       :opponent-queen-count="0"
       :player-two-count="counterDialogTwosInHand.length"
       :twos-played="counterDialogTwosPlayed"
@@ -714,7 +723,7 @@
     >
       <template #body>
         <p class="mb-4">
-          {{ t('game.dialogs.four.opponentHasResolved') }}
+          {{ resolveFourDialogBody }}
         </p>
         <div class="d-flex flex-wrap card-container">
           <CutthroatCard
@@ -1189,6 +1198,8 @@ const isActionBlockedByStatus = computed(() => {
   return isActionInteractionDisabled(store.status, false, isSpectatorMode.value);
 });
 
+const deckCount = computed(() => playerView.value?.deck_count ?? 0);
+
 const {
   actionInFlight,
   actionInFlightKey,
@@ -1206,6 +1217,8 @@ const {
   counterDialogTarget,
   counterDialogTwosPlayed,
   counterDialogTwosInHand,
+  triggeringOneOffSeat,
+  triggeringOneOffTargetSeat,
   showCounterDialog,
   showCannotCounterDialog,
   counterDialogInvariantError,
@@ -1260,7 +1273,7 @@ const {
   snackbarStore,
   t,
   legalActions,
-  deckCount: computed(() => playerView.value?.deck_count ?? 0),
+  deckCount,
   phaseType,
   isActionDisabled: isActionBlockedByStatus,
   isFinished,
@@ -1344,6 +1357,20 @@ const actingPlayerLabel = computed(() => {
   return t('global.player');
 });
 
+const triggeringPlayerLabel = computed(() => {
+  if (Number.isInteger(triggeringOneOffSeat.value)) {
+    return seatLabel(triggeringOneOffSeat.value);
+  }
+  return '';
+});
+
+const triggeringTargetPlayerLabel = computed(() => {
+  if (Number.isInteger(triggeringOneOffTargetSeat.value)) {
+    return seatLabel(triggeringOneOffTargetSeat.value);
+  }
+  return '';
+});
+
 const isWaitingForCounterAction = computed(() => {
   if (!isCounteringPhase.value || isFinished.value) {return false;}
   return !showCounterDialog.value && !showCannotCounterDialog.value;
@@ -1362,21 +1389,45 @@ const isWaitingForResolveThreeAction = computed(() => {
 });
 
 const waitingForCounterText = computed(() => {
-  return t('game.overlays.mayCounter', {
+  const baseText = t('game.overlays.mayCounter', {
     opponentUsername: actingPlayerLabel.value,
   });
+  const details = [];
+  if (triggeringPlayerLabel.value) {
+    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
+  }
+  if (triggeringTargetPlayerLabel.value) {
+    details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
+  }
+  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
 });
 
 const waitingForDiscardText = computed(() => {
-  return t('game.overlays.isDiscarding', {
+  const baseText = t('game.overlays.isDiscarding', {
     opponentUsername: actingPlayerLabel.value,
   });
+  const details = [];
+  if (triggeringPlayerLabel.value) {
+    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
+  }
+  if (triggeringTargetPlayerLabel.value) {
+    details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
+  }
+  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
 });
 
 const waitingForResolveThreeText = computed(() => {
-  return t('game.overlays.choosingFromScrap', {
+  const baseText = t('game.overlays.choosingFromScrap', {
     opponentUsername: actingPlayerLabel.value,
   });
+  const details = [];
+  if (triggeringPlayerLabel.value) {
+    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
+  }
+  if (triggeringTargetPlayerLabel.value) {
+    details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
+  }
+  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
 });
 
 const counterOverlayOneOffCard = computed(() => {
@@ -1401,7 +1452,27 @@ const resolveFiveDialogTitle = computed(() => {
 });
 
 const resolveFiveDialogBody = computed(() => {
-  return t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.resolveFive' : 'game.dialogs.five.resolveFiveNoCards');
+  const baseText = t(resolveFiveHandCards.value.length > 0 ? 'game.dialogs.five.resolveFive' : 'game.dialogs.five.resolveFiveNoCards');
+  const details = [];
+  if (triggeringPlayerLabel.value) {
+    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
+  }
+  if (triggeringTargetPlayerLabel.value) {
+    details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
+  }
+  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
+});
+
+const resolveFourDialogBody = computed(() => {
+  const baseText = t('game.dialogs.four.opponentHasResolved');
+  const details = [];
+  if (triggeringPlayerLabel.value) {
+    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
+  }
+  if (triggeringTargetPlayerLabel.value) {
+    details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
+  }
+  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
 });
 
 const resolveFiveDialogButton = computed(() => {
@@ -1900,10 +1971,15 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+.player-area.opponent .player-hand {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
 .player-area.opponent .hand-card {
-  flex: 1 1 clamp(60px, 17%, 102px);
+  flex: 1 1 0;
   max-width: clamp(60px, 17%, 102px);
-  min-width: 50px;
+  min-width: 0;
 }
 
 .player-area.opponent .hand-card :deep(.player-card) {
@@ -2035,13 +2111,35 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
-.deck-face {
+.pile-cards {
+  display: flex;
+  justify-content: center;
+}
+
+.deck-stack {
+  position: relative;
   width: clamp(68px, 8vw, 90px);
   aspect-ratio: 9 / 13;
-  height: auto;
+  margin: 0 auto;
+}
+
+.deck-face {
+  width: 100%;
+  height: 100%;
   background: url('/img/cards/card-back.png') center/cover no-repeat;
   border-radius: 8px;
-  margin: 0 auto;
+}
+
+.empty-deck-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  font-weight: 700;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.8);
 }
 
 .reveal-group {
@@ -2356,15 +2454,14 @@ onBeforeUnmount(() => {
 
   .player-area.opponent .player-hand {
     flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: hidden;
     padding-bottom: 2px;
   }
 
   .player-area.opponent .hand-card {
-    flex: 0 0 clamp(42px, 9.6vw, 62px);
+    flex: 1 1 0;
     max-width: clamp(42px, 9.6vw, 62px);
-    min-width: 36px;
+    min-width: 0;
   }
 
   .player-area.opponent .player-stacks {
@@ -2492,9 +2589,9 @@ onBeforeUnmount(() => {
   }
 
   .player-area.opponent .hand-card {
-    flex-basis: clamp(34px, 19vw, 54px);
+    flex: 1 1 0;
     max-width: clamp(34px, 19vw, 54px);
-    min-width: 30px;
+    min-width: 0;
   }
 
   .player-area.me {
@@ -2573,9 +2670,13 @@ onBeforeUnmount(() => {
     margin-bottom: 4px;
   }
 
-  .deck-face {
+  .deck-stack {
     width: 44px;
     height: 63px;
+  }
+
+  .empty-deck-text {
+    font-size: 0.48rem;
   }
 
   .reveal-group {

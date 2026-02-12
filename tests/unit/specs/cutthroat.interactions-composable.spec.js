@@ -215,4 +215,47 @@ describe('useCutthroatInteractions', () => {
     expect(store.sendAction).not.toHaveBeenCalled();
     expect(snackbarStore.alert).toHaveBeenCalledWith('game.snackbar.draw.handLimit');
   });
+
+  it('derives triggering one-off seat and target seat from countering phase data', () => {
+    const { triggeringOneOffSeat, triggeringOneOffTargetSeat } = buildInteractions({
+      phaseType: 'Countering',
+      store: {
+        playerView: {
+          phase: {
+            type: 'Countering',
+            data: {
+              base_player: 2,
+              oneoff: {
+                type: 'PlayOneOff',
+                data: {
+                  card: '4C',
+                  target: { type: 'Player', data: { seat: 1 } },
+                },
+              },
+              twos: [],
+            },
+          },
+        },
+      },
+    });
+
+    expect(triggeringOneOffSeat.value).toBe(2);
+    expect(triggeringOneOffTargetSeat.value).toBe(1);
+  });
+
+  it('falls back to tokenlog one-off seat and target seat in resolving phases', () => {
+    const { triggeringOneOffSeat, triggeringOneOffTargetSeat } = buildInteractions({
+      phaseType: 'ResolvingFour',
+      store: {
+        tokenlog: [
+          'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+          'P1 oneOff 4C P2',
+          'P2 resolve',
+        ].join(' '),
+      },
+    });
+
+    expect(triggeringOneOffSeat.value).toBe(1);
+    expect(triggeringOneOffTargetSeat.value).toBe(2);
+  });
 });

@@ -176,13 +176,14 @@ impl CutthroatState {
 
     pub fn public_view(&self, viewer: Seat) -> PublicView {
         let viewer_has_glasses = self.player_has_glasses(viewer);
+        let deck_is_empty = self.deck.is_empty();
         let players = self
             .players
             .iter()
             .enumerate()
             .map(|(idx, player)| {
                 let seat = idx as Seat;
-                let show_hand = seat == viewer || viewer_has_glasses;
+                let show_hand = seat == viewer || viewer_has_glasses || deck_is_empty;
                 let hand = if show_hand {
                     player
                         .hand
@@ -337,6 +338,13 @@ impl CutthroatState {
 
     fn legal_counter_actions(&self, seat: Seat) -> Vec<Action> {
         let mut actions = vec![Action::CounterPass];
+        let counter_target_has_queen = matches!(
+            &self.phase,
+            Phase::Countering(counter) if self.counter_target_has_queen(counter)
+        );
+        if counter_target_has_queen {
+            return actions;
+        }
         let available = self.available_cards(seat);
         for &card in &available {
             if matches!(
@@ -680,6 +688,19 @@ impl CutthroatState {
                 }
                 self.remove_from_hand(seat, card)?;
                 self.reset_pass_streak();
+                if self.queen_count_for(seat) > 0 || self.all_twos_in_scrap() {
+                    self.resolve_uncounterable_oneoff(seat, card, target)?;
+                    if !matches!(
+                        self.phase,
+                        Phase::ResolvingThree { .. }
+                            | Phase::ResolvingFour { .. }
+                            | Phase::ResolvingFive { .. }
+                            | Phase::ResolvingSeven { .. }
+                    ) {
+                        self.finish_turn(seat);
+                    }
+                    return Ok(());
+                }
                 let counter = CounterState {
                     base_player: seat,
                     oneoff: Action::PlayOneOff { card, target },
@@ -735,8 +756,14 @@ impl CutthroatState {
             }
         }
 
-        let should_end =
-            matches!(action, Action::CounterPass) && counter.next_seat == counter.rotation_anchor;
+        let queen_forces_end = matches!(action, Action::CounterTwo { .. }) && self.queen_count_for(seat) > 0;
+        if queen_forces_end {
+            counter.next_seat = counter.rotation_anchor;
+        }
+        let should_end = counter.next_seat == counter.rotation_anchor
+            && (matches!(action, Action::CounterPass)
+                || queen_forces_end
+                || self.all_twos_in_scrap());
         if should_end {
             let base_player = counter.base_player;
             let oneoff = counter.oneoff.clone();
@@ -1052,17 +1079,21 @@ impl CutthroatState {
                 if !chosen.is_oneoff() {
                     return Err(RuleError::InvalidAction);
                 }
-                let counter = CounterState {
-                    base_player: seat,
-                    oneoff: Action::PlayOneOff {
-                        card: chosen,
-                        target,
-                    },
-                    twos: Vec::new(),
-                    next_seat: next_seat(seat),
-                    rotation_anchor: seat,
-                };
-                self.phase = Phase::Countering(counter);
+                if self.queen_count_for(seat) > 0 || self.all_twos_in_scrap() {
+                    self.resolve_uncounterable_oneoff(seat, chosen, target)?;
+                } else {
+                    let counter = CounterState {
+                        base_player: seat,
+                        oneoff: Action::PlayOneOff {
+                            card: chosen,
+                            target,
+                        },
+                        twos: Vec::new(),
+                        next_seat: next_seat(seat),
+                        rotation_anchor: seat,
+                    };
+                    self.phase = Phase::Countering(counter);
+                }
             }
         }
 
@@ -1077,6 +1108,16 @@ impl CutthroatState {
             self.finish_turn(base_player);
         }
         Ok(())
+    }
+
+    fn resolve_uncounterable_oneoff(
+        &mut self,
+        base_player: Seat,
+        card: Card,
+        target: OneOffTarget,
+    ) -> Result<(), RuleError> {
+        self.scrap.push(card);
+        self.resolve_oneoff(base_player, card, target)
     }
 
     fn apply_two_target(&mut self, target: OneOffTarget) -> Result<(), RuleError> {
@@ -1452,6 +1493,34 @@ impl CutthroatState {
                     )
             })
             .count()
+    }
+
+    fn all_twos_in_scrap(&self) -> bool {
+        self.scrap
+            .iter()
+            .filter(|card| {
+                matches!(
+                    card,
+                    Card::Standard {
+                        rank: Rank::Two,
+                        ..
+                    }
+                )
+            })
+            .count()
+            == 4
+    }
+
+    fn counter_target_owner(&self, counter: &CounterState) -> Seat {
+        counter
+            .twos
+            .last()
+            .map(|(seat, _)| *seat)
+            .unwrap_or(counter.base_player)
+    }
+
+    fn counter_target_has_queen(&self, counter: &CounterState) -> bool {
+        self.queen_count_for(self.counter_target_owner(counter)) > 0
     }
 
     fn player_has_glasses(&self, seat: Seat) -> bool {

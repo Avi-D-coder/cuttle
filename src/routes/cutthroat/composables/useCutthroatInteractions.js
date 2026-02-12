@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue';
 import { parseCardToken } from '@/util/cutthroat-cards';
 import {
   deriveCounterDialogContextFromPhase,
+  deriveLatestOneOffContextFromTokenlog,
   deriveCutthroatDialogState,
   deriveMoveChoicesForSource,
   deriveTargetsForChoice,
@@ -129,6 +130,34 @@ export function useCutthroatInteractions({
   const counterContext = computed(() => {
     if (!isCounteringPhase.value) {return null;}
     return deriveCounterDialogContextFromPhase(store.playerView?.phase ?? null);
+  });
+
+  const latestOneOffContext = computed(() => {
+    return deriveLatestOneOffContextFromTokenlog(store.tokenlog ?? '');
+  });
+
+  const triggeringOneOffSeat = computed(() => {
+    if (Number.isInteger(counterContext.value?.oneOffSeat)) {
+      return counterContext.value.oneOffSeat;
+    }
+    if (Number.isInteger(latestOneOffContext.value?.oneOffSeat)) {
+      return latestOneOffContext.value.oneOffSeat;
+    }
+    return null;
+  });
+
+  const triggeringOneOffTargetSeat = computed(() => {
+    const counterTarget = counterContext.value?.oneOffTarget ?? null;
+    if (counterTarget?.type === 'Player' && Number.isInteger(counterTarget.seat)) {
+      return counterTarget.seat;
+    }
+
+    const latestTarget = latestOneOffContext.value?.oneOffTarget ?? null;
+    if (latestTarget?.type === 'Player' && Number.isInteger(latestTarget.seat)) {
+      return latestTarget.seat;
+    }
+
+    return null;
   });
 
   const counterDialogOneOff = computed(() => {
@@ -747,6 +776,9 @@ export function useCutthroatInteractions({
     localHandActionTokens,
     counterTwoOptions,
     counterContext,
+    latestOneOffContext,
+    triggeringOneOffSeat,
+    triggeringOneOffTargetSeat,
     counterDialogOneOff,
     counterDialogTarget,
     counterDialogTwosPlayed,

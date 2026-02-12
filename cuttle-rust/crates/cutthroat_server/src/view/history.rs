@@ -25,6 +25,10 @@ pub(crate) fn build_history_log_for_viewer_with_limit(
             break;
         }
         let pre_view = state.public_view(viewer);
+        let revealed_cards = match &pre_view.phase {
+            PhaseView::ResolvingSeven { revealed_cards, .. } => revealed_cards.clone(),
+            _ => Vec::new(),
+        };
         let mut visible_tokens = collect_visible_tokens(&pre_view);
         if state.apply(*actor_seat, action.clone()).is_err() {
             break;
@@ -36,6 +40,7 @@ pub(crate) fn build_history_log_for_viewer_with_limit(
             *actor_seat,
             &seat_names,
             &visible_tokens,
+            &revealed_cards,
         ));
     }
 
@@ -198,6 +203,7 @@ fn format_history_line(
     actor_seat: Seat,
     seat_names: &HashMap<Seat, String>,
     visible_tokens: &HashSet<String>,
+    revealed_cards: &[String],
 ) -> String {
     let actor = seat_name(actor_seat, seat_names);
     match action {
@@ -270,11 +276,34 @@ fn format_history_line(
             card_name_for_history(*card, visible_tokens)
         ),
         Action::ResolveSevenChoose { card, play } => format!(
-            "{} resolved seven with revealed {}{}.",
+            "{} resolved seven with revealed {}{}{}.",
             actor,
             card_name_for_history(*card, visible_tokens),
+            seven_reveal_text(revealed_cards, visible_tokens),
             seven_play_text(play, seat_names, visible_tokens)
         ),
+    }
+}
+
+fn seven_reveal_text(revealed_cards: &[String], visible_tokens: &HashSet<String>) -> String {
+    if revealed_cards.is_empty() {
+        return String::new();
+    }
+    let names: Vec<String> = revealed_cards
+        .iter()
+        .take(2)
+        .map(|token| {
+            if visible_tokens.contains(token) {
+                card_token_to_human(token)
+            } else {
+                "Unknown card".to_string()
+            }
+        })
+        .collect();
+    match names.as_slice() {
+        [single] => format!(" (top reveal was {})", single),
+        [first, second] => format!(" (top two were {} and {})", first, second),
+        _ => String::new(),
     }
 }
 
@@ -360,4 +389,44 @@ fn card_token_to_human(token: &str) -> String {
         _ => '?',
     };
     format!("{}{}", rank, suit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_history_line;
+    use cutthroat_engine::{Action, Card, SevenPlay};
+    use std::collections::HashMap;
+    use std::collections::HashSet;
+
+    fn c(token: &str) -> Card {
+        Card::from_token(token).expect("valid card token")
+    }
+
+    #[test]
+    fn resolve_seven_history_line_includes_top_two_cards() {
+        let mut seat_names = HashMap::new();
+        seat_names.insert(0, "Avi3".to_string());
+        seat_names.insert(1, "bbjme_test".to_string());
+        seat_names.insert(2, "Spud_Spudoni".to_string());
+
+        let mut visible_tokens = HashSet::new();
+        visible_tokens.insert("6S".to_string());
+        visible_tokens.insert("KD".to_string());
+
+        let line = format_history_line(
+            &Action::ResolveSevenChoose {
+                card: c("6S"),
+                play: SevenPlay::Points,
+            },
+            0,
+            &seat_names,
+            &visible_tokens,
+            &["6S".to_string(), "KD".to_string()],
+        );
+
+        assert_eq!(
+            line,
+            "Avi3 resolved seven with revealed 6♠ (top two were 6♠ and K♦) as points."
+        );
+    }
 }
