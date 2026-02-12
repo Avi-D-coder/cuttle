@@ -74,7 +74,7 @@ function buildStatePayload(version = 1) {
     player_view: playerView,
     spectator_view: {
       ...playerView,
-      deck_count: 0,
+      deck_count: 10,
     },
     tokenlog: 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK',
     replay_total_states: 1,
@@ -130,12 +130,12 @@ describe('cutthroat store websocket behavior', () => {
     const payload = buildStatePayload(5);
     payload.is_spectator = true;
     payload.player_view.deck_count = 99;
-    payload.spectator_view.deck_count = 0;
+    payload.spectator_view.deck_count = 11;
     ws.emitMessage({ type: 'state', state: payload });
 
     expect(store.isSpectator).toBe(true);
-    expect(store.playerView.deck_count).toBe(0);
-    expect(store.spectatorView.deck_count).toBe(0);
+    expect(store.playerView.deck_count).toBe(11);
+    expect(store.spectatorView.deck_count).toBe(11);
   });
 
   it('stores next game replay metadata from state payload', () => {

@@ -1318,12 +1318,18 @@ impl CutthroatState {
                 }
             }
         }
+        let mut points_by_base_owner = vec![Vec::new(); PLAYER_COUNT as usize];
         for seat in 0..PLAYER_COUNT {
-            for stack in &mut self.players[seat as usize].points {
+            let stacks = std::mem::take(&mut self.players[seat as usize].points);
+            for mut stack in stacks {
                 for jack in stack.jacks.drain(..) {
                     self.scrap.push(jack.card);
                 }
+                points_by_base_owner[stack.base_owner as usize].push(stack);
             }
+        }
+        for seat in 0..PLAYER_COUNT {
+            self.players[seat as usize].points.extend(points_by_base_owner[seat as usize].drain(..));
         }
     }
 

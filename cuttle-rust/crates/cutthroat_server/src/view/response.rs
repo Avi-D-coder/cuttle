@@ -58,7 +58,6 @@ pub(crate) fn build_spectator_view(game: &GameEntry) -> PublicView {
                 .collect();
         }
     }
-    view.deck_count = 0;
     view.last_event = game.last_event.clone();
     view
 }

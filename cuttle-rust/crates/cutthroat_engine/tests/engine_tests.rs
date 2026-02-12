@@ -971,6 +971,89 @@ fn nine_returns_top_jack_only() {
 }
 
 #[test]
+fn six_scraps_jacks_and_returns_stolen_points_to_base_owner() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("6C"));
+    state.players[2].points.push(PointStack {
+        base: c("TS"),
+        base_owner: 0,
+        jacks: vec![
+            JackOnStack {
+                card: c("JD"),
+                owner: 2,
+            },
+            JackOnStack {
+                card: c("JH"),
+                owner: 1,
+            },
+        ],
+    });
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("6C"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+    state.apply(1, Action::CounterPass).unwrap();
+    state.apply(2, Action::CounterPass).unwrap();
+
+    assert!(state.players[2].points.is_empty());
+    assert!(state.players[0]
+        .points
+        .iter()
+        .any(|stack| stack.base == c("TS") && stack.jacks.is_empty()));
+    assert!(state.scrap.contains(&c("JD")));
+    assert!(state.scrap.contains(&c("JH")));
+}
+
+#[test]
+fn six_returns_stolen_ten_before_follow_up_ten_win_check() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.deck = vec![c("AC"), c("AD")];
+    state.players[0].hand.push(c("6D"));
+    state.players[0].hand.push(c("TC"));
+    state.players[1].points.push(PointStack {
+        base: c("TS"),
+        base_owner: 0,
+        jacks: vec![JackOnStack {
+            card: c("JH"),
+            owner: 1,
+        }],
+    });
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("6D"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+    state.apply(1, Action::CounterPass).unwrap();
+    state.apply(2, Action::CounterPass).unwrap();
+
+    assert!(state.players[1].points.is_empty());
+    assert!(state.players[0]
+        .points
+        .iter()
+        .any(|stack| stack.base == c("TS") && stack.jacks.is_empty()));
+    assert!(state.winner.is_none());
+
+    state.apply(1, Action::Draw).unwrap();
+    state.apply(2, Action::Draw).unwrap();
+    state.apply(0, Action::PlayPoints { card: c("TC") }).unwrap();
+
+    assert_eq!(state.winner, Some(Winner::Seat(0)));
+}
+
+#[test]
 fn resolve_five_draws_one_card_left() {
     let mut state = empty_state();
     state.turn = 0;
