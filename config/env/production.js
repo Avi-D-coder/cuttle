@@ -10,6 +10,11 @@
  *
  */
 
+const envOrigins = (process.env.CUTTLE_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 // Capture session url so it can be parsed (rediss protocol unsupported by connect-redis)
 //  let sessionUrl = new URL(process.env.REDIS_TLS_URL);
 module.exports = {
@@ -58,6 +63,7 @@ module.exports = {
       'https://cuttle-beta.herokuapp.com',
       'https://www.cuttle.cards',
       'https://beta.cuttle.cards',
+      ...envOrigins,
     ],
   },
 

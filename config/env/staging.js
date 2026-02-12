@@ -3,6 +3,11 @@
  *
  */
 
+const envOrigins = (process.env.CUTTLE_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 module.exports = {
   datastores: {
     default: {
@@ -41,6 +46,7 @@ module.exports = {
       'http://localhost',
       'http://localhost:8080',
       'http://localhost:1337',
+      ...envOrigins,
     ],
   },
 };
