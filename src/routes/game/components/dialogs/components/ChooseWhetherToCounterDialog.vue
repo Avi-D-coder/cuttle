@@ -8,16 +8,21 @@
   >
     <template #body>
       <div v-if="!opponentLastTwo" class="my-2">
-        {{ t('game.dialogs.counterDialogs.opponentPlayed') }}
+        {{ playedIntroText }}
         <GameCardName :card-name="oneOff.name" />
         {{ t('game.dialogs.counterDialogs.oneOff') }}
-        <span v-if="target" class="test">
-          {{ `${t('game.dialogs.counterDialogs.target')} ${t('global.your')}` }}
-          <GameCardName :card-name="target.name" />
+        <span v-if="target || targetPlayerLabel" class="test">
+          <template v-if="target">
+            {{ `${t('game.dialogs.counterDialogs.target')} ${t('global.your')}` }}
+            <GameCardName :card-name="target.name" />
+          </template>
+          <template v-else>
+            {{ t('game.dialogs.counterDialogs.targetPlayer', { player: targetPlayerLabel }) }}
+          </template>
         </span>
       </div>
       <div v-else class="my-2">
-        {{ t('game.dialogs.counterDialogs.opponentPlayed') }}
+        {{ playedIntroText }}
         <GameCardName :card-name="opponentLastTwo.name" />
 
         {{ t('game.dialogs.counterDialogs.toCounter') }}
@@ -94,6 +99,14 @@ export default {
       type: Object,
       default: null,
     },
+    playedByLabel: {
+      type: String,
+      default: '',
+    },
+    targetPlayerLabel: {
+      type: String,
+      default: '',
+    },
     twosPlayed: {
       type: Array,
       required: true,
@@ -128,6 +141,12 @@ export default {
     },
     dialogMaxWidth() {
       return this.oneOff?.rank === 1 ? 920 : 650;
+    },
+    playedIntroText() {
+      if (this.playedByLabel) {
+        return this.t('cutthroat.game.playerPlayedThe', { player: this.playedByLabel });
+      }
+      return this.t('game.dialogs.counterDialogs.opponentPlayed');
     },
   },
   methods: {

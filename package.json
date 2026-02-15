@@ -63,6 +63,7 @@
   "private": true,
   "scripts": {
     "docker:build": "docker compose -f ./docker/docker-compose.yml build",
+    "docker:build:single": "docker build -f ./docker/Dockerfile.single -t cuttle-all-in-one .",
     "docker:build:no-cache": "docker compose -f ./docker/docker-compose.yml build --no-cache",
     "docker:clean:containers": "docker rm $(docker ps -qa --no-trunc --filter \"status=exited\") || true",
     "docker:clean:images": "docker rmi $(docker images --filter \"dangling=true\" -q --no-trunc) || true",
@@ -73,6 +74,8 @@
     "docker:reset:db": "docker compose -f ./docker/docker-compose.yml down && rm -rf ./docker/data/pgdata/* && docker compose -f ./docker/docker-compose.yml up",
     "docker:reset:db:build": "docker compose -f ./docker/docker-compose.yml down && rm -rf ./docker/data/pgdata/* && docker compose -f ./docker/docker-compose.yml up --build",
     "docker:start": "docker compose -f ./docker/docker-compose.yml up",
+    "docker:start:single": "mkdir -p ./docker/data/pgdata-single && docker run --rm --name cuttle-single-local -p 8080:80 -v \"$(pwd)/docker/data/pgdata-single:/var/lib/postgresql/data\" -e PORT=80 -e NODE_ENV=staging -e CUTTLE_ENABLE_CUTTHROAT=true cuttle-all-in-one",
+    "docker:stop:single": "docker rm -f cuttle-single-local || true",
     "docker:stop": "docker compose -f ./docker/docker-compose.yml down",
     "start:serve": "vite preview",
     "start:client": "vite --host",

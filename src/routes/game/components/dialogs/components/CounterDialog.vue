@@ -6,6 +6,8 @@
     :twos-in-hand="twosInHand"
     :twos-played="twosPlayed"
     :target="target"
+    :played-by-label="playedByLabel"
+    :target-player-label="targetPlayerLabel"
     @choose-to-counter="choseToCounter = true"
     @resolve="resolve"
   />
@@ -43,6 +45,14 @@ export default {
     target: {
       type: Object,
       default: null,
+    },
+    playedByLabel: {
+      type: String,
+      default: '',
+    },
+    targetPlayerLabel: {
+      type: String,
+      default: '',
     },
     // list of card objects for available twos
     twosInHand: {

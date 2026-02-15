@@ -3,7 +3,7 @@
     id="cutthroat-scrap-dialog"
     v-model="showDialog"
     :scrollable="true"
-    :persistent="false"
+    :persistent="isResolvingThreeTurn"
     :attach="false"
   >
     <template #activator="{ props: dialogProps }">
@@ -65,8 +65,9 @@
 
     <template #title>
       <div class="d-flex justify-space-between align-center w-100">
-        <h1>{{ t('game.dialogs.scrapDialog.scrapPile') }}</h1>
+        <h1>{{ dialogTitle }}</h1>
         <v-btn
+          v-if="!isResolvingThreeTurn"
           icon
           color="surface-2"
           variant="text"
@@ -103,6 +104,7 @@
         {{ t('game.resolve') }}
       </v-btn>
       <v-btn
+        v-if="!isResolvingThreeTurn"
         data-cy="close-cutthroat-scrap-dialog-button"
         color="surface-1"
         variant="flat"
@@ -118,7 +120,6 @@
 import { computed, ref, watch } from 'vue';
 import { onLongPress } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
-import { orderBy } from 'lodash';
 import BaseDialog from '@/components/BaseDialog.vue';
 import CardListSortable from '@/routes/game/components/CardListSortable.vue';
 import GameCard from '@/routes/game/components/GameCard.vue';
@@ -159,13 +160,14 @@ const scrapCards = computed(() => mapScrapEntriesToCards(props.scrapTokens));
 const scrapDisplay = computed(() => scrapCards.value.slice(-10));
 const straightenedIndex = computed(() => (props.isStraightened ? scrapDisplay.value.length - 1 : -1));
 
-const sortedScrapCards = computed(() => {
-  return orderBy(scrapCards.value, [ 'rank', 'suit' ]);
+const dialogScrapCards = computed(() => {
+  if (!props.isResolvingThreeTurn) {return scrapCards.value;}
+  return scrapCards.value.filter((card) => card.rank !== 3);
 });
 
-const dialogScrapCards = computed(() => {
-  if (!props.isResolvingThreeTurn) {return sortedScrapCards.value;}
-  return sortedScrapCards.value.filter((card) => card.rank !== 3);
+const dialogTitle = computed(() => {
+  if (props.isResolvingThreeTurn) {return t('game.dialogs.threeDialog.title');}
+  return t('game.dialogs.scrapDialog.scrapPile');
 });
 
 const selectedScrapCardIds = computed(() => {

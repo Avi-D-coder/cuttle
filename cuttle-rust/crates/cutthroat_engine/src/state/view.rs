@@ -97,7 +97,7 @@ pub enum PhaseView {
 }
 
 impl Phase {
-    pub(crate) fn view(&self, viewer: Seat) -> PhaseView {
+    pub(crate) fn view(&self, _viewer: Seat) -> PhaseView {
         match self {
             Phase::Main => PhaseView::Main,
             Phase::Countering(counter) => PhaseView::Countering {
@@ -124,11 +124,7 @@ impl Phase {
             Phase::ResolvingSeven { seat, revealed, .. } => PhaseView::ResolvingSeven {
                 seat: *seat,
                 revealed: revealed.len(),
-                revealed_cards: if *seat == viewer {
-                    revealed.iter().map(|card| card.to_token()).collect()
-                } else {
-                    Vec::new()
-                },
+                revealed_cards: revealed.iter().map(|card| card.to_token()).collect(),
             },
             Phase::GameOver => PhaseView::GameOver,
         }
