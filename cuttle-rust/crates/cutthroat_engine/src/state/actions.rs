@@ -101,10 +101,8 @@ impl CutthroatState {
                     .map(|card| Action::ResolveFourDiscard { card: *card })
                     .collect()
             }
-            Phase::ResolvingFive {
-                seat: s, discarded, ..
-            } => {
-                if seat != *s || *discarded {
+            Phase::ResolvingFive { seat: s, .. } => {
+                if seat != *s {
                     return vec![];
                 }
                 self.players[seat as usize]
@@ -891,7 +889,6 @@ impl CutthroatState {
                         self.phase = Phase::ResolvingFive {
                             seat: base_player,
                             base_player,
-                            discarded: false,
                         };
                     }
                 }

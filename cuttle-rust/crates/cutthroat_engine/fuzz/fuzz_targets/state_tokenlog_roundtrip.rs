@@ -50,7 +50,6 @@ enum PhaseDigest {
     ResolvingFive {
         seat: u8,
         base_player: u8,
-        discarded: bool,
     },
     ResolvingSeven {
         seat: u8,
@@ -391,14 +390,9 @@ fn phase_digest(phase: &Phase) -> PhaseDigest {
             base_player: *base_player,
             remaining: *remaining,
         },
-        Phase::ResolvingFive {
-            seat,
-            base_player,
-            discarded,
-        } => PhaseDigest::ResolvingFive {
+        Phase::ResolvingFive { seat, base_player } => PhaseDigest::ResolvingFive {
             seat: *seat,
             base_player: *base_player,
-            discarded: *discarded,
         },
         Phase::ResolvingSeven {
             seat,

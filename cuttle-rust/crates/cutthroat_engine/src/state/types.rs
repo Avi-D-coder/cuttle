@@ -31,7 +31,6 @@ pub enum Phase {
     ResolvingFive {
         seat: Seat,
         base_player: Seat,
-        discarded: bool,
     },
     ResolvingSeven {
         seat: Seat,

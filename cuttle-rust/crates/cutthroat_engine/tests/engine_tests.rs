@@ -982,7 +982,6 @@ fn resolve_five_draws_respects_hand_limit() {
     state.phase = Phase::ResolvingFive {
         seat: 0,
         base_player: 0,
-        discarded: false,
     };
     state.players[0].hand = vec![
         c("5C"),
@@ -1147,7 +1146,6 @@ fn resolve_five_draws_one_card_left() {
     state.phase = Phase::ResolvingFive {
         seat: 0,
         base_player: 0,
-        discarded: false,
     };
     state.players[0].hand = vec![c("5H"), c("AD"), c("KD"), c("QD")];
     state.deck = vec![c("AC")];
@@ -1167,7 +1165,6 @@ fn resolve_five_draws_two_cards_left() {
     state.phase = Phase::ResolvingFive {
         seat: 0,
         base_player: 0,
-        discarded: false,
     };
     state.players[0].hand = vec![c("5D"), c("AD"), c("KD"), c("QD")];
     state.deck = vec![c("AC"), c("KC")];

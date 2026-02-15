@@ -819,7 +819,6 @@ mod tests {
         state.phase = Phase::ResolvingFive {
             seat: 0,
             base_player: 0,
-            discarded: false,
         };
 
         let parsed = parse_action_tokens_for_state("P0 discard AC", &state)
