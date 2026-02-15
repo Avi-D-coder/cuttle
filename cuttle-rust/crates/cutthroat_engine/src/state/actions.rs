@@ -791,7 +791,8 @@ impl CutthroatState {
             }
         }
 
-        let queen_forces_end = matches!(action, Action::CounterTwo { .. }) && self.queen_count_for(seat) > 0;
+        let queen_forces_end =
+            matches!(action, Action::CounterTwo { .. }) && self.queen_count_for(seat) > 0;
         if queen_forces_end {
             counter.next_seat = counter.rotation_anchor;
         }
@@ -1366,7 +1367,9 @@ impl CutthroatState {
             }
         }
         for seat in 0..PLAYER_COUNT {
-            self.players[seat as usize].points.extend(points_by_base_owner[seat as usize].drain(..));
+            self.players[seat as usize]
+                .points
+                .append(&mut points_by_base_owner[seat as usize]);
         }
     }
 

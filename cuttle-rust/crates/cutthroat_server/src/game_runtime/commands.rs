@@ -103,5 +103,7 @@ pub(crate) enum GameCommand {
         respond: oneshot::Sender<Result<(), RuntimeError>>,
     },
     EvaluateCleanup,
+    /// We use this in testing
+    #[allow(dead_code)]
     Shutdown,
 }
