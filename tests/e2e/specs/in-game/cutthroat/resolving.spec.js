@@ -25,8 +25,8 @@ describe('Cutthroat 3P Resolving Phases', () => {
     cy.request(`/cutthroat/api/v1/games/${gameId}/state`)
       .its('body')
       .then((state) => {
-        expect([ 'ResolvingThree', 'Main' ]).to.include(state.player_view.phase.type);
-        if (state.player_view.phase.type === 'ResolvingThree') {
+        expect([ 'ResolvingThree', 'Main' ]).to.include(state.view.phase.type);
+        if (state.view.phase.type === 'ResolvingThree') {
           expect(state.legal_actions.some((token) => /\sresolve\b/.test(token))).to.equal(true);
         }
       });

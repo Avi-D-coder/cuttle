@@ -1,9 +1,8 @@
 use crate::game_runtime::{GameEntry, SeatEntry};
 use cutthroat_engine::state::PublicCard;
 use cutthroat_engine::{
-    Action, Card, CutthroatState, LastEventView, OneOffTarget, Phase, PublicView, Rank, Seat,
-    SevenPlay, TokenLog, append_action, encode_action_token_vec_for_input, encode_header,
-    join_tokens,
+    append_action, encode_action_token_vec_for_input, encode_header, join_tokens,
+    parse_token_slice, Action, CutthroatState, Phase, Seat, SeatView, Token, TokenLog,
 };
 
 const UNKNOWN_CARD_TOKEN: &str = "UNKNOWN";
@@ -39,7 +38,7 @@ pub(crate) fn normal_lobby_name(seats: &[SeatEntry]) -> String {
     format!("{} VS {} VS {}", by_seat[0], by_seat[1], by_seat[2])
 }
 
-pub(crate) fn build_spectator_view(game: &GameEntry) -> PublicView {
+pub(crate) fn build_spectator_view(game: &GameEntry) -> SeatView {
     let viewer = match &game.engine.phase {
         Phase::ResolvingSeven { seat, .. } => *seat,
         _ => game.engine.turn,
@@ -50,7 +49,7 @@ pub(crate) fn build_spectator_view(game: &GameEntry) -> PublicView {
             player_view.hand = player
                 .hand
                 .iter()
-                .map(|card| PublicCard::Known(card.to_token()))
+                .map(|card| PublicCard::Known(card.to_token_enum()))
                 .collect();
             player_view.frozen = player
                 .frozen
@@ -59,7 +58,6 @@ pub(crate) fn build_spectator_view(game: &GameEntry) -> PublicView {
                 .collect();
         }
     }
-    view.last_event = game.last_event.clone();
     view
 }
 
@@ -90,199 +88,6 @@ pub(crate) fn legal_action_tokens_for_seat(state: &CutthroatState, seat: Seat) -
         .filter_map(|action| encode_action_token_vec_for_input(state, seat, &action).ok())
         .map(|tokens| join_tokens(&tokens))
         .collect()
-}
-
-fn oneoff_target_fields(target: &OneOffTarget) -> (Option<String>, Option<Seat>, Option<String>) {
-    match target {
-        OneOffTarget::None => (None, None, None),
-        OneOffTarget::Player { seat } => (None, Some(*seat), Some("player".to_string())),
-        OneOffTarget::Point { base } => (Some(base.to_token()), None, Some("point".to_string())),
-        OneOffTarget::Royal { card } => (Some(card.to_token()), None, Some("royal".to_string())),
-        OneOffTarget::Jack { card } => (Some(card.to_token()), None, Some("jack".to_string())),
-        OneOffTarget::Joker { card } => (Some(card.to_token()), None, Some("joker".to_string())),
-    }
-}
-
-fn joker_target_type(target_card: Card) -> &'static str {
-    if matches!(
-        target_card,
-        Card::Standard {
-            rank: Rank::Jack,
-            ..
-        } | Card::Joker(_)
-    ) {
-        return "jack";
-    }
-    "royal"
-}
-
-pub(crate) fn build_last_event(
-    actor: Seat,
-    action: &Action,
-    phase_before: &Phase,
-) -> LastEventView {
-    let action_kind = format_action(action);
-    let mut change = "main".to_string();
-    let mut source_token: Option<String> = None;
-    let source_zone: Option<String>;
-    let mut target_token: Option<String> = None;
-    let mut target_seat: Option<Seat> = None;
-    let mut target_type: Option<String> = None;
-    let mut oneoff_rank: Option<u8> = None;
-
-    match action {
-        Action::Draw => {
-            source_zone = Some("deck".to_string());
-        }
-        Action::Pass => {
-            source_zone = Some("deck".to_string());
-        }
-        Action::PlayPoints { card } => {
-            source_zone = Some("hand".to_string());
-            source_token = Some(card.to_token());
-        }
-        Action::Scuttle {
-            card,
-            target_point_base,
-        } => {
-            change = "scuttle".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(card.to_token());
-            target_token = Some(target_point_base.to_token());
-            target_type = Some("point".to_string());
-        }
-        Action::PlayRoyal { card } => {
-            source_zone = Some("hand".to_string());
-            source_token = Some(card.to_token());
-        }
-        Action::PlayJack {
-            jack,
-            target_point_base,
-        } => {
-            change = "jack".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(jack.to_token());
-            target_token = Some(target_point_base.to_token());
-            target_type = Some("point".to_string());
-        }
-        Action::PlayJoker {
-            joker,
-            target_royal_card,
-        } => {
-            change = "joker".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(joker.to_token());
-            target_token = Some(target_royal_card.to_token());
-            target_type = Some(joker_target_type(*target_royal_card).to_string());
-        }
-        Action::PlayOneOff { card, target } => {
-            change = "counter".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(card.to_token());
-            oneoff_rank = card.rank_value();
-            let (target_token_val, target_seat_val, target_type_val) = oneoff_target_fields(target);
-            target_token = target_token_val;
-            target_seat = target_seat_val;
-            target_type = target_type_val;
-        }
-        Action::CounterTwo { two_card } => {
-            change = "counter".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(two_card.to_token());
-        }
-        Action::CounterPass => {
-            change = "counter".to_string();
-            source_zone = Some("counter".to_string());
-            source_token = Some("pass".to_string());
-        }
-        Action::ResolveThreePick { card_from_scrap } => {
-            change = "resolve".to_string();
-            source_zone = Some("scrap".to_string());
-            source_token = Some(card_from_scrap.to_token());
-        }
-        Action::ResolveFourDiscard { card } => {
-            change = "resolve".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(card.to_token());
-        }
-        Action::ResolveFiveDiscard { card } => {
-            change = "resolve".to_string();
-            source_zone = Some("hand".to_string());
-            source_token = Some(card.to_token());
-        }
-        Action::ResolveSevenChoose { card, play } => {
-            source_zone = Some("reveal".to_string());
-            source_token = Some(card.to_token());
-            match play {
-                SevenPlay::Points => {
-                    change = "main".to_string();
-                }
-                SevenPlay::Scuttle { target } => {
-                    change = "scuttle".to_string();
-                    target_token = Some(target.to_token());
-                    target_type = Some("point".to_string());
-                }
-                SevenPlay::Royal => {
-                    change = "main".to_string();
-                }
-                SevenPlay::Jack { target } => {
-                    change = "sevenJack".to_string();
-                    target_token = Some(target.to_token());
-                    target_type = Some("point".to_string());
-                }
-                SevenPlay::Joker { target } => {
-                    change = "joker".to_string();
-                    target_token = Some(target.to_token());
-                    target_type = Some(joker_target_type(*target).to_string());
-                }
-                SevenPlay::OneOff { target } => {
-                    change = "resolve".to_string();
-                    let (target_token_val, target_seat_val, target_type_val) =
-                        oneoff_target_fields(target);
-                    target_token = target_token_val;
-                    target_seat = target_seat_val;
-                    target_type = target_type_val;
-                }
-                SevenPlay::Discard => {
-                    change = "resolve".to_string();
-                }
-            }
-        }
-    }
-
-    if let Phase::Countering(counter) = phase_before
-        && matches!(action, Action::CounterPass | Action::CounterTwo { .. })
-    {
-        if let Action::PlayOneOff { target, card } = &counter.oneoff {
-            oneoff_rank = oneoff_rank.or(card.rank_value());
-            if target_type.is_none() {
-                let (target_token_val, target_seat_val, target_type_val) =
-                    oneoff_target_fields(target);
-                target_token = target_token.or(target_token_val);
-                target_seat = target_seat.or(target_seat_val);
-                target_type = target_type.or(target_type_val);
-            }
-        }
-
-        if matches!(action, Action::CounterPass) {
-            let next_after_pass = (counter.next_seat + 1) % 3;
-            if next_after_pass == counter.rotation_anchor {
-                change = "resolve".to_string();
-            }
-        }
-    }
-
-    LastEventView {
-        actor,
-        action_kind,
-        change,
-        source_token,
-        source_zone,
-        target_token,
-        target_seat,
-        target_type,
-        oneoff_rank,
-    }
 }
 
 pub(crate) fn serialize_tokenlog(transcript: &TokenLog) -> String {
@@ -317,4 +122,11 @@ pub(crate) fn redact_tokenlog_for_client(transcript: &TokenLog, viewer: Option<S
         }
     }
     redacted
+}
+
+pub(crate) fn redact_tokenlog_tokens_for_client(
+    transcript: &TokenLog,
+    viewer: Option<Seat>,
+) -> Vec<Token> {
+    parse_token_slice(&redact_tokenlog_for_client(transcript, viewer)).unwrap_or_default()
 }

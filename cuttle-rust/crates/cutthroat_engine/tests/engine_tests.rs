@@ -1,9 +1,9 @@
 use cutthroat_engine::state::{
-    FrozenCard, HAND_LIMIT, JackOnStack, JokerOnStack, PointStack, PublicCard, RoyalStack,
+    FrozenCard, JackOnStack, JokerOnStack, PointStack, PublicCard, RoyalStack, HAND_LIMIT,
 };
 use cutthroat_engine::{
-    Action, Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner, append_action,
-    encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog,
+    append_action, encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog, Action,
+    Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner,
 };
 
 fn c(token: &str) -> Card {
@@ -925,7 +925,10 @@ fn counter_from_player_with_queen_skips_followup_counter_cycle() {
 
     assert!(matches!(state.phase, Phase::Main));
     assert_eq!(state.turn, 1);
-    assert!(state.players[1].points.iter().any(|stack| stack.base == c("9C")));
+    assert!(state.players[1]
+        .points
+        .iter()
+        .any(|stack| stack.base == c("9C")));
     assert!(state.players[2].hand.contains(&c("2D")));
     assert!(state.scrap.contains(&c("AC")));
     assert!(state.scrap.contains(&c("2C")));
@@ -1134,7 +1137,9 @@ fn six_returns_stolen_ten_before_follow_up_ten_win_check() {
 
     state.apply(1, Action::Draw).unwrap();
     state.apply(2, Action::Draw).unwrap();
-    state.apply(0, Action::PlayPoints { card: c("TC") }).unwrap();
+    state
+        .apply(0, Action::PlayPoints { card: c("TC") })
+        .unwrap();
 
     assert_eq!(state.winner, Some(Winner::Seat(0)));
 }
@@ -1332,12 +1337,10 @@ fn nine_returns_joker_and_freezes() {
     state.apply(2, Action::CounterPass).unwrap();
 
     assert!(state.players[2].hand.contains(&Card::Joker(0)));
-    assert!(
-        state.players[2]
-            .frozen
-            .iter()
-            .any(|f| f.card == Card::Joker(0))
-    );
+    assert!(state.players[2]
+        .frozen
+        .iter()
+        .any(|f| f.card == Card::Joker(0)));
     assert!(state.players[1].royals.iter().any(|r| r.base == c("KH")));
 }
 
@@ -1384,18 +1387,14 @@ fn public_view_with_glasses_reveals_hands() {
     state.players[2].hand = vec![c("2H")];
 
     let view0 = state.public_view(0);
-    assert!(
-        view0.players[1]
-            .hand
-            .iter()
-            .all(|card| matches!(card, PublicCard::Known(_)))
-    );
-    assert!(
-        view0.players[2]
-            .hand
-            .iter()
-            .all(|card| matches!(card, PublicCard::Known(_)))
-    );
+    assert!(view0.players[1]
+        .hand
+        .iter()
+        .all(|card| matches!(card, PublicCard::Known(_))));
+    assert!(view0.players[2]
+        .hand
+        .iter()
+        .all(|card| matches!(card, PublicCard::Known(_))));
 
     let view1 = state.public_view(1);
     assert!(matches!(view1.players[0].hand[0], PublicCard::Hidden));
@@ -1413,12 +1412,10 @@ fn public_view_with_empty_deck_reveals_hands() {
     for viewer in 0..3 {
         let view = state.public_view(viewer);
         for player in &view.players {
-            assert!(
-                player
-                    .hand
-                    .iter()
-                    .all(|card| matches!(card, PublicCard::Known(_)))
-            );
+            assert!(player
+                .hand
+                .iter()
+                .all(|card| matches!(card, PublicCard::Known(_))));
         }
     }
 }
@@ -1456,12 +1453,10 @@ fn public_view_preserves_royal_stacks_across_viewers() {
     assert_eq!(view1.players[1].royals, view2.players[1].royals);
     assert_eq!(view0.players[2].royals, view1.players[2].royals);
     assert_eq!(view1.players[2].royals, view2.players[2].royals);
-    assert!(
-        view0.players[1]
-            .royals
-            .iter()
-            .any(|stack| stack.base == "8C")
-    );
+    assert!(view0.players[1]
+        .royals
+        .iter()
+        .any(|stack| stack.base == c("8C").to_token_enum()));
 }
 
 #[test]

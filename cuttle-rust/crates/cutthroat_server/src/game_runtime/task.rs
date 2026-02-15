@@ -9,10 +9,13 @@ use crate::game_runtime::types::{
 };
 use crate::game_runtime::{STATUS_FINISHED, STATUS_LOBBY, STATUS_STARTED};
 use crate::persistence::{CompletedGameRecord, PersistenceWriteMessage};
-use crate::view::history::{build_history_log_for_viewer, build_history_log_for_viewer_with_limit};
+use crate::view::history::{
+    HistoryAudience, build_history_log_for_audience, build_history_log_for_audience_with_limit,
+    build_history_log_for_viewer,
+};
 use crate::view::response::{
-    build_last_event, build_spectator_view, legal_action_tokens_for_seat, normal_lobby_name,
-    redact_tokenlog_for_client, serialize_tokenlog,
+    build_spectator_view, legal_action_tokens_for_seat, normal_lobby_name,
+    redact_tokenlog_tokens_for_client, serialize_tokenlog,
 };
 use chrono::{DateTime, Utc};
 #[cfg(feature = "e2e-seed")]
@@ -199,7 +202,6 @@ pub(crate) async fn create_rematch_for_user(
         series_player_order: series_order,
         seats,
         transcript,
-        last_event: None,
         scrap_straightened: false,
         started_at: Utc::now(),
         finished_at: Utc::now(),
@@ -812,7 +814,6 @@ impl GameActor {
         let mut replay_game = self.game.clone();
         replay_game.engine = replayed;
         replay_game.version = replay_index as i64;
-        replay_game.last_event = None;
         replay_game.scrap_straightened = false;
         replay_game.status = if replay_index < self.game.transcript.actions.len() {
             STATUS_STARTED
@@ -821,10 +822,13 @@ impl GameActor {
         };
 
         let mut response = build_spectator_state_response(&replay_game);
-        response.tokenlog = redact_tokenlog_for_client(&self.game.transcript, None);
+        response.tokenlog = redact_tokenlog_tokens_for_client(&self.game.transcript, None);
         response.replay_total_states = replay_total_states(&self.game);
-        response.log_tail =
-            build_history_log_for_viewer_with_limit(&replay_game, 0, Some(replay_index));
+        response.log_tail = build_history_log_for_audience_with_limit(
+            &replay_game,
+            HistoryAudience::Spectator,
+            Some(replay_index),
+        );
         response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
         Ok(response)
     }
@@ -860,14 +864,11 @@ impl GameActor {
         }
 
         let scrap_len_before = self.game.engine.scrap.len();
-        let phase_before = self.game.engine.phase.clone();
-
         self.game
             .engine
             .apply(seat, action.clone())
             .map_err(|_| RuntimeError::BadRequest)?;
         self.game.transcript.actions.push((seat, action.clone()));
-        self.game.last_event = Some(build_last_event(seat, &action, &phase_before));
         self.game.version = self.game.transcript.actions.len() as i64;
 
         let mut lobby_changed = false;
@@ -1054,6 +1055,11 @@ fn action_seat_for_phase(game: &GameEntry) -> Seat {
     }
 }
 
+/// Replay state count is always deterministic from transcript length:
+/// one state for the initial deal plus one per applied action.
+///
+/// This stays required in the payload so replay controls can render without
+/// optional fallback logic or client-side transcript reconstruction.
 fn replay_total_states(game: &GameEntry) -> i64 {
     game.transcript.actions.len() as i64 + 1
 }
@@ -1071,22 +1077,21 @@ fn build_spectator_state_response(game: &GameEntry) -> GameStateResponse {
             })
             .collect(),
     };
-    let spectator_view = build_spectator_view(game);
+    let view = build_spectator_view(game);
     let action_seat = action_seat_for_phase(game);
     let legal_actions = if game.status == STATUS_STARTED {
         legal_action_tokens_for_seat(&game.engine, action_seat)
     } else {
         Vec::new()
     };
-    let log_tail = build_history_log_for_viewer(game, 0);
-    let tokenlog = redact_tokenlog_for_client(&game.transcript, None);
+    let log_tail = build_history_log_for_audience(game, HistoryAudience::Spectator);
+    let tokenlog = redact_tokenlog_tokens_for_client(&game.transcript, None);
 
     GameStateResponse {
         version: game.version,
         seat: 0,
         status: game.status,
-        player_view: spectator_view.clone(),
-        spectator_view,
+        view,
         legal_actions,
         lobby,
         log_tail,
@@ -1127,18 +1132,15 @@ fn build_state_response(game: &GameEntry, seat: Seat) -> Result<GameStateRespons
         Vec::new()
     };
 
-    let mut player_view = game.engine.public_view(seat);
-    player_view.last_event = game.last_event.clone();
-    let spectator_view = build_spectator_view(game);
+    let view = game.engine.public_view(seat);
     let log_tail = build_history_log_for_viewer(game, seat);
-    let tokenlog = redact_tokenlog_for_client(&game.transcript, Some(seat));
+    let tokenlog = redact_tokenlog_tokens_for_client(&game.transcript, Some(seat));
 
     Ok(GameStateResponse {
         version: game.version,
         seat,
         status: game.status,
-        player_view,
-        spectator_view,
+        view,
         legal_actions,
         lobby,
         log_tail,
@@ -1218,7 +1220,6 @@ fn new_lobby_game(id: i64, user: AuthUser) -> GameEntry {
         series_player_order: Vec::new(),
         seats: vec![seat],
         transcript,
-        last_event: None,
         scrap_straightened: false,
         started_at: Utc::now(),
         finished_at: Utc::now(),
@@ -1408,7 +1409,6 @@ fn seeded_game_from_tokenlog(seed: SeedGameInput) -> Result<GameEntry, RuntimeEr
         series_player_order: seats.iter().map(|seat| seat.user_id).collect(),
         seats,
         transcript: parsed,
-        last_event: None,
         scrap_straightened: false,
         started_at: Utc::now(),
         finished_at: Utc::now(),

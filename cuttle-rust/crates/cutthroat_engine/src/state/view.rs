@@ -1,25 +1,26 @@
 use super::types::{Phase, Seat};
 use crate::action::Action;
+use crate::tokens::Token;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PublicCard {
     Hidden,
-    Known(String),
+    Known(Token),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PointStackView {
-    pub base: String,
+    pub base: Token,
     pub controller: Seat,
-    pub jacks: Vec<String>,
+    pub jacks: Vec<Token>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoyalStackView {
-    pub base: String,
+    pub base: Token,
     pub controller: Seat,
-    pub jokers: Vec<String>,
+    pub jokers: Vec<Token>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,34 +33,13 @@ pub struct PlayerView {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PublicView {
+pub struct SeatView {
     pub seat: Seat,
     pub turn: Seat,
     pub phase: PhaseView,
     pub deck_count: usize,
-    pub scrap: Vec<String>,
+    pub scrap: Vec<Token>,
     pub players: Vec<PlayerView>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_event: Option<LastEventView>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LastEventView {
-    pub actor: Seat,
-    pub action_kind: String,
-    pub change: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_zone: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_token: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_seat: Option<Seat>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oneoff_rank: Option<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

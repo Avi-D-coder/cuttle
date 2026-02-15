@@ -1022,7 +1022,7 @@ const showRematchActionButton = computed(() => {
 });
 
 const localHandActionTokens = computed(() => {
-  // Spectator/replay already has full hand visibility in spectator_view.
+  // Spectator/replay already has full hand visibility in `view`.
   // Avoid inferring cards from legal actions because those actions can be
   // generated from another seat's replay perspective.
   if (isSpectatorMode.value) {

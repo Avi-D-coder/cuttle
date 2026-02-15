@@ -71,12 +71,8 @@ function buildStatePayload(version = 1) {
     seat: 1,
     status: 1,
     is_spectator: false,
-    player_view: playerView,
-    spectator_view: {
-      ...playerView,
-      deck_count: 10,
-    },
-    tokenlog: 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK',
+    view: playerView,
+    tokenlog: [ 'V1', 'CUTTHROAT3P', 'DEALER', 'P0', 'DECK', 'AC', 'ENDDECK' ],
     replay_total_states: 1,
     log_tail: [],
     legal_actions: [ 'P1 draw' ],
@@ -123,19 +119,17 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.tokenlog).toBe('V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK');
   });
 
-  it('uses spectator_view when spectator flag is true', () => {
+  it('stores view payload when spectator flag is true', () => {
     const store = useCutthroatStore();
     store.connectWs(42);
     const [ ws ] = FakeWebSocket.instances;
     const payload = buildStatePayload(5);
     payload.is_spectator = true;
-    payload.player_view.deck_count = 99;
-    payload.spectator_view.deck_count = 11;
+    payload.view.deck_count = 11;
     ws.emitMessage({ type: 'state', state: payload });
 
     expect(store.isSpectator).toBe(true);
     expect(store.playerView.deck_count).toBe(11);
-    expect(store.spectatorView.deck_count).toBe(11);
   });
 
   it('stores next game replay metadata from state payload', () => {
@@ -631,7 +625,6 @@ describe('cutthroat store http methods', () => {
     store.status = 1;
     store.seat = 2;
     store.playerView = { seat: 2, turn: 3 };
-    store.spectatorView = { seat: 0, turn: 3 };
     store.legalActions = [ 'P2 draw' ];
     store.lobby = {
       seats: [ { seat: 0, user_id: 1, username: 'stale-player', ready: true } ],
@@ -649,7 +642,6 @@ describe('cutthroat store http methods', () => {
     expect(store.status).toBeNull();
     expect(store.seat).toBeNull();
     expect(store.playerView).toBeNull();
-    expect(store.spectatorView).toBeNull();
     expect(store.legalActions).toEqual([]);
     expect(store.lobby).toEqual({ seats: [] });
     expect(store.tokenlog).toBe('');

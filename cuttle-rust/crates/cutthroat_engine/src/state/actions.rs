@@ -1,24 +1,45 @@
-use super::targeting::TargetKind;
 use super::types::*;
-use super::util::{is_point_card, next_seat};
 use super::view::*;
 use crate::action::{Action, OneOffTarget, SevenPlay};
 use crate::card::{Card, Rank, full_deck_with_jokers};
 use rand::seq::SliceRandom;
 
 impl CutthroatState {
+    fn is_point_card(card: Card) -> bool {
+        matches!(
+            card,
+            Card::Standard {
+                rank: Rank::Ace
+                    | Rank::Two
+                    | Rank::Three
+                    | Rank::Four
+                    | Rank::Five
+                    | Rank::Six
+                    | Rank::Seven
+                    | Rank::Eight
+                    | Rank::Nine
+                    | Rank::Ten,
+                ..
+            }
+        )
+    }
+
+    fn next_seat(seat: Seat) -> Seat {
+        (seat + 1) % PLAYER_COUNT
+    }
+
     pub fn new_with_deck(dealer: Seat, mut deck: Vec<Card>) -> Self {
         let mut players = vec![PlayerState::new(), PlayerState::new(), PlayerState::new()];
-        let mut current = next_seat(dealer);
+        let mut current = Self::next_seat(dealer);
         for _ in 0..5 {
             for _ in 0..PLAYER_COUNT {
                 let card = deck.remove(0);
                 players[current as usize].hand.push(card);
-                current = next_seat(current);
+                current = Self::next_seat(current);
             }
         }
 
-        let turn = next_seat(dealer);
+        let turn = Self::next_seat(dealer);
         Self {
             dealer,
             turn,
@@ -52,8 +73,8 @@ impl CutthroatState {
     }
 
     pub fn opponent_seat_order_for_current_actor(&self) -> [Seat; 2] {
-        let first = next_seat(self.acting_seat());
-        let second = next_seat(first);
+        let first = Self::next_seat(self.acting_seat());
+        let second = Self::next_seat(first);
         [first, second]
     }
 
@@ -172,7 +193,7 @@ impl CutthroatState {
         Ok(events)
     }
 
-    pub fn public_view(&self, viewer: Seat) -> PublicView {
+    pub fn public_view(&self, viewer: Seat) -> SeatView {
         let viewer_has_glasses = self.player_has_glasses(viewer);
         let deck_is_empty = self.deck.is_empty();
         let players = self
@@ -186,7 +207,7 @@ impl CutthroatState {
                     player
                         .hand
                         .iter()
-                        .map(|c| PublicCard::Known(c.to_token()))
+                        .map(|c| PublicCard::Known(c.to_token_enum()))
                         .collect()
                 } else {
                     player.hand.iter().map(|_| PublicCard::Hidden).collect()
@@ -196,18 +217,22 @@ impl CutthroatState {
                     .points
                     .iter()
                     .map(|stack| PointStackView {
-                        base: stack.base.to_token(),
+                        base: stack.base.to_token_enum(),
                         controller: stack.controller(),
-                        jacks: stack.jacks.iter().map(|j| j.card.to_token()).collect(),
+                        jacks: stack.jacks.iter().map(|j| j.card.to_token_enum()).collect(),
                     })
                     .collect();
                 let royals = player
                     .royals
                     .iter()
                     .map(|stack| RoyalStackView {
-                        base: stack.base.to_token(),
+                        base: stack.base.to_token_enum(),
                         controller: stack.controller(),
-                        jokers: stack.jokers.iter().map(|j| j.card.to_token()).collect(),
+                        jokers: stack
+                            .jokers
+                            .iter()
+                            .map(|j| j.card.to_token_enum())
+                            .collect(),
                     })
                     .collect();
 
@@ -227,14 +252,13 @@ impl CutthroatState {
             })
             .collect();
 
-        PublicView {
+        SeatView {
             seat: viewer,
             turn: self.turn,
             phase: self.phase.view(viewer),
             deck_count: self.deck.len(),
-            scrap: self.scrap.iter().map(|c| c.to_token()).collect(),
+            scrap: self.scrap.iter().map(|c| c.to_token_enum()).collect(),
             players,
-            last_event: None,
         }
     }
 
@@ -254,13 +278,13 @@ impl CutthroatState {
         }
 
         for &card in &available {
-            if is_point_card(card) {
+            if Self::is_point_card(card) {
                 actions.push(Action::PlayPoints { card });
             }
         }
 
         for &card in &available {
-            if is_point_card(card) {
+            if Self::is_point_card(card) {
                 for (owner, stack) in self.iter_point_targets() {
                     if owner == seat {
                         continue;
@@ -424,7 +448,7 @@ impl CutthroatState {
                 }
             }
 
-            if is_point_card(*card) {
+            if Self::is_point_card(*card) {
                 plays.push(SevenPlay::Points);
                 for (owner, stack) in self.iter_point_targets() {
                     if owner == seat {
@@ -584,7 +608,7 @@ impl CutthroatState {
                 self.finish_turn(seat);
             }
             Action::PlayPoints { card } => {
-                if !is_point_card(card) {
+                if !Self::is_point_card(card) {
                     return Err(RuleError::InvalidAction);
                 }
                 self.remove_from_hand(seat, card)?;
@@ -740,7 +764,7 @@ impl CutthroatState {
                     base_player: seat,
                     oneoff: Action::PlayOneOff { card, target },
                     twos: Vec::new(),
-                    next_seat: next_seat(seat),
+                    next_seat: Self::next_seat(seat),
                     rotation_anchor: seat,
                 };
                 self.phase = Phase::Countering(counter);
@@ -780,10 +804,10 @@ impl CutthroatState {
                 }
                 counter.twos.push((seat, two_card));
                 counter.rotation_anchor = seat;
-                counter.next_seat = next_seat(counter.next_seat);
+                counter.next_seat = Self::next_seat(counter.next_seat);
             }
             Action::CounterPass => {
-                counter.next_seat = next_seat(counter.next_seat);
+                counter.next_seat = Self::next_seat(counter.next_seat);
             }
             _ => {
                 self.phase = Phase::Countering(counter);
@@ -1023,7 +1047,7 @@ impl CutthroatState {
                 self.scrap.push(chosen);
             }
             SevenPlay::Points => {
-                if !is_point_card(chosen) {
+                if !Self::is_point_card(chosen) {
                     return Err(RuleError::InvalidAction);
                 }
                 self.players[seat as usize].points.push(PointStack {
@@ -1033,7 +1057,7 @@ impl CutthroatState {
                 });
             }
             SevenPlay::Scuttle { target } => {
-                if !is_point_card(chosen) {
+                if !Self::is_point_card(chosen) {
                     return Err(RuleError::InvalidAction);
                 }
                 let (stack_seat, idx) = self
@@ -1139,7 +1163,7 @@ impl CutthroatState {
                             target,
                         },
                         twos: Vec::new(),
-                        next_seat: next_seat(seat),
+                        next_seat: Self::next_seat(seat),
                         rotation_anchor: seat,
                     };
                     self.phase = Phase::Countering(counter);
@@ -1424,7 +1448,7 @@ impl CutthroatState {
 
     fn finish_turn(&mut self, seat: Seat) {
         self.decrement_frozen(seat);
-        self.turn = next_seat(seat);
+        self.turn = Self::next_seat(seat);
     }
 
     fn decrement_frozen(&mut self, seat: Seat) {

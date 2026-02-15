@@ -26,7 +26,7 @@ describe('Cutthroat 3P Status Banner', () => {
     cy.request(`/cutthroat/api/v1/games/${gameId}/state`)
       .its('body')
       .then((state) => {
-        const activeSeat = state.player_view.turn;
+        const activeSeat = state.view.turn;
         const localSeat = 0;
         const expectedMyTurnCount = activeSeat === localSeat ? 1 : 0;
         const expectedActiveOpponentCount = activeSeat === localSeat ? 0 : 1;

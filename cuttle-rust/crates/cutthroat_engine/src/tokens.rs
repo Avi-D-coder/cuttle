@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use crate::card::{Card, Rank, Suit};
 use crate::state::Seat;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Token {
@@ -79,6 +80,25 @@ pub enum Token {
     KS,
     J0,
     J1,
+}
+
+impl Serialize for Token {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Token {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Token::parse(&raw).ok_or_else(|| serde::de::Error::custom("invalid token"))
+    }
 }
 
 impl Token {

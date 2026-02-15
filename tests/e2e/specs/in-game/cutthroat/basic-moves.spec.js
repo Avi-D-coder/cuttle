@@ -51,7 +51,7 @@ describe('Cutthroat 3P Basic Moves', () => {
       .its('body')
       .then((state) => {
         expect(state.version).to.eq(1);
-        expect(state.player_view.players[0].points.length).to.eq(1);
+        expect(state.view.players[0].points.length).to.eq(1);
       });
   });
 
@@ -83,8 +83,8 @@ describe('Cutthroat 3P Basic Moves', () => {
       .its('body')
       .then((state) => {
         expect(state.version).to.eq(4);
-        expect(state.player_view.scrap).to.include('2C');
-        expect(state.player_view.scrap).to.include('4C');
+        expect(state.view.scrap).to.include('2C');
+        expect(state.view.scrap).to.include('4C');
       });
   });
 });

@@ -12,9 +12,9 @@ use crate::game_runtime::{
     seed_game_from_transcript as seed_game_from_transcript_runtime,
 };
 use crate::state::AppState;
-use crate::view::history::build_history_log_for_viewer_with_limit;
+use crate::view::history::{HistoryAudience, build_history_log_for_audience_with_limit};
 use crate::view::response::{
-    build_spectator_view, legal_action_tokens_for_seat, redact_tokenlog_for_client,
+    build_spectator_view, legal_action_tokens_for_seat, redact_tokenlog_tokens_for_client,
 };
 use axum::{
     Json,
@@ -22,7 +22,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Utc};
-use cutthroat_engine::{Phase, PublicView, Seat, Winner, parse_tokenlog, replay_tokenlog};
+use cutthroat_engine::{Phase, Seat, SeatView, Token, Winner, parse_tokenlog, replay_tokenlog};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::PgPool;
@@ -66,12 +66,19 @@ pub(crate) struct GameStateResponse {
     pub(crate) version: i64,
     pub(crate) seat: Seat,
     pub(crate) status: i16,
-    pub(crate) player_view: PublicView,
-    pub(crate) spectator_view: PublicView,
+    pub(crate) view: SeatView,
     pub(crate) legal_actions: Vec<String>,
     pub(crate) lobby: LobbyView,
+    /// Human-readable action history lines generated server-side with the same
+    /// audience censorship rules as `view`.
     pub(crate) log_tail: Vec<String>,
-    pub(crate) tokenlog: String,
+    /// Redacted token stream used by clients for counter/replay context.
+    /// Serialized as a JSON array of token strings.
+    pub(crate) tokenlog: Vec<Token>,
+    /// Total replay states for the current transcript (`actions + 1`), where
+    /// index `-1` means latest and `0..N-1` are deterministic replay frames.
+    /// This is required so replay controls can be computed without optional
+    /// fallback logic or client-side transcript reconstruction.
     pub(crate) replay_total_states: i64,
     pub(crate) is_spectator: bool,
     pub(crate) spectating_usernames: Vec<String>,
@@ -772,7 +779,6 @@ async fn load_archived_spectate_state(
     let mut replay_game = game.clone();
     replay_game.engine = replayed;
     replay_game.version = replay_index as i64;
-    replay_game.last_event = None;
     replay_game.scrap_straightened = false;
     replay_game.status = if replay_index < parsed.actions.len() {
         STATUS_STARTED
@@ -780,21 +786,24 @@ async fn load_archived_spectate_state(
         STATUS_FINISHED
     };
 
-    let spectator_view = build_spectator_view(&replay_game);
-    let log_tail = build_history_log_for_viewer_with_limit(&replay_game, 0, Some(replay_index));
+    let view = build_spectator_view(&replay_game);
+    let log_tail = build_history_log_for_audience_with_limit(
+        &replay_game,
+        HistoryAudience::Spectator,
+        Some(replay_index),
+    );
     let action_seat = action_seat_for_phase(&replay_game.engine.phase, replay_game.engine.turn);
     let legal_actions = if replay_game.status == STATUS_STARTED {
         legal_action_tokens_for_seat(&replay_game.engine, action_seat)
     } else {
         Vec::new()
     };
-    let tokenlog = redact_tokenlog_for_client(&game.transcript, None);
+    let tokenlog = redact_tokenlog_tokens_for_client(&game.transcript, None);
     Ok(Some(GameStateResponse {
         version: replay_game.version,
         seat: 0,
         status: replay_game.status,
-        player_view: spectator_view.clone(),
-        spectator_view,
+        view,
         legal_actions,
         lobby: LobbyView {
             seats: game
@@ -857,7 +866,6 @@ fn build_game_entry_from_row(row: &PersistedCutthroatGameRow) -> Option<GameEntr
             },
         ],
         transcript: parsed,
-        last_event: None,
         scrap_straightened: false,
         started_at: row.started_at,
         finished_at: row.finished_at,
@@ -932,6 +940,11 @@ pub(crate) async fn post_action(
     Ok(Json(resp))
 }
 
+/// Sends an action command to the game actor and waits for an immediate ack/error.
+///
+/// REST handlers return the success payload directly. WebSocket handlers use this
+/// primarily for error signaling; successful state updates are delivered via the
+/// subscribed watch stream.
 pub(crate) async fn apply_action_with_sender(
     sender: &mpsc::Sender<GameCommand>,
     user: AuthUser,
@@ -954,6 +967,11 @@ pub(crate) async fn apply_action_with_sender(
         .map_err(|err| (err.code(), err.message()))
 }
 
+/// Sends a scrap/straighten toggle command and waits for an immediate ack/error.
+///
+/// REST handlers use this return value directly. WebSocket handlers use this
+/// primarily to surface errors; successful state changes are pushed through the
+/// game watch stream.
 pub(crate) async fn toggle_scrap_straighten_with_sender(
     sender: &mpsc::Sender<GameCommand>,
     user: AuthUser,

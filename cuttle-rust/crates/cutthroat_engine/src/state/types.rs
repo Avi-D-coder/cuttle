@@ -9,6 +9,14 @@ pub type Seat = u8;
 pub const PLAYER_COUNT: u8 = 3;
 pub const HAND_LIMIT: usize = 7;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TargetKind {
+    Point,
+    Royal,
+    Jack,
+    Joker,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Winner {
     Seat(Seat),

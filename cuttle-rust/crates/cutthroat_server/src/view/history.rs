@@ -1,17 +1,28 @@
 use crate::game_runtime::{GameEntry, SeatEntry};
 use cutthroat_engine::state::{PhaseView, PublicCard};
-use cutthroat_engine::{Action, Card, CutthroatState, OneOffTarget, PublicView, Seat, SevenPlay};
+use cutthroat_engine::{
+    Action, Card, CutthroatState, OneOffTarget, Phase, Seat, SeatView, SevenPlay,
+};
 use std::collections::{HashMap, HashSet};
 
 const LOG_TAIL_LIMIT: usize = 60;
 
-pub(crate) fn build_history_log_for_viewer(game: &GameEntry, viewer: Seat) -> Vec<String> {
-    build_history_log_for_viewer_with_limit(game, viewer, None)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HistoryAudience {
+    Seat(Seat),
+    Spectator,
 }
 
-pub(crate) fn build_history_log_for_viewer_with_limit(
+pub(crate) fn build_history_log_for_audience(
     game: &GameEntry,
-    viewer: Seat,
+    audience: HistoryAudience,
+) -> Vec<String> {
+    build_history_log_for_audience_with_limit(game, audience, None)
+}
+
+pub(crate) fn build_history_log_for_audience_with_limit(
+    game: &GameEntry,
+    audience: HistoryAudience,
     max_actions: Option<usize>,
 ) -> Vec<String> {
     let mut state =
@@ -24,7 +35,7 @@ pub(crate) fn build_history_log_for_viewer_with_limit(
         if idx >= action_limit {
             break;
         }
-        let pre_view = state.public_view(viewer);
+        let pre_view = view_for_audience(&state, audience);
         let revealed_cards = match &pre_view.phase {
             PhaseView::ResolvingSeven { revealed_cards, .. } => revealed_cards.clone(),
             _ => Vec::new(),
@@ -33,7 +44,7 @@ pub(crate) fn build_history_log_for_viewer_with_limit(
         if state.apply(*actor_seat, action.clone()).is_err() {
             break;
         }
-        let post_view = state.public_view(viewer);
+        let post_view = view_for_audience(&state, audience);
         visible_tokens.extend(collect_visible_tokens(&post_view));
         lines.push(format_history_line(
             action,
@@ -50,6 +61,40 @@ pub(crate) fn build_history_log_for_viewer_with_limit(
     lines
 }
 
+pub(crate) fn build_history_log_for_viewer(game: &GameEntry, viewer: Seat) -> Vec<String> {
+    build_history_log_for_audience(game, HistoryAudience::Seat(viewer))
+}
+
+fn view_for_audience(state: &CutthroatState, audience: HistoryAudience) -> SeatView {
+    match audience {
+        HistoryAudience::Seat(viewer) => state.public_view(viewer),
+        HistoryAudience::Spectator => build_spectator_view(state),
+    }
+}
+
+fn build_spectator_view(state: &CutthroatState) -> SeatView {
+    let viewer = match &state.phase {
+        Phase::ResolvingSeven { seat, .. } => *seat,
+        _ => state.turn,
+    };
+    let mut view = state.public_view(viewer);
+    for (idx, player) in state.players.iter().enumerate() {
+        if let Some(player_view) = view.players.get_mut(idx) {
+            player_view.hand = player
+                .hand
+                .iter()
+                .map(|card| PublicCard::Known(card.to_token_enum()))
+                .collect();
+            player_view.frozen = player
+                .frozen
+                .iter()
+                .map(|card| card.card.to_token())
+                .collect();
+        }
+    }
+    view
+}
+
 fn seat_name_map(seats: &[SeatEntry]) -> HashMap<Seat, String> {
     seats
         .iter()
@@ -64,29 +109,29 @@ fn seat_name(seat: Seat, seat_names: &HashMap<Seat, String>) -> String {
         .unwrap_or_else(|| format!("Player {}", seat + 1))
 }
 
-fn collect_visible_tokens(view: &PublicView) -> HashSet<String> {
+fn collect_visible_tokens(view: &SeatView) -> HashSet<String> {
     let mut visible = HashSet::new();
 
     for token in &view.scrap {
-        visible.insert(token.clone());
+        visible.insert(token.as_str().to_string());
     }
 
     for player in &view.players {
         for hand_card in &player.hand {
             if let PublicCard::Known(token) = hand_card {
-                visible.insert(token.clone());
+                visible.insert(token.as_str().to_string());
             }
         }
         for point in &player.points {
-            visible.insert(point.base.clone());
+            visible.insert(point.base.as_str().to_string());
             for jack in &point.jacks {
-                visible.insert(jack.clone());
+                visible.insert(jack.as_str().to_string());
             }
         }
         for royal in &player.royals {
-            visible.insert(royal.base.clone());
+            visible.insert(royal.base.as_str().to_string());
             for joker in &royal.jokers {
-                visible.insert(joker.clone());
+                visible.insert(joker.as_str().to_string());
             }
         }
         for frozen in &player.frozen {

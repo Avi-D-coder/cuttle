@@ -6,7 +6,7 @@ pub mod tokens;
 
 pub use action::{Action, OneOffTarget, SevenPlay};
 pub use card::{Card, Rank, Suit, full_deck_with_jokers};
-pub use state::{CutthroatState, LastEventView, Phase, PublicView, RuleError, Seat, Winner};
+pub use state::{CutthroatState, Phase, RuleError, Seat, SeatView, Winner};
 pub use tokenlog::{
     TokenError, TokenLog, TokenizeError, append_action, encode_action_token_vec_for_input,
     encode_action_tokens_for_input, encode_header, parse as parse_tokenlog,

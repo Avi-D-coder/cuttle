@@ -1,8 +1,5 @@
 mod actions;
-mod scoring;
-mod targeting;
 mod types;
-mod util;
 mod view;
 
 pub use types::{
@@ -10,6 +7,5 @@ pub use types::{
     PLAYER_COUNT, Phase, PlayerState, PointStack, RoyalStack, RuleError, Seat, Winner,
 };
 pub use view::{
-    CounterTwoView, LastEventView, PhaseView, PlayerView, PointStackView, PublicCard, PublicView,
-    RoyalStackView,
+    CounterTwoView, PhaseView, PlayerView, PointStackView, PublicCard, RoyalStackView, SeatView,
 };

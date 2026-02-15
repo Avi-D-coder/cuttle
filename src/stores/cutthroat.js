@@ -25,10 +25,6 @@ function isStringArray(value) {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
-function isOptionalString(value) {
-  return value === undefined || typeof value === 'string';
-}
-
 function isOptionalBoolean(value) {
   return value === undefined || typeof value === 'boolean';
 }
@@ -95,12 +91,11 @@ function isValidGameStatePayload(payload) {
     && isFiniteNumber(payload.version)
     && isFiniteNumber(payload.seat)
     && isFiniteNumber(payload.status)
-    && isValidPublicView(payload.player_view)
-    && isValidPublicView(payload.spectator_view)
+    && isValidPublicView(payload.view)
     && isStringArray(payload.legal_actions)
     && isValidLobbyView(payload.lobby)
     && isStringArray(payload.log_tail)
-    && isOptionalString(payload.tokenlog)
+    && isStringArray(payload.tokenlog)
     && isFiniteNumber(payload.replay_total_states)
     && typeof payload.is_spectator === 'boolean'
     && isStringArray(payload.spectating_usernames)
@@ -167,7 +162,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const version = ref(0);
   const status = ref(null);
   const playerView = ref(null);
-  const spectatorView = ref(null);
   const legalActions = ref([]);
   const isSpectator = ref(false);
   const lobby = ref({ seats: [] });
@@ -175,7 +169,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const logTail = ref([]);
   const tokenlog = ref('');
   const replayTotalStates = ref(1);
-  const lastEvent = ref(null);
   const socket = ref(null);
   const lobbySocket = ref(null);
   const lobbies = ref([]);
@@ -235,7 +228,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     version.value = 0;
     status.value = null;
     playerView.value = null;
-    spectatorView.value = null;
     legalActions.value = [];
     isSpectator.value = false;
     lobby.value = { seats: [] };
@@ -243,7 +235,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     logTail.value = [];
     tokenlog.value = '';
     replayTotalStates.value = 1;
-    lastEvent.value = null;
     isScrapStraightened.value = false;
     isArchived.value = false;
     nextGameId.value = null;
@@ -344,22 +335,20 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     seat.value = payload.seat;
     status.value = payload.status;
     isSpectator.value = payload.is_spectator;
-    playerView.value = isSpectator.value
-      ? payload.spectator_view
-      : payload.player_view;
-    spectatorView.value = payload.spectator_view;
+    playerView.value = payload.view;
     legalActions.value = payload.legal_actions;
     lobby.value = payload.lobby;
     spectatingUsers.value = payload.spectating_usernames;
     logTail.value = payload.log_tail;
-    tokenlog.value = payload.tokenlog ?? '';
+    tokenlog.value = payload.tokenlog.join(' ');
+    // `replay_total_states` is required by protocol so replay controls can be
+    // computed without optional fallback parsing in the client.
     replayTotalStates.value = payload.replay_total_states;
     isScrapStraightened.value = payload.scrap_straightened;
     isArchived.value = payload.archived === true;
     nextGameId.value = payload.next_game_id ?? null;
     nextGameFinished.value = payload.next_game_finished === true;
     hasActiveSeatedPlayers.value = payload.has_active_seated_players === true;
-    lastEvent.value = playerView.value?.last_event ?? null;
   }
 
   async function fetchState(id, { spectateIntent = false, gameStateIndex = -1 } = {}) {
@@ -690,7 +679,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     version,
     status,
     playerView,
-    spectatorView,
     legalActions,
     isSpectator,
     lobby,
@@ -698,7 +686,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     logTail,
     tokenlog,
     replayTotalStates,
-    lastEvent,
     lobbies,
     spectateGames,
     lastError,

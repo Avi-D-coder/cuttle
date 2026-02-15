@@ -2,7 +2,7 @@ use crate::api::handlers::{GameStateResponse, LobbySummary, SpectatableGameSumma
 use crate::game_runtime::{GameCommand, STATUS_FINISHED, STATUS_LOBBY, STATUS_STARTED};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use cutthroat_engine::{CutthroatState, LastEventView, Seat, TokenLog, Winner};
+use cutthroat_engine::{CutthroatState, Seat, TokenLog, Winner};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -26,7 +26,6 @@ pub(crate) struct GameEntry {
     pub(crate) series_player_order: Vec<i64>,
     pub(crate) seats: Vec<SeatEntry>,
     pub(crate) transcript: TokenLog,
-    pub(crate) last_event: Option<LastEventView>,
     pub(crate) scrap_straightened: bool,
     pub(crate) started_at: DateTime<Utc>,
     pub(crate) finished_at: DateTime<Utc>,
