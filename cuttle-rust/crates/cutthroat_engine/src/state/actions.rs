@@ -746,7 +746,7 @@ impl CutthroatState {
                 }
                 self.remove_from_hand(seat, card)?;
                 self.reset_pass_streak();
-                if self.queen_count_for(seat) > 0 || self.all_twos_in_scrap() {
+                if self.queen_count_for(seat) > 0 || self.all_twos_publicly_unavailable() {
                     self.resolve_uncounterable_oneoff(seat, card, target)?;
                     if !matches!(
                         self.phase,
@@ -822,7 +822,7 @@ impl CutthroatState {
         let should_end = counter.next_seat == counter.rotation_anchor
             && (matches!(action, Action::CounterPass)
                 || queen_forces_end
-                || self.all_twos_in_scrap());
+                || self.all_twos_publicly_unavailable());
         if should_end {
             let base_player = counter.base_player;
             let oneoff = counter.oneoff.clone();
@@ -1152,7 +1152,7 @@ impl CutthroatState {
                 if !chosen.is_oneoff() {
                     return Err(RuleError::InvalidAction);
                 }
-                if self.queen_count_for(seat) > 0 || self.all_twos_in_scrap() {
+                if self.queen_count_for(seat) > 0 || self.all_twos_publicly_unavailable() {
                     self.resolve_uncounterable_oneoff(seat, chosen, target)?;
                 } else {
                     let counter = CounterState {
@@ -1577,8 +1577,9 @@ impl CutthroatState {
             .count()
     }
 
-    fn all_twos_in_scrap(&self) -> bool {
-        self.scrap
+    fn all_twos_publicly_unavailable(&self) -> bool {
+        let twos_in_scrap = self
+            .scrap
             .iter()
             .filter(|card| {
                 matches!(
@@ -1589,8 +1590,24 @@ impl CutthroatState {
                     }
                 )
             })
-            .count()
-            == 4
+            .count();
+
+        let twos_on_board = self
+            .players
+            .iter()
+            .flat_map(|player| player.points.iter())
+            .filter(|stack| {
+                matches!(
+                    stack.base,
+                    Card::Standard {
+                        rank: Rank::Two,
+                        ..
+                    }
+                )
+            })
+            .count();
+
+        twos_in_scrap + twos_on_board == 4
     }
 
     fn counter_target_owner(&self, counter: &CounterState) -> Seat {

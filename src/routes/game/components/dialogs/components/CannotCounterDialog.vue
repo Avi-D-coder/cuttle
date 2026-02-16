@@ -13,7 +13,7 @@
         {{ t(`game.dialogs.counterDialogs.oneOff`) }}
         <span v-if="target || targetPlayerLabel">
           <template v-if="target">
-            {{ t(`game.dialogs.counterDialogs.target`) + t(`global.your`) }} 
+            {{ t('game.dialogs.counterDialogs.targetPlayer', { player: cardTargetPlayerLabel }) }}
             <GameCardName :card-name="target.name" />
           </template>
           <template v-else>
@@ -163,6 +163,9 @@ export default {
         return this.t('cutthroat.game.playerPlayedThe', { player: this.playedByLabel });
       }
       return this.t('game.dialogs.counterDialogs.opponentPlayed');
+    },
+    cardTargetPlayerLabel() {
+      return this.targetPlayerLabel || this.t('global.your');
     },
   },
 };

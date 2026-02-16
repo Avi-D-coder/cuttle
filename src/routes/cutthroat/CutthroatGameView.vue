@@ -1366,6 +1366,9 @@ const triggeringPlayerLabel = computed(() => {
 
 const triggeringTargetPlayerLabel = computed(() => {
   if (Number.isInteger(triggeringOneOffTargetSeat.value)) {
+    if (!isSpectatorMode.value && triggeringOneOffTargetSeat.value === mySeat.value) {
+      return t('global.your');
+    }
     return seatLabel(triggeringOneOffTargetSeat.value);
   }
   return '';

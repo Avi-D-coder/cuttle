@@ -40,6 +40,7 @@ describe('cutthroat tokenlog helpers', () => {
 
     expect(findActiveCounterChain(parsed)).toEqual({
       oneOffSeat: 0,
+      triggeringSeat: 1,
       oneOffCardToken: '4C',
       oneOffTarget: {
         type: 'Player',
@@ -49,6 +50,7 @@ describe('cutthroat tokenlog helpers', () => {
     });
     expect(deriveCounterDialogContextFromTokenlog(tokenlog)).toEqual({
       oneOffSeat: 0,
+      triggeringSeat: 1,
       oneOffCardToken: '4C',
       oneOffTarget: {
         type: 'Player',
@@ -77,6 +79,7 @@ describe('cutthroat tokenlog helpers', () => {
     });
     expect(deriveCounterDialogContextFromTokenlog(tokenlog)).toEqual({
       oneOffSeat: 1,
+      triggeringSeat: 1,
       oneOffCardToken: 'AC',
       oneOffTarget: {
         type: 'Point',
@@ -105,6 +108,7 @@ describe('cutthroat tokenlog helpers', () => {
     expect(deriveCounterDialogContextFromTokenlog(tokenlog, 0)).toBeNull();
     expect(deriveCounterDialogContextFromTokenlog(tokenlog, 1)).toEqual({
       oneOffSeat: 0,
+      triggeringSeat: 0,
       oneOffCardToken: '4C',
       oneOffTarget: {
         type: 'Player',
@@ -114,6 +118,7 @@ describe('cutthroat tokenlog helpers', () => {
     });
     expect(deriveCounterDialogContextFromTokenlog(tokenlog, 2)).toEqual({
       oneOffSeat: 0,
+      triggeringSeat: 1,
       oneOffCardToken: '4C',
       oneOffTarget: {
         type: 'Player',
@@ -165,12 +170,46 @@ describe('cutthroat tokenlog helpers', () => {
 
     expect(deriveCounterDialogContextFromPhase(phase)).toEqual({
       oneOffSeat: 2,
+      triggeringSeat: 0,
       oneOffCardToken: '4C',
       oneOffTarget: {
         type: 'Player',
         seat: 1,
       },
       twosPlayed: [ '2H' ],
+    });
+  });
+
+  it('derives phase counter context with latest two seat as triggering seat', () => {
+    const phase = {
+      type: 'Countering',
+      data: {
+        base_player: 1,
+        oneoff: {
+          type: 'PlayOneOff',
+          data: {
+            card: '7D',
+            target: {
+              type: 'None',
+              data: {},
+            },
+          },
+        },
+        twos: [
+          { seat: 2, card: '2S' },
+          { seat: 0, card: '2H' },
+        ],
+      },
+    };
+
+    expect(deriveCounterDialogContextFromPhase(phase)).toEqual({
+      oneOffSeat: 1,
+      triggeringSeat: 0,
+      oneOffCardToken: '7D',
+      oneOffTarget: {
+        type: 'None',
+      },
+      twosPlayed: [ '2S', '2H' ],
     });
   });
 

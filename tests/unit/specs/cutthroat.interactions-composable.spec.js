@@ -243,6 +243,35 @@ describe('useCutthroatInteractions', () => {
     expect(triggeringOneOffTargetSeat.value).toBe(1);
   });
 
+  it('uses latest counter-two actor as triggering seat during counter chains', () => {
+    const { triggeringOneOffSeat, triggeringOneOffTargetSeat } = buildInteractions({
+      phaseType: 'Countering',
+      store: {
+        playerView: {
+          phase: {
+            type: 'Countering',
+            data: {
+              base_player: 2,
+              oneoff: {
+                type: 'PlayOneOff',
+                data: {
+                  card: '4C',
+                  target: { type: 'Player', data: { seat: 1 } },
+                },
+              },
+              twos: [
+                { seat: 1, card: '2S' },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(triggeringOneOffSeat.value).toBe(1);
+    expect(triggeringOneOffTargetSeat.value).toBeNull();
+  });
+
   it('falls back to tokenlog one-off seat and target seat in resolving phases', () => {
     const { triggeringOneOffSeat, triggeringOneOffTargetSeat } = buildInteractions({
       phaseType: 'ResolvingFour',

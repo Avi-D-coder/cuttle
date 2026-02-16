@@ -458,12 +458,16 @@ export function parseTokenlogActions(tokenlog = '') {
 export function findActiveCounterChain(parsedActions = []) {
   if (!Array.isArray(parsedActions) || parsedActions.length === 0) {return null;}
   const twosPlayed = [];
+  let triggeringSeat = null;
   let index = parsedActions.length - 1;
 
   while (index >= 0) {
     const action = parsedActions[index];
     if (action?.type === 'COUNTER_TWO') {
       if (!action.cardToken) {return null;}
+      if (!Number.isInteger(triggeringSeat) && Number.isInteger(action.seat)) {
+        triggeringSeat = action.seat;
+      }
       twosPlayed.unshift(action.cardToken);
       index -= 1;
       continue;
@@ -483,6 +487,9 @@ export function findActiveCounterChain(parsedActions = []) {
 
   return {
     oneOffSeat: Number.isInteger(oneOffAction.seat) ? oneOffAction.seat : null,
+    triggeringSeat: Number.isInteger(triggeringSeat)
+      ? triggeringSeat
+      : (Number.isInteger(oneOffAction.seat) ? oneOffAction.seat : null),
     oneOffCardToken: oneOffAction.cardToken,
     oneOffTarget: oneOffAction.target ?? { type: 'None' },
     twosPlayed,
@@ -494,13 +501,15 @@ export function deriveCounterDialogContextFromPhase(phase = null) {
   const data = phase.data ?? {};
   const oneoff = data.oneoff ?? null;
   if (!oneoff || oneoff.type !== 'PlayOneOff') {return null;}
+  const twos = Array.isArray(data.twos) ? data.twos : [];
+  const lastTwo = twos.length > 0 ? twos[twos.length - 1] : null;
+  const oneOffSeat = Number.isInteger(data.base_player) ? data.base_player : null;
   return {
-    oneOffSeat: Number.isInteger(data.base_player) ? data.base_player : null,
+    oneOffSeat,
+    triggeringSeat: Number.isInteger(lastTwo?.seat) ? lastTwo.seat : oneOffSeat,
     oneOffCardToken: oneoff.data?.card ?? null,
     oneOffTarget: normalizePhaseOneOffTarget(oneoff.data?.target),
-    twosPlayed: Array.isArray(data.twos)
-      ? data.twos.map((entry) => entry?.card).filter((token) => typeof token === 'string')
-      : [],
+    twosPlayed: twos.map((entry) => entry?.card).filter((token) => typeof token === 'string'),
   };
 }
 

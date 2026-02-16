@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue';
 import { parseCardToken } from '@/util/cutthroat-cards';
 import {
   deriveCounterDialogContextFromPhase,
+  deriveCounterDialogContextFromTokenlog,
   deriveLatestOneOffContextFromTokenlog,
   deriveCutthroatDialogState,
   deriveMoveChoicesForSource,
@@ -132,13 +133,27 @@ export function useCutthroatInteractions({
     return deriveCounterDialogContextFromPhase(store.playerView?.phase ?? null);
   });
 
+  const counterContextFromTokenlog = computed(() => {
+    if (!isCounteringPhase.value) {return null;}
+    return deriveCounterDialogContextFromTokenlog(store.tokenlog ?? '');
+  });
+
   const latestOneOffContext = computed(() => {
     return deriveLatestOneOffContextFromTokenlog(store.tokenlog ?? '');
   });
 
   const triggeringOneOffSeat = computed(() => {
+    if (Number.isInteger(counterContext.value?.triggeringSeat)) {
+      return counterContext.value.triggeringSeat;
+    }
     if (Number.isInteger(counterContext.value?.oneOffSeat)) {
       return counterContext.value.oneOffSeat;
+    }
+    if (Number.isInteger(counterContextFromTokenlog.value?.triggeringSeat)) {
+      return counterContextFromTokenlog.value.triggeringSeat;
+    }
+    if (Number.isInteger(counterContextFromTokenlog.value?.oneOffSeat)) {
+      return counterContextFromTokenlog.value.oneOffSeat;
     }
     if (Number.isInteger(latestOneOffContext.value?.oneOffSeat)) {
       return latestOneOffContext.value.oneOffSeat;
@@ -146,10 +161,31 @@ export function useCutthroatInteractions({
     return null;
   });
 
+  function targetSeatForCounterContext(context) {
+    const target = context?.oneOffTarget ?? null;
+    if (target?.type !== 'Player' || !Number.isInteger(target.seat)) {
+      return null;
+    }
+
+    // If the active trigger is a two, the immediate counter target is that two, not the one-off target player.
+    if (Number.isInteger(context?.triggeringSeat)
+      && Number.isInteger(context?.oneOffSeat)
+      && context.triggeringSeat !== context.oneOffSeat) {
+      return null;
+    }
+
+    return target.seat;
+  }
+
   const triggeringOneOffTargetSeat = computed(() => {
-    const counterTarget = counterContext.value?.oneOffTarget ?? null;
-    if (counterTarget?.type === 'Player' && Number.isInteger(counterTarget.seat)) {
-      return counterTarget.seat;
+    const phaseTargetSeat = targetSeatForCounterContext(counterContext.value);
+    if (Number.isInteger(phaseTargetSeat)) {
+      return phaseTargetSeat;
+    }
+
+    const tokenlogTargetSeat = targetSeatForCounterContext(counterContextFromTokenlog.value);
+    if (Number.isInteger(tokenlogTargetSeat)) {
+      return tokenlogTargetSeat;
     }
 
     const latestTarget = latestOneOffContext.value?.oneOffTarget ?? null;

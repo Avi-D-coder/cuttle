@@ -893,6 +893,76 @@ fn oneoff_with_all_twos_in_scrap_skips_counter_cycle() {
 }
 
 #[test]
+fn oneoff_with_all_twos_publicly_unavailable_skips_counter_cycle() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("AC"));
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.players[1].points.push(PointStack {
+        base: c("2C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.players[2].points.push(PointStack {
+        base: c("2D"),
+        base_owner: 2,
+        jacks: Vec::new(),
+    });
+    state.scrap.extend([c("2H"), c("2S")]);
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("AC"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Main));
+    assert_eq!(state.turn, 1);
+    assert!(state.players.iter().all(|player| player.points.is_empty()));
+    assert!(state.scrap.contains(&c("AC")));
+}
+
+#[test]
+fn oneoff_enters_countering_when_not_all_twos_publicly_unavailable() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("AC"));
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.players[1].points.push(PointStack {
+        base: c("2H"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.scrap.extend([c("2C"), c("2D")]);
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("AC"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Countering(_)));
+    assert_eq!(state.turn, 0);
+    assert!(!state.scrap.contains(&c("AC")));
+}
+
+#[test]
 fn counter_from_player_with_queen_skips_followup_counter_cycle() {
     let mut state = empty_state();
     state.turn = 0;
@@ -948,6 +1018,60 @@ fn seven_oneoff_with_all_twos_in_scrap_skips_counter_cycle() {
     });
     state.deck = vec![c("AC"), c("KD")];
     state.scrap.extend([c("2C"), c("2D"), c("2H"), c("2S")]);
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::ResolvingSeven { .. }));
+
+    state
+        .apply(
+            0,
+            Action::ResolveSevenChoose {
+                card: c("AC"),
+                play: SevenPlay::OneOff {
+                    target: OneOffTarget::None,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Main));
+    assert_eq!(state.turn, 1);
+    assert!(state.players.iter().all(|player| player.points.is_empty()));
+    assert!(state.scrap.contains(&c("7C")));
+    assert!(state.scrap.contains(&c("AC")));
+}
+
+#[test]
+fn seven_oneoff_with_all_twos_publicly_unavailable_skips_counter_cycle() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("7C"));
+    state.players[1].points.push(PointStack {
+        base: c("9C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.players[1].points.push(PointStack {
+        base: c("2C"),
+        base_owner: 1,
+        jacks: Vec::new(),
+    });
+    state.players[2].points.push(PointStack {
+        base: c("2D"),
+        base_owner: 2,
+        jacks: Vec::new(),
+    });
+    state.deck = vec![c("AC"), c("KD")];
+    state.scrap.extend([c("2H"), c("2S")]);
 
     state
         .apply(
