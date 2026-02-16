@@ -33,6 +33,9 @@ use tokio::sync::{mpsc, oneshot, watch};
 #[derive(Deserialize)]
 pub(crate) struct ActionRequest {
     pub(crate) expected_version: i64,
+    /// Player intent only (for example `P1 draw`).
+    /// Do not include result-bearing transcript payloads such as drawn cards or
+    /// glasses snapshots; those are engine-owned and emitted in tokenlogs.
     pub(crate) action_tokens: String,
 }
 
@@ -262,6 +265,7 @@ pub(crate) struct SeedGameFromTokenlogRequest {
     pub(crate) game_id: i64,
     pub(crate) players: Vec<SeedSeatFromTokenlogRequest>,
     pub(crate) dealer_seat: Option<Seat>,
+    /// Full transcript tokenlog with engine-owned result tokens.
     pub(crate) tokenlog: String,
     pub(crate) status: Option<i16>,
     pub(crate) spectating_usernames: Option<Vec<String>>,
@@ -275,6 +279,9 @@ pub(crate) struct SeedGameFromTranscriptRequest {
     pub(crate) players: Vec<SeedSeatFromTokenlogRequest>,
     pub(crate) dealer_seat: Seat,
     pub(crate) deck_tokens: Vec<String>,
+    /// Player intent-only actions to be applied by the engine.
+    /// Result-bearing transcript payloads are rejected; use the tokenlog seed
+    /// endpoint for full transcript imports.
     pub(crate) action_tokens: Vec<String>,
     pub(crate) status: Option<i16>,
     pub(crate) spectating_usernames: Option<Vec<String>>,
@@ -616,7 +623,7 @@ pub(crate) async fn get_state(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
-) -> Result<Json<GameStateResponse>, StatusCode> {
+) -> Result<Json<Arc<GameStateResponse>>, StatusCode> {
     get_state_inner(state, id, headers, false, None).await
 }
 
@@ -625,7 +632,7 @@ pub(crate) async fn get_spectate_state(
     Path(id): Path<i64>,
     headers: HeaderMap,
     Query(query): Query<SpectateStateQuery>,
-) -> Result<Json<GameStateResponse>, StatusCode> {
+) -> Result<Json<Arc<GameStateResponse>>, StatusCode> {
     get_state_inner(state, id, headers, true, query.game_state_index).await
 }
 
@@ -635,7 +642,7 @@ async fn get_state_inner(
     headers: HeaderMap,
     spectate_intent: bool,
     game_state_index: Option<i64>,
-) -> Result<Json<GameStateResponse>, StatusCode> {
+) -> Result<Json<Arc<GameStateResponse>>, StatusCode> {
     let user = authorize(&state, &headers).await?;
     let user_for_fallback = user.clone();
     let normalized_game_state_index = game_state_index.unwrap_or(-1).max(-1);
@@ -651,7 +658,7 @@ async fn get_state_inner(
             )
             .await?
         {
-            return Ok(Json(resp));
+            return Ok(Json(Arc::new(resp)));
         }
         return Err(StatusCode::NOT_FOUND);
     }
@@ -684,8 +691,9 @@ async fn get_state_inner(
                 && resp.status == STATUS_FINISHED
                 && let Some(next_link) = resolve_next_game_link(&state, id).await?
             {
-                resp.next_game_id = Some(next_link.id);
-                resp.next_game_finished = next_link.finished;
+                let resp_mut = Arc::make_mut(&mut resp);
+                resp_mut.next_game_id = Some(next_link.id);
+                resp_mut.next_game_finished = next_link.finished;
             }
             Ok(Json(resp))
         }
@@ -700,7 +708,7 @@ async fn get_state_inner(
                 )
                 .await?
             {
-                return Ok(Json(resp));
+                return Ok(Json(Arc::new(resp)));
             }
             Err(err.status_code())
         }
@@ -927,7 +935,7 @@ pub(crate) async fn post_action(
     Path(id): Path<i64>,
     headers: HeaderMap,
     Json(body): Json<ActionRequest>,
-) -> Result<Json<GameStateResponse>, StatusCode> {
+) -> Result<Json<Arc<GameStateResponse>>, StatusCode> {
     let user = authorize(&state, &headers).await?;
     let sender = game_sender(&state.runtime, id)
         .await
@@ -950,7 +958,7 @@ pub(crate) async fn apply_action_with_sender(
     user: AuthUser,
     expected_version: i64,
     action_tokens: String,
-) -> Result<GameStateResponse, (u16, String)> {
+) -> Result<Arc<GameStateResponse>, (u16, String)> {
     let (tx, rx) = oneshot::channel();
     sender
         .send(GameCommand::ApplyAction {

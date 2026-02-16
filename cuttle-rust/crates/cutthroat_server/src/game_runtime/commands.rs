@@ -4,6 +4,7 @@ use crate::game_runtime::{GameAudience, GameStreamSubscription, RuntimeError};
 use cutthroat_engine::Seat;
 #[cfg(feature = "e2e-seed")]
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 
 #[cfg(feature = "e2e-seed")]
@@ -73,12 +74,12 @@ pub(crate) enum GameCommand {
     GetState {
         user: AuthUser,
         spectate_intent: bool,
-        respond: oneshot::Sender<Result<GameStateResponse, RuntimeError>>,
+        respond: oneshot::Sender<Result<Arc<GameStateResponse>, RuntimeError>>,
     },
     GetSpectateReplayState {
         user: AuthUser,
         game_state_index: i64,
-        respond: oneshot::Sender<Result<GameStateResponse, RuntimeError>>,
+        respond: oneshot::Sender<Result<Arc<GameStateResponse>, RuntimeError>>,
     },
     SubscribeGameStream {
         user: AuthUser,
@@ -96,7 +97,7 @@ pub(crate) enum GameCommand {
         user: AuthUser,
         expected_version: i64,
         action_tokens: String,
-        respond: oneshot::Sender<Result<GameStateResponse, RuntimeError>>,
+        respond: oneshot::Sender<Result<Arc<GameStateResponse>, RuntimeError>>,
     },
     ToggleScrapStraighten {
         user: AuthUser,

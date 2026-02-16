@@ -1,9 +1,9 @@
 use cutthroat_engine::state::{
-    FrozenCard, JackOnStack, JokerOnStack, PointStack, PublicCard, RoyalStack, HAND_LIMIT,
+    FrozenCard, HAND_LIMIT, JackOnStack, JokerOnStack, PointStack, PublicCard, RoyalStack,
 };
 use cutthroat_engine::{
-    append_action, encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog, Action,
-    Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner,
+    Action, Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner, append_action,
+    encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog,
 };
 
 fn c(token: &str) -> Card {
@@ -925,10 +925,12 @@ fn counter_from_player_with_queen_skips_followup_counter_cycle() {
 
     assert!(matches!(state.phase, Phase::Main));
     assert_eq!(state.turn, 1);
-    assert!(state.players[1]
-        .points
-        .iter()
-        .any(|stack| stack.base == c("9C")));
+    assert!(
+        state.players[1]
+            .points
+            .iter()
+            .any(|stack| stack.base == c("9C"))
+    );
     assert!(state.players[2].hand.contains(&c("2D")));
     assert!(state.scrap.contains(&c("AC")));
     assert!(state.scrap.contains(&c("2C")));
@@ -1092,10 +1094,12 @@ fn six_scraps_jacks_and_returns_stolen_points_to_base_owner() {
     state.apply(2, Action::CounterPass).unwrap();
 
     assert!(state.players[2].points.is_empty());
-    assert!(state.players[0]
-        .points
-        .iter()
-        .any(|stack| stack.base == c("TS") && stack.jacks.is_empty()));
+    assert!(
+        state.players[0]
+            .points
+            .iter()
+            .any(|stack| stack.base == c("TS") && stack.jacks.is_empty())
+    );
     assert!(state.scrap.contains(&c("JD")));
     assert!(state.scrap.contains(&c("JH")));
 }
@@ -1129,10 +1133,12 @@ fn six_returns_stolen_ten_before_follow_up_ten_win_check() {
     state.apply(2, Action::CounterPass).unwrap();
 
     assert!(state.players[1].points.is_empty());
-    assert!(state.players[0]
-        .points
-        .iter()
-        .any(|stack| stack.base == c("TS") && stack.jacks.is_empty()));
+    assert!(
+        state.players[0]
+            .points
+            .iter()
+            .any(|stack| stack.base == c("TS") && stack.jacks.is_empty())
+    );
     assert!(state.winner.is_none());
 
     state.apply(1, Action::Draw).unwrap();
@@ -1337,10 +1343,12 @@ fn nine_returns_joker_and_freezes() {
     state.apply(2, Action::CounterPass).unwrap();
 
     assert!(state.players[2].hand.contains(&Card::Joker(0)));
-    assert!(state.players[2]
-        .frozen
-        .iter()
-        .any(|f| f.card == Card::Joker(0)));
+    assert!(
+        state.players[2]
+            .frozen
+            .iter()
+            .any(|f| f.card == Card::Joker(0))
+    );
     assert!(state.players[1].royals.iter().any(|r| r.base == c("KH")));
 }
 
@@ -1387,14 +1395,18 @@ fn public_view_with_glasses_reveals_hands() {
     state.players[2].hand = vec![c("2H")];
 
     let view0 = state.public_view(0);
-    assert!(view0.players[1]
-        .hand
-        .iter()
-        .all(|card| matches!(card, PublicCard::Known(_))));
-    assert!(view0.players[2]
-        .hand
-        .iter()
-        .all(|card| matches!(card, PublicCard::Known(_))));
+    assert!(
+        view0.players[1]
+            .hand
+            .iter()
+            .all(|card| matches!(card, PublicCard::Known(_)))
+    );
+    assert!(
+        view0.players[2]
+            .hand
+            .iter()
+            .all(|card| matches!(card, PublicCard::Known(_)))
+    );
 
     let view1 = state.public_view(1);
     assert!(matches!(view1.players[0].hand[0], PublicCard::Hidden));
@@ -1412,10 +1424,12 @@ fn public_view_with_empty_deck_reveals_hands() {
     for viewer in 0..3 {
         let view = state.public_view(viewer);
         for player in &view.players {
-            assert!(player
-                .hand
-                .iter()
-                .all(|card| matches!(card, PublicCard::Known(_))));
+            assert!(
+                player
+                    .hand
+                    .iter()
+                    .all(|card| matches!(card, PublicCard::Known(_)))
+            );
         }
     }
 }
@@ -1453,10 +1467,12 @@ fn public_view_preserves_royal_stacks_across_viewers() {
     assert_eq!(view1.players[1].royals, view2.players[1].royals);
     assert_eq!(view0.players[2].royals, view1.players[2].royals);
     assert_eq!(view1.players[2].royals, view2.players[2].royals);
-    assert!(view0.players[1]
-        .royals
-        .iter()
-        .any(|stack| stack.base == c("8C").to_token_enum()));
+    assert!(
+        view0.players[1]
+            .royals
+            .iter()
+            .any(|stack| stack.base == c("8C").to_token_enum())
+    );
 }
 
 #[test]

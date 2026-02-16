@@ -63,7 +63,7 @@ struct DisconnectOutcome {
 }
 
 struct ApplyActionOutcome {
-    state: GameStateResponse,
+    state: Arc<GameStateResponse>,
     completed_record: Option<CompletedGameRecord>,
     lobby_changed: bool,
 }
@@ -761,7 +761,7 @@ impl GameActor {
         &self,
         user: &AuthUser,
         spectate_intent: bool,
-    ) -> Result<GameStateResponse, RuntimeError> {
+    ) -> Result<Arc<GameStateResponse>, RuntimeError> {
         self.validate_viewer(user, spectate_intent)?;
 
         let maybe_seat = self
@@ -777,28 +777,28 @@ impl GameActor {
             build_state_response(&self.game, maybe_seat.unwrap_or(0))?
         };
         response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
-        Ok(response)
+        Ok(Arc::new(response))
     }
 
     fn build_spectator_replay_state_for_user(
         &self,
         user: &AuthUser,
         game_state_index: i64,
-    ) -> Result<GameStateResponse, RuntimeError> {
+    ) -> Result<Arc<GameStateResponse>, RuntimeError> {
         self.validate_viewer(user, true)?;
 
         if game_state_index < 0 {
             let mut response = build_spectator_state_response(&self.game);
             response.has_active_seated_players =
                 self.seat_connections.iter().any(|count| *count > 0);
-            return Ok(response);
+            return Ok(Arc::new(response));
         }
 
         if self.game.status != STATUS_FINISHED {
             let mut response = build_spectator_state_response(&self.game);
             response.has_active_seated_players =
                 self.seat_connections.iter().any(|count| *count > 0);
-            return Ok(response);
+            return Ok(Arc::new(response));
         }
 
         let replay_index =
@@ -830,7 +830,7 @@ impl GameActor {
             Some(replay_index),
         );
         response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
-        Ok(response)
+        Ok(Arc::new(response))
     }
 
     fn apply_action(
@@ -855,9 +855,9 @@ impl GameActor {
             return Err(RuntimeError::Conflict);
         }
 
-        let mut tokens = parse_token_slice(&action_tokens).ok_or(RuntimeError::BadRequest)?;
+        let tokens = parse_token_slice(&action_tokens).ok_or(RuntimeError::BadRequest)?;
         let (declared_seat, action) =
-            parse_action_token_stream_for_state(&mut tokens, &self.game.engine)
+            parse_action_token_stream_for_state(&tokens, &self.game.engine)
                 .map_err(|_| RuntimeError::BadRequest)?;
         if declared_seat != seat {
             return Err(RuntimeError::Forbidden);
@@ -1301,8 +1301,8 @@ pub(crate) async fn seed_game_from_transcript(
     };
 
     for action_tokens in &seed.action_tokens {
-        let mut tokens = parse_token_slice(action_tokens).ok_or(RuntimeError::BadRequest)?;
-        let (seat, action) = parse_action_token_stream_for_state(&mut tokens, &engine)
+        let tokens = parse_token_slice(action_tokens).ok_or(RuntimeError::BadRequest)?;
+        let (seat, action) = parse_action_token_stream_for_state(&tokens, &engine)
             .map_err(|_| RuntimeError::BadRequest)?;
         engine
             .apply(seat, action.clone())
@@ -1499,6 +1499,32 @@ mod tests {
         (game_id, p0, p1, p2)
     }
 
+    async fn create_started_game_async(
+        runtime: Arc<RwLock<GlobalRuntimeState>>,
+    ) -> (i64, AuthUser, AuthUser, AuthUser, mpsc::Sender<GameCommand>) {
+        let p0 = user(1, "p0");
+        let p1 = user(2, "p1");
+        let p2 = user(3, "p2");
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+
+        let game_id =
+            create_game_for_user(runtime.clone(), persistence_tx.clone(), p0.clone()).await;
+        let tx = game_sender(&runtime, game_id).await.expect("sender");
+
+        join_game_result(&tx, p1.clone())
+            .await
+            .expect("join1 should succeed");
+        join_game_result(&tx, p2.clone())
+            .await
+            .expect("join2 should succeed");
+
+        set_ready_ok(&tx, p0.clone(), true).await;
+        set_ready_ok(&tx, p1.clone(), true).await;
+        set_ready_ok(&tx, p2.clone(), true).await;
+
+        (game_id, p0, p1, p2, tx)
+    }
+
     fn finished_source_game(
         game_id: i64,
         p0: &AuthUser,
@@ -1606,6 +1632,27 @@ mod tests {
         resp_rx.await.expect("join game recv")
     }
 
+    async fn apply_action_result(
+        tx: &mpsc::Sender<GameCommand>,
+        user: AuthUser,
+        expected_version: i64,
+        action_tokens: &str,
+    ) -> Result<GameStateResponse, RuntimeError> {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        tx.send(GameCommand::ApplyAction {
+            user,
+            expected_version,
+            action_tokens: action_tokens.to_string(),
+            respond: resp_tx,
+        })
+        .await
+        .expect("apply action send");
+        resp_rx
+            .await
+            .expect("apply action recv")
+            .map(|state| Arc::try_unwrap(state).unwrap_or_else(|state| (*state).clone()))
+    }
+
     async fn send_disconnect(tx: &mpsc::Sender<GameCommand>, user_id: i64, audience: GameAudience) {
         tx.send(GameCommand::SocketDisconnected { user_id, audience })
             .await
@@ -1629,6 +1676,123 @@ mod tests {
     fn smoke_uses_new_runtime_path() {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(1)));
         let (_game_id, _p0, _p1, _p2) = create_started_game(runtime);
+    }
+
+    #[tokio::test]
+    async fn apply_action_rejects_draw_with_result_token_payload() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(201)));
+        let (_game_id, _p0, p1, _p2, tx) = create_started_game_async(runtime).await;
+        let err = apply_action_result(&tx, p1, 0, "P1 draw AC")
+            .await
+            .expect_err("live action input should reject result-bearing draw payload");
+        assert!(matches!(err, RuntimeError::BadRequest));
+    }
+
+    #[tokio::test]
+    async fn apply_action_accepts_intent_only_draw_payload() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(202)));
+        let (_game_id, _p0, p1, _p2, tx) = create_started_game_async(runtime).await;
+        let state = apply_action_result(&tx, p1, 0, "P1 draw")
+            .await
+            .expect("live action should accept intent-only draw payload");
+        assert_eq!(state.version, 1);
+    }
+
+    #[cfg(feature = "e2e-seed")]
+    #[tokio::test]
+    async fn seed_game_from_transcript_rejects_result_bearing_draw_payload() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(203)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let deck = cutthroat_engine::full_deck_with_jokers();
+        let deck_tokens = deck.into_iter().map(|card| card.to_token()).collect();
+
+        let seed = SeedGameFromTranscriptInput {
+            game_id: 9203,
+            players: vec![
+                crate::game_runtime::commands::SeedSeatInput {
+                    seat: 0,
+                    user_id: 12030,
+                    username: "p0".to_string(),
+                    ready: Some(true),
+                },
+                crate::game_runtime::commands::SeedSeatInput {
+                    seat: 1,
+                    user_id: 12031,
+                    username: "p1".to_string(),
+                    ready: Some(true),
+                },
+                crate::game_runtime::commands::SeedSeatInput {
+                    seat: 2,
+                    user_id: 12032,
+                    username: "p2".to_string(),
+                    ready: Some(true),
+                },
+            ],
+            dealer_seat: 0,
+            deck_tokens,
+            action_tokens: vec!["P1 draw AC".to_string()],
+            status: Some(STATUS_STARTED),
+            spectating_usernames: Some(Vec::new()),
+            name: None,
+        };
+
+        let err = seed_game_from_transcript(runtime, persistence_tx, seed)
+            .await
+            .expect_err("transcript seeding should reject result-bearing draw action payload");
+        assert!(matches!(err, RuntimeError::BadRequest));
+    }
+
+    #[cfg(feature = "e2e-seed")]
+    #[tokio::test]
+    async fn seed_game_from_tokenlog_accepts_result_bearing_transcript() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(204)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let deck = cutthroat_engine::full_deck_with_jokers();
+        let state = CutthroatState::new_with_deck(0, deck.clone());
+        let drawn = state
+            .deck
+            .first()
+            .expect("drawn card should exist after deal")
+            .to_token();
+        let tokenlog = format!(
+            "{} P1 draw {}",
+            cutthroat_engine::encode_header(0, &deck),
+            drawn
+        );
+
+        let seed = SeedGameInput {
+            game_id: 9204,
+            players: vec![
+                crate::game_runtime::commands::SeedSeatInput {
+                    seat: 0,
+                    user_id: 12040,
+                    username: "p0".to_string(),
+                    ready: Some(true),
+                },
+                crate::game_runtime::commands::SeedSeatInput {
+                    seat: 1,
+                    user_id: 12041,
+                    username: "p1".to_string(),
+                    ready: Some(true),
+                },
+                crate::game_runtime::commands::SeedSeatInput {
+                    seat: 2,
+                    user_id: 12042,
+                    username: "p2".to_string(),
+                    ready: Some(true),
+                },
+            ],
+            dealer_seat: Some(0),
+            tokenlog,
+            status: Some(STATUS_STARTED),
+            spectating_usernames: Some(Vec::new()),
+            name: None,
+        };
+
+        let seeded = seed_game_from_tokenlog(runtime, persistence_tx, seed)
+            .await
+            .expect("tokenlog seed should continue to accept result-bearing transcript");
+        assert_eq!(seeded.version, 1);
     }
 
     #[test]

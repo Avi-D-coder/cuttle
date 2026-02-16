@@ -31,6 +31,18 @@ pub enum TokenizeError {
     InvalidActionContext,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActionParseMode {
+    InputAction,
+    TranscriptAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActionEncodeMode {
+    InputAction,
+    TranscriptAction,
+}
+
 pub fn encode_header(dealer: Seat, deck: &[Card]) -> String {
     let dealer_tok = Token::from_seat(dealer).unwrap_or(Token::P0);
     let mut tokens = vec![
@@ -101,7 +113,8 @@ pub fn parse(tokens: &str) -> Result<TokenLog, TokenError> {
             .ok_or(TokenError::InvalidFormat)?;
         cursor += 1;
         let seat = parse_seat_token(seat_tok)?;
-        let (action, next_cursor) = parse_action_with_state(&parts, cursor, &state)?;
+        let (action, next_cursor) =
+            parse_action_with_state(&parts, cursor, &state, ActionParseMode::TranscriptAction)?;
         cursor = next_cursor;
         let legal = state.legal_actions(seat);
         if !legal.contains(&action) {
@@ -124,20 +137,20 @@ pub fn parse_action_tokens_for_state(
     action_tokens: &str,
     state: &CutthroatState,
 ) -> Result<(Seat, Action), TokenError> {
-    let mut parts = parse_token_slice(action_tokens).ok_or(TokenError::InvalidFormat)?;
-    parse_action_token_stream_for_state(&mut parts, state)
+    let parts = parse_token_slice(action_tokens).ok_or(TokenError::InvalidFormat)?;
+    parse_action_token_stream_for_state(&parts, state)
 }
 
 pub fn parse_action_token_stream_for_state(
-    parts: &mut Vec<Token>,
+    parts: &[Token],
     state: &CutthroatState,
 ) -> Result<(Seat, Action), TokenError> {
     if parts.is_empty() {
         return Err(TokenError::InvalidFormat);
     }
     let seat = parse_seat_token(parts[0])?;
-    normalize_action_tokens_for_state(parts, state)?;
-    let (action, next_cursor) = parse_action_with_state(parts, 1, state)?;
+    let (action, next_cursor) =
+        parse_action_with_state(parts, 1, state, ActionParseMode::InputAction)?;
     if next_cursor != parts.len() {
         return Err(TokenError::InvalidFormat);
     }
@@ -169,7 +182,12 @@ pub fn append_action(
         tokens.push(' ');
     }
     let mut action_tokens = vec![seat_to_token(seat)?];
-    action_tokens.extend(encode_action(action, state_before, seat, true)?);
+    action_tokens.extend(encode_action(
+        action,
+        state_before,
+        seat,
+        ActionEncodeMode::TranscriptAction,
+    )?);
     tokens.push_str(&join_tokens(&action_tokens));
     Ok(())
 }
@@ -195,7 +213,12 @@ pub fn encode_action_token_vec_for_input(
         return Err(TokenizeError::InvalidSeat);
     }
     let mut tokens = vec![seat_to_token(seat)?];
-    tokens.extend(encode_action(action, state_before, seat, false)?);
+    tokens.extend(encode_action(
+        action,
+        state_before,
+        seat,
+        ActionEncodeMode::InputAction,
+    )?);
     Ok(tokens)
 }
 
@@ -203,17 +226,20 @@ fn encode_action(
     action: &Action,
     state_before: &CutthroatState,
     actor_seat: Seat,
-    include_glasses_snapshot: bool,
+    mode: ActionEncodeMode,
 ) -> Result<Vec<Token>, TokenizeError> {
     let mut tokens = match action {
-        Action::Draw => {
-            let card = state_before
-                .deck
-                .first()
-                .copied()
-                .ok_or(TokenizeError::InvalidActionContext)?;
-            vec![Token::Draw, card.to_token_enum()]
-        }
+        Action::Draw => match mode {
+            ActionEncodeMode::InputAction => vec![Token::Draw],
+            ActionEncodeMode::TranscriptAction => {
+                let card = state_before
+                    .deck
+                    .first()
+                    .copied()
+                    .ok_or(TokenizeError::InvalidActionContext)?;
+                vec![Token::Draw, card.to_token_enum()]
+            }
+        },
         Action::Pass => vec![Token::Pass],
         Action::PlayPoints { card } => vec![Token::Points, card.to_token_enum()],
         Action::Scuttle {
@@ -266,7 +292,7 @@ fn encode_action(
         } => Some(*card),
         _ => None,
     };
-    if include_glasses_snapshot
+    if mode == ActionEncodeMode::TranscriptAction
         && let Some(card) = royal_card
         && is_glasses_card(card)
     {
@@ -298,57 +324,11 @@ fn encode_resolving_seven_action(
     Ok(tokens)
 }
 
-fn normalize_action_tokens_for_state(
-    tokens: &mut Vec<Token>,
-    state: &CutthroatState,
-) -> Result<(), TokenError> {
-    let Some(verb) = tokens.get(1).copied() else {
-        return Err(TokenError::InvalidFormat);
-    };
-
-    if verb == Token::Draw && tokens.len() == 2 {
-        let card = state
-            .deck
-            .first()
-            .copied()
-            .ok_or(TokenError::InvalidFormat)?;
-        tokens.push(card.to_token_enum());
-        return Ok(());
-    }
-
-    if verb == Token::PlayRoyal {
-        let Some(card_token) = tokens.get(2) else {
-            return Err(TokenError::InvalidFormat);
-        };
-        let card = card_token.card().ok_or(TokenError::UnknownCard)?;
-        if !is_glasses_card(card) {
-            return Ok(());
-        }
-
-        let snapshot_start = match card {
-            Card::Standard {
-                rank: Rank::Jack, ..
-            }
-            | Card::Joker(_) => 4,
-            Card::Standard {
-                rank: Rank::Eight | Rank::Queen | Rank::King,
-                ..
-            } => 3,
-            _ => return Ok(()),
-        };
-
-        if tokens.len() == snapshot_start {
-            append_glasses_snapshot_token_strings(tokens, state)?;
-        }
-    }
-
-    Ok(())
-}
-
 fn parse_action_with_state(
     parts: &[Token],
     cursor: usize,
     state: &CutthroatState,
+    mode: ActionParseMode,
 ) -> Result<(Action, usize), TokenError> {
     let verb = parts
         .get(cursor)
@@ -356,20 +336,23 @@ fn parse_action_with_state(
         .ok_or(TokenError::InvalidFormat)?;
     let mut next = cursor + 1;
     match verb {
-        Token::Draw => {
-            let expected = state.deck.first().copied();
-            match parts.get(next).copied() {
-                Some(tok) => {
-                    let card = tok.card().ok_or(TokenError::UnknownCard)?;
-                    if Some(card) != expected {
-                        return Err(TokenError::InvalidFormat);
+        Token::Draw => match mode {
+            ActionParseMode::InputAction => Ok((Action::Draw, next)),
+            ActionParseMode::TranscriptAction => {
+                let expected = state.deck.first().copied();
+                match parts.get(next).copied() {
+                    Some(tok) => {
+                        let card = tok.card().ok_or(TokenError::UnknownCard)?;
+                        if Some(card) != expected {
+                            return Err(TokenError::InvalidFormat);
+                        }
+                        next += 1;
                     }
-                    next += 1;
+                    None => return Err(TokenError::InvalidFormat),
                 }
-                None => return Err(TokenError::InvalidFormat),
+                Ok((Action::Draw, next))
             }
-            Ok((Action::Draw, next))
-        }
+        },
         Token::Pass => Ok((Action::Pass, next)),
         Token::Counter => {
             let card = parse_card_at(parts, next)?;
@@ -456,7 +439,7 @@ fn parse_action_with_state(
                 _ => return Err(TokenError::UnknownAction),
             }
 
-            if is_glasses_card(card) {
+            if is_glasses_card(card) && mode == ActionParseMode::TranscriptAction {
                 next = parse_glasses_snapshot_tokens(parts, next, state)?;
             }
 
@@ -702,22 +685,6 @@ fn append_glasses_snapshot_tokens(
     Ok(())
 }
 
-fn append_glasses_snapshot_token_strings(
-    tokens: &mut Vec<Token>,
-    state: &CutthroatState,
-) -> Result<(), TokenError> {
-    for opp in state.opponent_seat_order_for_current_actor() {
-        if opp >= PLAYER_COUNT {
-            return Err(TokenError::InvalidFormat);
-        }
-        tokens.push(seat_to_token(opp).map_err(|_| TokenError::InvalidFormat)?);
-        for card in &state.players[opp as usize].hand {
-            tokens.push(card.to_token_enum());
-        }
-    }
-    Ok(())
-}
-
 fn opponent_seat_order(actor_seat: Seat) -> [Seat; 2] {
     [
         (actor_seat + 1) % PLAYER_COUNT,
@@ -763,11 +730,13 @@ fn seat_to_token(seat: Seat) -> Result<Token, TokenizeError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TokenError, TokenLog, append_action, encode_header, parse, parse_action_tokens_for_state,
-        replay,
+        TokenError, TokenLog, append_action, encode_action_token_vec_for_input, encode_header,
+        parse, parse_action_tokens_for_state, replay,
     };
     use crate::action::Action;
+    use crate::card::Card;
     use crate::state::{CutthroatState, Phase};
+    use crate::tokens::Token;
 
     #[test]
     fn parse_rejects_out_of_range_seat_token() {
@@ -863,5 +832,81 @@ mod tests {
         let parsed = parse_action_tokens_for_state("P0 draw", &state)
             .expect("action token draw without card should parse");
         assert_eq!(parsed, (0, Action::Draw));
+    }
+
+    #[test]
+    fn parse_action_tokens_rejects_draw_with_card() {
+        let state = CutthroatState::new_with_deck(0, crate::card::full_deck_with_jokers());
+        let err = parse_action_tokens_for_state("P0 draw AC", &state)
+            .expect_err("input action token draw should not include drawn card");
+        assert!(matches!(err, TokenError::InvalidFormat));
+    }
+
+    #[test]
+    fn parse_action_tokens_allows_glasses_royal_without_snapshot() {
+        let state = CutthroatState::new_with_deck(0, crate::card::full_deck_with_jokers());
+        let parsed = parse_action_tokens_for_state("P0 playRoyal 8C", &state)
+            .expect("input action token for eight royal should not require snapshot");
+        assert_eq!(
+            parsed,
+            (
+                0,
+                Action::PlayRoyal {
+                    card: Card::from_token("8C").expect("valid card"),
+                },
+            )
+        );
+    }
+
+    #[test]
+    fn parse_action_tokens_rejects_glasses_royal_with_snapshot() {
+        let state = CutthroatState::new_with_deck(0, crate::card::full_deck_with_jokers());
+        let err = parse_action_tokens_for_state("P0 playRoyal 8C P1 AC P2 AD", &state)
+            .expect_err("input action token should reject appended snapshot payload");
+        assert!(matches!(err, TokenError::InvalidFormat));
+    }
+
+    #[test]
+    fn parse_full_tokenlog_requires_glasses_snapshot_tokens() {
+        let mut deck = crate::card::full_deck_with_jokers();
+        let glasses = Card::from_token("8C").expect("valid card");
+        let glasses_idx = deck
+            .iter()
+            .position(|card| *card == glasses)
+            .expect("full deck contains 8C");
+        deck.swap(0, glasses_idx);
+
+        let state = CutthroatState::new_with_deck(2, deck.clone());
+        let action = Action::PlayRoyal { card: glasses };
+        assert!(
+            state.legal_actions(0).contains(&action),
+            "custom deck should make P0 playRoyal 8C legal on opening turn"
+        );
+
+        let tokenlog_without_snapshot = format!("{} P0 playRoyal 8C", encode_header(2, &deck));
+        let err = parse(&tokenlog_without_snapshot)
+            .expect_err("full tokenlog should require glasses snapshot payload");
+        assert!(matches!(err, TokenError::InvalidFormat));
+
+        let mut tokenlog_with_snapshot = encode_header(2, &deck);
+        append_action(&mut tokenlog_with_snapshot, &state, 0, &action)
+            .expect("append_action should include transcript snapshot payload");
+        let parsed =
+            parse(&tokenlog_with_snapshot).expect("full tokenlog with snapshot should parse");
+        assert_eq!(parsed.actions, vec![(0, action)]);
+    }
+
+    #[test]
+    fn encode_action_input_draw_omits_drawn_card() {
+        let state = CutthroatState::new_with_deck(0, crate::card::full_deck_with_jokers());
+        let tokens = encode_action_token_vec_for_input(&state, state.turn, &Action::Draw)
+            .expect("draw input action should encode");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::from_seat(state.turn).expect("valid turn seat"),
+                Token::Draw,
+            ]
+        );
     }
 }
