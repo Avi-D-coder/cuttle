@@ -3,7 +3,7 @@ mod types;
 mod view;
 
 pub use types::{
-    CounterState, CutthroatState, Event, FrozenCard, HAND_LIMIT, JackOnStack, JokerOnStack,
+    CounterState, CutthroatState, FrozenCard, HAND_LIMIT, JackOnStack, JokerOnStack,
     PLAYER_COUNT, Phase, PlayerState, PointStack, RoyalStack, RuleError, Seat, Winner,
 };
 pub use view::{

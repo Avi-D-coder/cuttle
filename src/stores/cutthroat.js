@@ -443,17 +443,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     }
   }
 
-  async function startGame(id) {
-    ensureCutthroatAvailable();
-    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/start`), {
-      method: 'POST',
-      credentials: 'include',
-    });
-    if (!res.ok) {
-      throw createHttpError('Failed to start game', res.status);
-    }
-  }
-
   function connectWs(id, { replace = true, spectateIntent = false } = {}) {
     if (capabilitiesStore.cutthroatAvailability === 'unavailable') {return;}
     if (!Number.isInteger(id)) {return;}
@@ -701,7 +690,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     leaveGame,
     rematchGame,
     setReady,
-    startGame,
     connectWs,
     disconnectWs,
     connectLobbyWs,

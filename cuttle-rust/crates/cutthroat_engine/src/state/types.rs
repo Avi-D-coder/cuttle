@@ -156,8 +156,3 @@ pub enum RuleError {
     #[error("game over")]
     GameOver,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Event {
-    GameOver(Winner),
-}

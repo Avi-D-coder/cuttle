@@ -67,10 +67,6 @@ pub(crate) enum GameCommand {
         ready: bool,
         respond: oneshot::Sender<Result<(), RuntimeError>>,
     },
-    StartGame {
-        user: AuthUser,
-        respond: oneshot::Sender<Result<(), RuntimeError>>,
-    },
     GetState {
         user: AuthUser,
         spectate_intent: bool,

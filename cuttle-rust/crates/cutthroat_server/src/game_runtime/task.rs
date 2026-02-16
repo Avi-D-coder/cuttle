@@ -346,20 +346,6 @@ impl GameActor {
                         }
                     }
                 }
-                GameCommand::StartGame { user, respond } => {
-                    let result = self.start_game(user);
-                    match result {
-                        Ok(started_transition) => {
-                            publish_game = true;
-                            publish_lobby = true;
-                            notify_source_rematch_started = started_transition;
-                            let _ = respond.send(Ok(()));
-                        }
-                        Err(err) => {
-                            let _ = respond.send(Err(err));
-                        }
-                    }
-                }
                 GameCommand::GetState {
                     user,
                     spectate_intent,
@@ -591,22 +577,6 @@ impl GameActor {
         }
 
         Ok(started_transition)
-    }
-
-    fn start_game(&mut self, user: AuthUser) -> Result<bool, RuntimeError> {
-        if !self.game.seats.iter().any(|seat| seat.user_id == user.id) {
-            return Err(RuntimeError::Forbidden);
-        }
-        if self.game.status != STATUS_LOBBY {
-            return Err(RuntimeError::Conflict);
-        }
-        if self.game.seats.len() != 3 || !self.game.seats.iter().all(|seat| seat.ready) {
-            return Err(RuntimeError::Conflict);
-        }
-
-        self.game.status = STATUS_STARTED;
-        self.game.started_at = Utc::now();
-        Ok(true)
     }
 
     fn validate_viewer(&self, user: &AuthUser, spectate_intent: bool) -> Result<(), RuntimeError> {
@@ -2400,19 +2370,6 @@ mod tests {
             resp_rx.await.expect("set ready recv")
         };
         assert!(matches!(ready_result, Err(RuntimeError::Forbidden)));
-
-        let start_result = {
-            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-            rematch_tx
-                .send(GameCommand::StartGame {
-                    user: p0.clone(),
-                    respond: resp_tx,
-                })
-                .await
-                .expect("start game send");
-            resp_rx.await.expect("start game recv")
-        };
-        assert!(matches!(start_result, Err(RuntimeError::Conflict)));
 
         let seat = join_game_result(&rematch_tx, p2.clone())
             .await

@@ -144,7 +144,7 @@ impl CutthroatState {
         }
     }
 
-    pub fn apply(&mut self, seat: Seat, action: Action) -> Result<Vec<Event>, RuleError> {
+    pub fn apply(&mut self, seat: Seat, action: Action) -> Result<Option<Winner>, RuleError> {
         if matches!(self.phase, Phase::GameOver) {
             return Err(RuleError::GameOver);
         }
@@ -184,13 +184,12 @@ impl CutthroatState {
             Phase::GameOver => {}
         }
 
-        let mut events = Vec::new();
         if let Some(winner) = self.check_winner() {
             self.winner = Some(winner.clone());
             self.phase = Phase::GameOver;
-            events.push(Event::GameOver(winner));
+            return Ok(Some(winner));
         }
-        Ok(events)
+        Ok(None)
     }
 
     pub fn public_view(&self, viewer: Seat) -> SeatView {

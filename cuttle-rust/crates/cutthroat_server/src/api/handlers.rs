@@ -599,26 +599,6 @@ pub(crate) async fn set_ready(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub(crate) async fn start_game(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-) -> Result<StatusCode, StatusCode> {
-    let user = authorize(&state, &headers).await?;
-    let sender = game_sender(&state.runtime, id)
-        .await
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let (tx, rx) = oneshot::channel();
-    sender
-        .send(GameCommand::StartGame { user, respond: tx })
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    rx.await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map_err(|err| err.status_code())?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
 pub(crate) async fn get_state(
     State(state): State<AppState>,
     Path(id): Path<i64>,
