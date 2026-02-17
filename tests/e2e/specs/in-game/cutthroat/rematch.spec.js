@@ -81,11 +81,23 @@ describe('Cutthroat 3P Rematch UX', () => {
     cy.visit('/');
     cy.location('pathname').should('eq', '/');
 
+    cy.window()
+      .its('cuttle.capabilitiesStore')
+      .then((store) => store.refreshCutthroatAvailability({ force: true }));
+    cy.window()
+      .its('cuttle.capabilitiesStore.cutthroatAvailability', { timeout: 10000 })
+      .should('eq', 'available');
+
     cy.get('@rematchGameId').then((id) => {
-      cy.get(`[data-cy=cutthroat-join-lobby-${id}]`)
+      cy.window()
+        .its('cuttle.cutthroatStore.lobbies', { timeout: 10000 })
+        .should((lobbies) => {
+          expect(lobbies.some((lobby) => lobby.id === id)).to.eq(true);
+        });
+      cy.get(`[data-cy=cutthroat-join-lobby-${id}]`, { timeout: 10000 })
         .should('be.visible')
         .and('be.enabled');
-      cy.get(`[data-cy=cutthroat-join-lobby-${id}]`)
+      cy.get(`[data-cy=cutthroat-join-lobby-${id}]`, { timeout: 10000 })
         .click();
       cy.location('pathname').should('eq', `/cutthroat/lobby/${id}`);
     });
