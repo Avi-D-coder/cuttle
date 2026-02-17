@@ -5,7 +5,7 @@ describe('Cutthroat 3P Countering Phase', () => {
     cy.setupCutthroatUser();
   });
 
-  it('loads a seeded countering phase with counter actions for current seat', () => {
+  it('When a one-off puts the game into countering phase for the local seat, then legal actions include both counter and resolve options because counter windows must expose all valid responses.', () => {
     const gameId = 7341;
     const transcript = transcriptWithActions({
       dealer: 'P2',

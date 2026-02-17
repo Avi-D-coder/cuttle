@@ -13,6 +13,9 @@ Cypress.Commands.add('seedCutthroatGameFromTokenlog', ({
   players,
   playerSeat = 0,
   spectatingUsernames,
+  isRematchLobby,
+  rematchFromGameId,
+  seriesPlayerOrder,
 }) => {
   if (!gameId || !tokenlog) {
     throw new Error('seedCutthroatGameFromTokenlog requires gameId and tokenlog');
@@ -48,6 +51,9 @@ Cypress.Commands.add('seedCutthroatGameFromTokenlog', ({
       status,
       spectating_usernames: spectatingUsernames,
       name,
+      is_rematch_lobby: isRematchLobby,
+      rematch_from_game_id: rematchFromGameId,
+      series_player_order: seriesPlayerOrder,
     };
 
     return cy
@@ -71,6 +77,9 @@ Cypress.Commands.add('seedCutthroatGameFromTranscript', ({
   players,
   playerSeat = 0,
   spectatingUsernames,
+  isRematchLobby,
+  rematchFromGameId,
+  seriesPlayerOrder,
 }) => {
   if (!gameId || !Number.isInteger(dealerSeat) || !Array.isArray(deckTokens)) {
     throw new Error('seedCutthroatGameFromTranscript requires gameId, dealerSeat, and deckTokens');
@@ -107,6 +116,9 @@ Cypress.Commands.add('seedCutthroatGameFromTranscript', ({
       status,
       spectating_usernames: spectatingUsernames,
       name,
+      is_rematch_lobby: isRematchLobby,
+      rematch_from_game_id: rematchFromGameId,
+      series_player_order: seriesPlayerOrder,
     };
 
     return cy

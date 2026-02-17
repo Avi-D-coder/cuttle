@@ -228,7 +228,7 @@ describe('Profile Page', () => {
         .and('include', '/spectate/');
     });
 
-    it('Merges 2P and mocked 3P history entries in one timeline', function() {
+    it('When profile history combines classic 2P fixtures with Cutthroat history API results, then both modes render in one correctly ordered timeline with mode-specific replay links because mixed-mode history is a core post-game navigation path.', function() {
       const olderTwoPlayerDate = dayjs.utc().subtract(2, 'day');
       const newerThreePlayerDate = dayjs.utc().subtract(1, 'day');
 

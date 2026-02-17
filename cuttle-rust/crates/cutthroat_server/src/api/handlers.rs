@@ -270,6 +270,9 @@ pub(crate) struct SeedGameFromTokenlogRequest {
     pub(crate) status: Option<i16>,
     pub(crate) spectating_usernames: Option<Vec<String>>,
     pub(crate) name: Option<String>,
+    pub(crate) is_rematch_lobby: Option<bool>,
+    pub(crate) rematch_from_game_id: Option<i64>,
+    pub(crate) series_player_order: Option<Vec<i64>>,
 }
 
 #[cfg(feature = "e2e-seed")]
@@ -286,6 +289,9 @@ pub(crate) struct SeedGameFromTranscriptRequest {
     pub(crate) status: Option<i16>,
     pub(crate) spectating_usernames: Option<Vec<String>>,
     pub(crate) name: Option<String>,
+    pub(crate) is_rematch_lobby: Option<bool>,
+    pub(crate) rematch_from_game_id: Option<i64>,
+    pub(crate) series_player_order: Option<Vec<i64>>,
 }
 
 #[cfg(feature = "e2e-seed")]
@@ -422,6 +428,9 @@ pub(crate) async fn seed_game_from_tokenlog(
         status: body.status,
         spectating_usernames: body.spectating_usernames,
         name: body.name,
+        is_rematch_lobby: body.is_rematch_lobby,
+        rematch_from_game_id: body.rematch_from_game_id,
+        series_player_order: body.series_player_order,
     };
     let SeedGameResult {
         game_id,
@@ -469,6 +478,9 @@ pub(crate) async fn seed_game_from_transcript(
         status: body.status,
         spectating_usernames: body.spectating_usernames,
         name: body.name,
+        is_rematch_lobby: body.is_rematch_lobby,
+        rematch_from_game_id: body.rematch_from_game_id,
+        series_player_order: body.series_player_order,
     };
     let SeedGameResult {
         game_id,

@@ -1211,6 +1211,7 @@ pub(crate) async fn seed_game_from_tokenlog(
     let game = seeded_game_from_tokenlog(seed)?;
     let seat_user_ids = seed_result_user_ids(&game);
     let tokenlog = serialize_tokenlog(&game.transcript);
+    let rematch_from_game_id = game.rematch_from_game_id;
 
     let (created, old_tx) = {
         let mut guard = runtime.write().await;
@@ -1231,7 +1232,11 @@ pub(crate) async fn seed_game_from_tokenlog(
     let version = game.version;
     let status = game.status;
 
-    let _ = spawn_game_actor(runtime, persistence_tx, game).await;
+    if let Some(source_game_id) = rematch_from_game_id {
+        let _ = spawn_game_actor_internal(runtime, persistence_tx, game, Some(source_game_id)).await;
+    } else {
+        let _ = spawn_game_actor(runtime, persistence_tx, game).await;
+    }
 
     Ok(SeedGameResult {
         game_id,
@@ -1292,6 +1297,9 @@ pub(crate) async fn seed_game_from_transcript(
             status: seed.status,
             spectating_usernames: seed.spectating_usernames,
             name: seed.name,
+            is_rematch_lobby: seed.is_rematch_lobby,
+            rematch_from_game_id: seed.rematch_from_game_id,
+            series_player_order: seed.series_player_order,
         },
     )
     .await
@@ -1343,6 +1351,16 @@ fn seeded_game_from_tokenlog(seed: SeedGameInput) -> Result<GameEntry, RuntimeEr
             }
         }
     };
+    let is_rematch_lobby = seed.is_rematch_lobby.unwrap_or(false);
+    let rematch_from_game_id = seed.rematch_from_game_id;
+    if is_rematch_lobby && rematch_from_game_id.is_none() {
+        return Err(RuntimeError::BadRequest);
+    }
+    if let Some(source_id) = rematch_from_game_id
+        && source_id <= 0
+    {
+        return Err(RuntimeError::BadRequest);
+    }
 
     let mut seats = seed
         .players
@@ -1355,6 +1373,19 @@ fn seeded_game_from_tokenlog(seed: SeedGameInput) -> Result<GameEntry, RuntimeEr
         })
         .collect::<Vec<_>>();
     seats.sort_by_key(|seat| seat.seat);
+
+    let series_player_order = if let Some(order) = seed.series_player_order {
+        if order.is_empty() {
+            return Err(RuntimeError::BadRequest);
+        }
+        let mut seen = HashSet::new();
+        if order.iter().any(|id| *id <= 0 || !seen.insert(*id)) {
+            return Err(RuntimeError::BadRequest);
+        }
+        order
+    } else {
+        seats.iter().map(|seat| seat.user_id).collect()
+    };
 
     let name = seed
         .name
@@ -1373,10 +1404,10 @@ fn seeded_game_from_tokenlog(seed: SeedGameInput) -> Result<GameEntry, RuntimeEr
         id: seed.game_id,
         name,
         status,
-        is_rematch_lobby: false,
-        rematch_from_game_id: None,
-        series_anchor_game_id: seed.game_id,
-        series_player_order: seats.iter().map(|seat| seat.user_id).collect(),
+        is_rematch_lobby,
+        rematch_from_game_id,
+        series_anchor_game_id: rematch_from_game_id.unwrap_or(seed.game_id),
+        series_player_order,
         seats,
         transcript: parsed,
         scrap_straightened: false,
@@ -1704,6 +1735,9 @@ mod tests {
             status: Some(STATUS_STARTED),
             spectating_usernames: Some(Vec::new()),
             name: None,
+            is_rematch_lobby: None,
+            rematch_from_game_id: None,
+            series_player_order: None,
         };
 
         let err = seed_game_from_transcript(runtime, persistence_tx, seed)
@@ -1757,12 +1791,97 @@ mod tests {
             status: Some(STATUS_STARTED),
             spectating_usernames: Some(Vec::new()),
             name: None,
+            is_rematch_lobby: None,
+            rematch_from_game_id: None,
+            series_player_order: None,
         };
 
         let seeded = seed_game_from_tokenlog(runtime, persistence_tx, seed)
             .await
             .expect("tokenlog seed should continue to accept result-bearing transcript");
         assert_eq!(seeded.version, 1);
+    }
+
+    #[cfg(feature = "e2e-seed")]
+    #[tokio::test]
+    async fn seed_game_supports_rematch_lobby_metadata() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(3000)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let deck_tokens = cutthroat_engine::full_deck_with_jokers()
+            .into_iter()
+            .map(|card| card.to_token())
+            .collect::<Vec<_>>();
+        let seats = vec![
+            crate::game_runtime::commands::SeedSeatInput {
+                seat: 0,
+                user_id: 13000,
+                username: "p0".to_string(),
+                ready: Some(true),
+            },
+            crate::game_runtime::commands::SeedSeatInput {
+                seat: 1,
+                user_id: 13001,
+                username: "p1".to_string(),
+                ready: Some(true),
+            },
+            crate::game_runtime::commands::SeedSeatInput {
+                seat: 2,
+                user_id: 13002,
+                username: "p2".to_string(),
+                ready: Some(true),
+            },
+        ];
+
+        seed_game_from_transcript(
+            runtime.clone(),
+            persistence_tx.clone(),
+            SeedGameFromTranscriptInput {
+                game_id: 3001,
+                players: seats.clone(),
+                dealer_seat: 0,
+                deck_tokens: deck_tokens.clone(),
+                action_tokens: Vec::new(),
+                status: Some(STATUS_FINISHED),
+                spectating_usernames: None,
+                name: Some("source".to_string()),
+                is_rematch_lobby: None,
+                rematch_from_game_id: None,
+                series_player_order: None,
+            },
+        )
+        .await
+        .expect("seed source game");
+
+        seed_game_from_transcript(
+            runtime.clone(),
+            persistence_tx,
+            SeedGameFromTranscriptInput {
+                game_id: 3002,
+                players: seats,
+                dealer_seat: 1,
+                deck_tokens,
+                action_tokens: Vec::new(),
+                status: Some(STATUS_LOBBY),
+                spectating_usernames: None,
+                name: Some("rematch".to_string()),
+                is_rematch_lobby: Some(true),
+                rematch_from_game_id: Some(3001),
+                series_player_order: Some(vec![13000, 13001, 13002]),
+            },
+        )
+        .await
+        .expect("seed rematch lobby");
+
+        let guard = runtime.read().await;
+        assert_eq!(guard.rematches.get(&3001), Some(&3002));
+        assert_eq!(
+            guard.game_meta.get(&3002).and_then(|meta| meta.rematch_from_game_id),
+            Some(3001)
+        );
+        assert_eq!(
+            guard.lobby_cache.get(&3002).map(|entry| entry.is_rematch_lobby),
+            Some(true)
+        );
     }
 
     #[test]

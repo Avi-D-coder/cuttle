@@ -18,12 +18,24 @@ function installCutthroatWsTracker(win) {
   };
 }
 
+function waitForScrapStraightened(gameId, attemptsRemaining = 8) {
+  return cy.request(`/cutthroat/api/v1/games/${gameId}/state`)
+    .its('body.scrap_straightened')
+    .then((scrapStraightened) => {
+      if (scrapStraightened === true) {return;}
+      if (attemptsRemaining <= 0) {
+        throw new Error('Expected scrap_straightened to become true after websocket sync message.');
+      }
+      return waitForScrapStraightened(gameId, attemptsRemaining - 1);
+    });
+}
+
 describe('Cutthroat 3P WS Sync', () => {
   beforeEach(() => {
     cy.setupCutthroatUser();
   });
 
-  it('toggles scrap straighten state via websocket message', () => {
+  it('When the client sends a scrap-straighten websocket message in an active 3P game, then server state flips scrap_straightened to true because this UX sync action must persist through the authoritative runtime.', () => {
     const gameId = 7361;
     const transcript = transcriptWithActions({
       dealer: 'P2',
@@ -57,12 +69,6 @@ describe('Cutthroat 3P WS Sync', () => {
         ?.instance;
       ws.send(JSON.stringify({ type: 'scrap_straighten' }));
     });
-    cy.wait(250);
-
-    cy.request(`/cutthroat/api/v1/games/${gameId}/state`)
-      .its('body')
-      .then((state) => {
-        expect(state.scrap_straightened).to.eq(true);
-      });
+    waitForScrapStraightened(gameId);
   });
 });

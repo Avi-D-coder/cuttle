@@ -6,7 +6,7 @@ describe('Cutthroat 3P Status Banner', () => {
     cy.setupCutthroatUser();
   });
 
-  it('renders points/goal for all seats and turn status only for the local seat', () => {
+  it('When a started 3P game renders seat status banners, then all seats show points/goal while only the local seat shows turn text because turn messaging must avoid duplicative or misleading opponent labels.', () => {
     const gameId = 7371;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 

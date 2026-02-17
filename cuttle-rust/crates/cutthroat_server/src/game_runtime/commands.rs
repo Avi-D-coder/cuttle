@@ -26,6 +26,9 @@ pub(crate) struct SeedGameInput {
     pub(crate) status: Option<i16>,
     pub(crate) spectating_usernames: Option<Vec<String>>,
     pub(crate) name: Option<String>,
+    pub(crate) is_rematch_lobby: Option<bool>,
+    pub(crate) rematch_from_game_id: Option<i64>,
+    pub(crate) series_player_order: Option<Vec<i64>>,
 }
 
 #[cfg(feature = "e2e-seed")]
@@ -39,6 +42,9 @@ pub(crate) struct SeedGameFromTranscriptInput {
     pub(crate) status: Option<i16>,
     pub(crate) spectating_usernames: Option<Vec<String>>,
     pub(crate) name: Option<String>,
+    pub(crate) is_rematch_lobby: Option<bool>,
+    pub(crate) rematch_from_game_id: Option<i64>,
+    pub(crate) series_player_order: Option<Vec<i64>>,
 }
 
 #[cfg(feature = "e2e-seed")]

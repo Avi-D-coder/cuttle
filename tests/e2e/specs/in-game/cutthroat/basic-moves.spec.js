@@ -6,7 +6,7 @@ describe('Cutthroat 3P Basic Moves', () => {
     cy.setupCutthroatUser();
   });
 
-  it('draws from deck when action is legal', () => {
+  it('When the local seat is in a legal main phase and draws from deck, then game state version increments by one because each legal action must produce exactly one authoritative state update.', () => {
     const gameId = 7311;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
@@ -31,7 +31,7 @@ describe('Cutthroat 3P Basic Moves', () => {
       });
   });
 
-  it('plays a points card from hand', () => {
+  it('When the local seat selects a hand card and chooses the points move, then the card appears in that seat point stacks because point-play resolution must be reflected in persisted game state.', () => {
     const gameId = 7312;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
@@ -55,7 +55,7 @@ describe('Cutthroat 3P Basic Moves', () => {
       });
   });
 
-  it('scuttles an opponent point stack in a seeded turn-state', () => {
+  it('When the local seat executes a legal scuttle against an opponent point card, then both the target card and scuttling card move to scrap because scuttle consumes both cards by rule.', () => {
     const gameId = 7313;
     const transcript = transcriptWithActions({
       dealer: 'P2',

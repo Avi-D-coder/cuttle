@@ -6,7 +6,7 @@ describe('Cutthroat 3P Layout', () => {
     cy.setupCutthroatUser();
   });
 
-  it('anchors bottom area near viewport edge on desktop', () => {
+  it('When the 3P board renders on desktop, then the local player area stays anchored near the viewport bottom because local-hand interaction depends on consistent spatial placement.', () => {
     const gameId = 7321;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
@@ -18,7 +18,7 @@ describe('Cutthroat 3P Layout', () => {
     assertBottomGapWithin(24);
   });
 
-  it('anchors bottom area near viewport edge on mobile', () => {
+  it('When the 3P board renders on mobile, then the local player area still stays anchored near the viewport bottom because responsive layout must preserve touch ergonomics.', () => {
     const gameId = 7322;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
@@ -30,7 +30,7 @@ describe('Cutthroat 3P Layout', () => {
     assertBottomGapWithin(18);
   });
 
-  it('keeps local stolen-point jack attachment visible on desktop', () => {
+  it('When a jack steals control of a local point stack, then both the base point and jack attachment remain visible in the local area because ownership context must stay readable after control changes.', () => {
     const gameId = 7323;
     const transcript = transcriptWithActions({
       dealer: 'P2',

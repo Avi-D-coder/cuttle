@@ -156,7 +156,7 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.hasActiveSeatedPlayers).toBe(true);
   });
 
-  it('accepts legacy game state payloads without next_game metadata', () => {
+  it('rejects game state payloads that omit required next-game metadata fields', () => {
     const store = useCutthroatStore();
     store.connectWs(42);
     const [ ws ] = FakeWebSocket.instances;
@@ -166,9 +166,8 @@ describe('cutthroat store websocket behavior', () => {
     delete payload.has_active_seated_players;
     ws.emitMessage({ type: 'state', state: payload });
 
-    expect(store.nextGameId).toBeNull();
-    expect(store.nextGameFinished).toBe(false);
-    expect(store.hasActiveSeatedPlayers).toBe(false);
+    expect(store.lastError.message).toContain('Cutthroat protocol violation');
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
 
   it('ignores stale websocket game state versions', () => {
@@ -413,7 +412,7 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.spectateGames[0].rematch_from_game_id).toBe(1);
   });
 
-  it('accepts legacy spectatable game payloads without rematch_from_game_id', () => {
+  it('rejects lobby payloads that omit required rematch linkage metadata', () => {
     const store = useCutthroatStore();
     store.connectLobbyWs();
     const [ ws ] = FakeWebSocket.instances;
@@ -427,8 +426,8 @@ describe('cutthroat store websocket behavior', () => {
       ],
     });
 
-    expect(store.spectateGames).toHaveLength(1);
-    expect(store.spectateGames[0].id).toBe(22);
+    expect(store.lastError.message).toContain('Cutthroat protocol violation');
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
 
   it('ignores stale lobby versions', () => {

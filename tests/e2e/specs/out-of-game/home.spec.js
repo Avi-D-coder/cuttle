@@ -4,6 +4,7 @@ import { myUser, opponentOne, opponentTwo, playerOne, playerTwo } from '../../fi
 import { SnackBarError } from '../../fixtures/snackbarError';
 import GameStatus from '../../../../utils/GameStatus.json';
 import { announcementData } from '../../../../src/routes/home/components/announcementDialog/data/announcementData';
+import { transcriptWithActions } from '../../support/cutthroat/seed';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
@@ -36,6 +37,41 @@ function ensureCutthroatAvailable() {
   cy.window()
     .its('cuttle.capabilitiesStore.cutthroatAvailability', { timeout: 10000 })
     .should('eq', 'available');
+}
+
+function currentUserStatus() {
+  return cy.request('/api/user/status')
+    .its('body')
+    .then((status) => {
+      expect(status.authenticated).to.eq(true);
+      return status;
+    });
+}
+
+function seedCutthroatGameFromTranscript({
+  gameId,
+  status,
+  players,
+  actions = [],
+  name,
+  isRematchLobby,
+  rematchFromGameId,
+}) {
+  const transcript = transcriptWithActions({
+    dealer: 'P2',
+    actions,
+  });
+  return cy.request('POST', '/cutthroat/api/test/games/seed-transcript', {
+    game_id: gameId,
+    players,
+    dealer_seat: transcript.dealerSeat,
+    deck_tokens: transcript.deckTokens,
+    action_tokens: transcript.actionTokens,
+    status,
+    name,
+    is_rematch_lobby: isRematchLobby,
+    rematch_from_game_id: rematchFromGameId,
+  });
 }
 
 function assertSuccessfulJoin(gameState) {
@@ -263,22 +299,18 @@ describe('Home - Game List', () => {
       });
     });
 
-    it('Shows active cutthroat games in the spectate list', () => {
+    it('When a started Cutthroat game exists with non-viewer seats, then it appears in the home spectate tab because active 3P games must be discoverable to spectators.', () => {
       ensureCutthroatAvailable();
-      cy.window()
-        .its('cuttle.cutthroatStore')
-        .then((store) => {
-          // Prevent live lobby WS updates from racing and replacing injected test data.
-          store.disconnectLobbyWs();
-          store.spectateGames = [
-            {
-              id: 9901,
-              name: 'Cutthroat Active',
-              seat_count: 3,
-              status: 1,
-            },
-          ];
-        });
+      seedCutthroatGameFromTranscript({
+        gameId: 9901,
+        status: 1,
+        name: 'Cutthroat Active',
+        players: [
+          { seat: 0, user_id: 91001, username: 'ct-p0', ready: true },
+          { seat: 1, user_id: 91002, username: 'ct-p1', ready: true },
+          { seat: 2, user_id: 91003, username: 'ct-p2', ready: true },
+        ],
+      });
 
       cy.get('[data-cy-game-list-selector=spectate]').click();
       cy.get('[data-cy=cutthroat-spectate-game-9901]', { timeout: 10000 }).should('be.visible');
@@ -499,33 +531,37 @@ describe('Home - Create Game', () => {
     cy.get('[data-cy=create-game-mode-select]').should('contain.text', '2p');
   });
 
-  it('Creates a cutthroat game from the unified create controls', () => {
+  it('When Cutthroat capability is available and the user selects 3p in unified create controls, then create routes to a Cutthroat lobby because mode selection must drive the correct game flow.', () => {
     ensureCutthroatAvailable();
     selectCreateMode('3p');
     cy.get('[data-cy=create-game-unified-btn]').click();
     cy.location('pathname').should('contain', '/cutthroat/lobby/');
   });
 
-  it('Does not flash stale cutthroat lobby seats when creating a new 3p lobby', () => {
+  it('When a user leaves an existing Cutthroat lobby and immediately creates a new 3p lobby, then stale seat names never flash in the new lobby because stale in-memory lobby state must be cleared before delayed state responses resolve.', () => {
     ensureCutthroatAvailable();
+    currentUserStatus().then((user) => {
+      seedCutthroatGameFromTranscript({
+        gameId: 9999,
+        status: 0,
+        name: 'Stale Lobby',
+        players: [
+          { seat: 0, user_id: user.id, username: user.username, ready: true },
+          { seat: 1, user_id: 102, username: 'stale-player-two', ready: true },
+          { seat: 2, user_id: 103, username: 'stale-player-three', ready: false },
+        ],
+      });
+    });
+    cy.visit('/cutthroat/lobby/9999');
+    cy.get('[data-cy-ready-indicator]').should('contain.text', 'stale-player-two');
+    cy.get('[data-cy-ready-indicator]').should('contain.text', 'stale-player-three');
+    cy.visit('/');
+
     cy.intercept('GET', '**/cutthroat/api/v1/games/*/state', (req) => {
       req.on('response', (res) => {
         res.setDelay(800);
       });
     }).as('cutthroatLobbyState');
-
-    cy.window()
-      .its('cuttle.cutthroatStore')
-      .then((store) => {
-        store.gameId = 9999;
-        store.lobby = {
-          seats: [
-            { seat: 0, user_id: 101, username: 'stale-player-one', ready: true },
-            { seat: 1, user_id: 102, username: 'stale-player-two', ready: true },
-            { seat: 2, user_id: 103, username: 'stale-player-three', ready: false },
-          ],
-        };
-      });
 
     selectCreateMode('3p');
     cy.get('[data-cy=create-game-unified-btn]').click();
@@ -533,9 +569,25 @@ describe('Home - Create Game', () => {
     cy.get('[data-cy=cutthroat-seat-indicator]').should('have.length', 3);
     cy.wait('@cutthroatLobbyState');
     cy.get('#cutthroat-lobby-wrapper').should('contain.text', 'Invite');
-    cy.get('[data-cy-ready-indicator]').should('not.contain.text', 'stale-player-one');
     cy.get('[data-cy-ready-indicator]').should('not.contain.text', 'stale-player-two');
     cy.get('[data-cy-ready-indicator]').should('not.contain.text', 'stale-player-three');
+  });
+
+  it('When Cutthroat becomes unavailable while home is open, then unified create resets away from 3p and blocks Cutthroat creation with an unavailable message because users should not be able to launch a mode that cannot be served.', () => {
+    ensureCutthroatAvailable();
+    selectCreateMode('3p');
+    cy.get('[data-cy=create-game-mode-select]').should('contain.text', '3p');
+
+    cy.window()
+      .its('cuttle.capabilitiesStore')
+      .then((store) => {
+        store.cutthroatAvailability = 'unavailable';
+      });
+
+    cy.get('[data-cy=create-game-mode-select]').should('contain.text', '2p');
+    cy.get('[data-cy=create-game-unified-btn]').click();
+    cy.get('[data-cy=create-game-dialog]').should('be.visible');
+    cy.location('pathname').should('eq', '/');
   });
 
   it('Creates a vs AI game from the unified create controls', () => {

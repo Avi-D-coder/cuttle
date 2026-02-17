@@ -29,6 +29,10 @@ function isOptionalBoolean(value) {
   return value === undefined || typeof value === 'boolean';
 }
 
+function hasOwnKey(target, key) {
+  return Object.prototype.hasOwnProperty.call(target, key);
+}
+
 function isValidPublicCard(card) {
   if (card === 'Hidden') {return true;}
   return isObject(card) && typeof card.Known === 'string';
@@ -101,13 +105,15 @@ function isValidGameStatePayload(payload) {
     && isStringArray(payload.spectating_usernames)
     && typeof payload.scrap_straightened === 'boolean'
     && isOptionalBoolean(payload.archived)
+    && hasOwnKey(payload, 'next_game_id')
     && (
-      payload.next_game_id === undefined
-      || payload.next_game_id === null
+      payload.next_game_id === null
       || isFiniteNumber(payload.next_game_id)
     )
-    && isOptionalBoolean(payload.next_game_finished)
-    && isOptionalBoolean(payload.has_active_seated_players);
+    && hasOwnKey(payload, 'next_game_finished')
+    && typeof payload.next_game_finished === 'boolean'
+    && hasOwnKey(payload, 'has_active_seated_players')
+    && typeof payload.has_active_seated_players === 'boolean';
 }
 
 function isValidLobbySummary(lobbyEntry) {
@@ -126,9 +132,9 @@ function isValidSpectatableGame(gameEntry) {
     && typeof gameEntry.name === 'string'
     && isFiniteNumber(gameEntry.seat_count)
     && isFiniteNumber(gameEntry.status)
+    && hasOwnKey(gameEntry, 'rematch_from_game_id')
     && (
-      gameEntry.rematch_from_game_id === undefined
-      || gameEntry.rematch_from_game_id === null
+      gameEntry.rematch_from_game_id === null
       || isFiniteNumber(gameEntry.rematch_from_game_id)
     )
     && isStringArray(gameEntry.spectating_usernames);

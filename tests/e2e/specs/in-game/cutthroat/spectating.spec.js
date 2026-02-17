@@ -6,7 +6,7 @@ describe('Cutthroat 3P Spectating', () => {
     cy.setupCutthroatUser();
   });
 
-  it('spectator mode remains read-only', () => {
+  it('When a viewer opens a started 3P game in spectate mode and attempts gameplay interaction, then the server state version does not change because spectator mode must be strictly read-only.', () => {
     const gameId = 7331;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
@@ -44,7 +44,6 @@ describe('Cutthroat 3P Spectating', () => {
     cy.request(`/cutthroat/api/v1/games/${gameId}/spectate/state`)
       .its('body')
       .then((before) => {
-        cy.wait(200);
         cy.request(`/cutthroat/api/v1/games/${gameId}/spectate/state`)
           .its('body')
           .then((after) => {

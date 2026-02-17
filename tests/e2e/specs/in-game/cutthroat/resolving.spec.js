@@ -5,7 +5,7 @@ describe('Cutthroat 3P Resolving Phases', () => {
     cy.setupCutthroatUser();
   });
 
-  it('loads seeded resolving three phase with pick actions', () => {
+  it('When a seeded transcript enters resolving-three, then legal actions still include resolve choices for the acting seat because resolve chains must preserve deterministic completion options.', () => {
     const gameId = 7351;
     const transcript = transcriptWithActions({
       dealer: 'P2',
@@ -32,7 +32,7 @@ describe('Cutthroat 3P Resolving Phases', () => {
       });
   });
 
-  it('loads seeded resolving four phase with discard actions', () => {
+  it('When a seeded transcript enters resolving-four, then legal actions include typed discard resolves because resolving-four requires explicit discard token selection to advance state.', () => {
     const gameId = 7352;
     const transcript = transcriptWithActions({
       dealer: 'P2',
