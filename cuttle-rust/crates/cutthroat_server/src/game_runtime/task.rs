@@ -29,11 +29,13 @@ use std::collections::HashMap;
 #[cfg(feature = "e2e-seed")]
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
 use tracing::error;
 
 const GAME_COMMAND_BUFFER: usize = 256;
 const FINISHED_CLEANUP_GRACE_SECONDS: i64 = 5;
+const SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS: i64 = 10;
 
 struct GameWatchSet {
     seat_tx: [watch::Sender<Arc<GameStateResponse>>; 3],
@@ -46,19 +48,18 @@ struct GameActor {
     game: GameEntry,
     streams: GameWatchSet,
     seat_connections: [usize; 3],
+    all_players_disconnected_since: Option<DateTime<Utc>>,
 }
 
 struct SubscribeOutcome {
     subscription: GameStreamSubscription,
     game_changed: bool,
     lobby_changed: bool,
-    seat_connection_changed: bool,
 }
 
 struct DisconnectOutcome {
     game_changed: bool,
     lobby_changed: bool,
-    seat_connection_changed: bool,
     remove_game: bool,
 }
 
@@ -251,7 +252,12 @@ async fn spawn_game_actor_internal(
         if let Some(source_id) = rematch_source_game_id {
             guard.rematches.insert(source_id, game.id);
         }
-        guard.upsert_game_state(&game);
+        let active_seat_count = if game.is_rematch_lobby {
+            0
+        } else {
+            game.seats.len()
+        };
+        guard.upsert_game_state_with_active_seat_count(&game, active_seat_count);
         guard.publish_lobby_watch();
     }
 
@@ -291,17 +297,18 @@ impl GameActor {
                 spectator_tx,
             },
             seat_connections: [0, 0, 0],
+            all_players_disconnected_since: None,
         }
     }
 
     async fn run(mut self, mut rx: mpsc::Receiver<GameCommand>) {
         self.publish_game_watch();
+        let mut schedule_cleanup_recheck = self.refresh_all_players_disconnected_since();
 
         while let Some(cmd) = rx.recv().await {
             let mut publish_game = false;
             let mut publish_lobby = false;
             let mut notify_source_rematch_started = false;
-            let mut maybe_cleanup_unstarted_rematch = false;
             let mut stop = false;
 
             match cmd {
@@ -373,7 +380,6 @@ impl GameActor {
                         Ok(outcome) => {
                             publish_game |= outcome.game_changed;
                             publish_lobby |= outcome.lobby_changed;
-                            maybe_cleanup_unstarted_rematch |= outcome.seat_connection_changed;
                             let _ = respond.send(Ok(outcome.subscription));
                         }
                         Err(err) => {
@@ -390,7 +396,6 @@ impl GameActor {
                         publish_game |= outcome.game_changed;
                         publish_lobby |= outcome.lobby_changed;
                     }
-                    maybe_cleanup_unstarted_rematch |= outcome.seat_connection_changed;
                 }
                 GameCommand::SyncRematchPresenceFromSource {
                     disconnected_user_ids,
@@ -445,6 +450,7 @@ impl GameActor {
                 }
             }
 
+            schedule_cleanup_recheck |= self.refresh_all_players_disconnected_since();
             if publish_game {
                 self.publish_game_watch();
             }
@@ -454,9 +460,9 @@ impl GameActor {
             if notify_source_rematch_started {
                 self.notify_source_rematch_started().await;
             }
-            if maybe_cleanup_unstarted_rematch {
-                self.sync_unstarted_rematch_presence_from_source_disconnects()
-                    .await;
+            if schedule_cleanup_recheck {
+                self.schedule_cleanup_recheck_after_disconnect_grace().await;
+                schedule_cleanup_recheck = false;
             }
             if stop {
                 break;
@@ -468,6 +474,25 @@ impl GameActor {
                 break;
             }
         }
+    }
+
+    fn refresh_all_players_disconnected_since(&mut self) -> bool {
+        if self.game.status != STATUS_FINISHED {
+            self.all_players_disconnected_since = None;
+            return false;
+        }
+
+        let all_players_disconnected = self.seat_connections.iter().all(|count| *count == 0);
+        if all_players_disconnected {
+            if self.all_players_disconnected_since.is_none() {
+                self.all_players_disconnected_since = Some(Utc::now());
+                return true;
+            }
+            return false;
+        }
+
+        self.all_players_disconnected_since = None;
+        false
     }
 
     fn join_game(&mut self, user: AuthUser) -> Result<Seat, RuntimeError> {
@@ -625,7 +650,6 @@ impl GameActor {
 
         let mut game_changed = false;
         let mut lobby_changed = false;
-        let mut seat_connection_changed = false;
 
         let rx = match audience {
             GameAudience::Spectator => {
@@ -645,7 +669,6 @@ impl GameActor {
                     return Err(RuntimeError::BadRequest);
                 }
                 self.seat_connections[idx] = self.seat_connections[idx].saturating_add(1);
-                seat_connection_changed = true;
                 self.streams.seat_tx[idx].subscribe()
             }
         };
@@ -654,7 +677,6 @@ impl GameActor {
             subscription: GameStreamSubscription { audience, rx },
             game_changed,
             lobby_changed,
-            seat_connection_changed,
         })
     }
 
@@ -666,11 +688,7 @@ impl GameActor {
                     self.seat_connections[idx] -= 1;
                 }
                 let mut seat_removed = false;
-                if self.game.status == STATUS_LOBBY
-                    && self.game.is_rematch_lobby
-                    && idx < 3
-                    && self.seat_connections[idx] == 0
-                {
+                if self.game.status == STATUS_LOBBY && idx < 3 && self.seat_connections[idx] == 0 {
                     let original_len = self.game.seats.len();
                     self.game.seats.retain(|entry| entry.user_id != user_id);
                     seat_removed = self.game.seats.len() != original_len;
@@ -678,7 +696,6 @@ impl GameActor {
                 DisconnectOutcome {
                     game_changed: seat_removed,
                     lobby_changed: seat_removed,
-                    seat_connection_changed: true,
                     remove_game: seat_removed && self.game.seats.is_empty(),
                 }
             }
@@ -696,7 +713,6 @@ impl GameActor {
                 DisconnectOutcome {
                     game_changed: changed,
                     lobby_changed: changed,
-                    seat_connection_changed: false,
                     remove_game: false,
                 }
             }
@@ -748,6 +764,19 @@ impl GameActor {
         };
         response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
         Ok(Arc::new(response))
+    }
+
+    fn active_lobby_seat_count(&self) -> usize {
+        if self.game.status != STATUS_LOBBY {
+            return self.game.seats.len();
+        }
+        if !self.game.is_rematch_lobby {
+            return self.game.seats.len();
+        }
+        self.seat_connections
+            .iter()
+            .filter(|count| **count > 0)
+            .count()
     }
 
     fn build_spectator_replay_state_for_user(
@@ -911,7 +940,7 @@ impl GameActor {
         if !guard.games.contains_key(&self.game.id) {
             return;
         }
-        guard.upsert_game_state(&self.game);
+        guard.upsert_game_state_with_active_seat_count(&self.game, self.active_lobby_seat_count());
         guard.publish_lobby_watch();
     }
 
@@ -992,7 +1021,12 @@ impl GameActor {
             return false;
         }
 
-        let all_players_disconnected = self.seat_connections.iter().all(|count| *count == 0);
+        let all_players_disconnected_long_enough = self
+            .all_players_disconnected_since
+            .map(|since| {
+                (Utc::now() - since).num_seconds() >= SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS
+            })
+            .unwrap_or(false);
 
         let rematch_started = {
             let guard = self.runtime.read().await;
@@ -1004,7 +1038,25 @@ impl GameActor {
                 .unwrap_or(false)
         };
 
-        rematch_started || all_players_disconnected
+        rematch_started || all_players_disconnected_long_enough
+    }
+
+    async fn schedule_cleanup_recheck_after_disconnect_grace(&self) {
+        if self.game.status != STATUS_FINISHED {
+            return;
+        }
+        let game_id = self.game.id;
+        let runtime = self.runtime.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(
+                SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS as u64,
+            ))
+            .await;
+            let Some(tx) = game_sender(&runtime, game_id).await else {
+                return;
+            };
+            let _ = tx.send(GameCommand::EvaluateCleanup).await;
+        });
     }
 
     async fn deregister_self(&self) {
@@ -1233,7 +1285,8 @@ pub(crate) async fn seed_game_from_tokenlog(
     let status = game.status;
 
     if let Some(source_game_id) = rematch_from_game_id {
-        let _ = spawn_game_actor_internal(runtime, persistence_tx, game, Some(source_game_id)).await;
+        let _ =
+            spawn_game_actor_internal(runtime, persistence_tx, game, Some(source_game_id)).await;
     } else {
         let _ = spawn_game_actor(runtime, persistence_tx, game).await;
     }
@@ -1705,7 +1758,7 @@ mod tests {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(203)));
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
         let deck = cutthroat_engine::full_deck_with_jokers();
-        let deck_tokens = deck.into_iter().map(|card| card.to_token()).collect();
+        let deck_tokens = deck.into_iter().map(|card| card.to_string()).collect();
 
         let seed = SeedGameFromTranscriptInput {
             game_id: 9203,
@@ -1757,7 +1810,7 @@ mod tests {
             .deck
             .first()
             .expect("drawn card should exist after deal")
-            .to_token();
+            .to_string();
         let tokenlog = format!(
             "{} P1 draw {}",
             cutthroat_engine::encode_header(0, &deck),
@@ -1809,7 +1862,7 @@ mod tests {
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
         let deck_tokens = cutthroat_engine::full_deck_with_jokers()
             .into_iter()
-            .map(|card| card.to_token())
+            .map(|card| card.to_string())
             .collect::<Vec<_>>();
         let seats = vec![
             crate::game_runtime::commands::SeedSeatInput {
@@ -1875,11 +1928,17 @@ mod tests {
         let guard = runtime.read().await;
         assert_eq!(guard.rematches.get(&3001), Some(&3002));
         assert_eq!(
-            guard.game_meta.get(&3002).and_then(|meta| meta.rematch_from_game_id),
+            guard
+                .game_meta
+                .get(&3002)
+                .and_then(|meta| meta.rematch_from_game_id),
             Some(3001)
         );
         assert_eq!(
-            guard.lobby_cache.get(&3002).map(|entry| entry.is_rematch_lobby),
+            guard
+                .lobby_cache
+                .get(&3002)
+                .map(|entry| entry.is_rematch_lobby),
             Some(true)
         );
     }
@@ -1919,7 +1978,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_disconnect_removes_unstarted_rematch_when_all_seats_disconnect() {
+    async fn unstarted_rematch_removed_after_sustained_all_source_disconnect() {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(100)));
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
         let p0 = user(10, "p0");
@@ -1960,6 +2019,16 @@ mod tests {
         send_disconnect(&source_tx, p1.id, GameAudience::Seat(1)).await;
         send_disconnect(&source_tx, p2.id, GameAudience::Seat(2)).await;
 
+        sleep(Duration::from_secs(
+            SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS as u64 - 1,
+        ))
+        .await;
+        {
+            let guard = runtime.read().await;
+            assert!(guard.games.contains_key(&rematch_id));
+        }
+
+        sleep(Duration::from_secs(2)).await;
         wait_until(|| {
             if let Ok(guard) = runtime.try_read() {
                 !guard.games.contains_key(&rematch_id)
@@ -1973,6 +2042,52 @@ mod tests {
         assert!(!guard.games.contains_key(&rematch_id));
         assert!(!guard.lobby_cache.contains_key(&rematch_id));
         assert!(!guard.rematches.contains_key(&source_id));
+    }
+
+    #[tokio::test]
+    async fn unstarted_rematch_survives_brief_source_disconnect_burst() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(150)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let p0 = user(15, "p0");
+        let p1 = user(16, "p1");
+        let p2 = user(17, "p2");
+        let source_id = 52;
+
+        let source_tx = spawn_game_actor(
+            runtime.clone(),
+            persistence_tx.clone(),
+            finished_source_game(source_id, &p0, &p1, &p2),
+        )
+        .await;
+
+        subscribe_as_seat(&source_tx, p0.clone()).await;
+        subscribe_as_seat(&source_tx, p1.clone()).await;
+        subscribe_as_seat(&source_tx, p2.clone()).await;
+
+        let rematch_id = create_rematch_for_user(
+            runtime.clone(),
+            persistence_tx.clone(),
+            source_id,
+            p0.clone(),
+        )
+        .await
+        .expect("create rematch");
+
+        send_disconnect(&source_tx, p0.id, GameAudience::Seat(0)).await;
+        send_disconnect(&source_tx, p1.id, GameAudience::Seat(1)).await;
+        send_disconnect(&source_tx, p2.id, GameAudience::Seat(2)).await;
+
+        sleep(Duration::from_secs(2)).await;
+        subscribe_as_seat(&source_tx, p0.clone()).await;
+
+        sleep(Duration::from_secs(
+            SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS as u64 + 1,
+        ))
+        .await;
+        let guard = runtime.read().await;
+        assert!(guard.games.contains_key(&rematch_id));
+        assert!(guard.lobby_cache.contains_key(&rematch_id));
+        assert_eq!(guard.rematches.get(&source_id), Some(&rematch_id));
     }
 
     #[tokio::test]
@@ -2152,6 +2267,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn non_rematch_lobby_disconnect_keeps_seat_until_last_connection_closes() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(450)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let p0 = user(45, "p0");
+        let p1 = user(46, "p1");
+
+        let game_id =
+            create_game_for_user(runtime.clone(), persistence_tx.clone(), p0.clone()).await;
+        let tx = game_sender(&runtime, game_id).await.expect("sender");
+        join_game_result(&tx, p1.clone())
+            .await
+            .expect("p1 should join");
+
+        subscribe_as_seat(&tx, p0.clone()).await;
+        subscribe_as_seat(&tx, p0.clone()).await;
+
+        send_disconnect(&tx, p0.id, GameAudience::Seat(0)).await;
+        wait_until(|| {
+            if let Ok(guard) = runtime.try_read() {
+                guard
+                    .game_meta
+                    .get(&game_id)
+                    .map(|meta| meta.seats.iter().any(|seat| seat.user_id == p0.id))
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        })
+        .await;
+
+        {
+            let guard = runtime.read().await;
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&game_id)
+                    .map(|entry| entry.seat_count),
+                Some(2)
+            );
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&game_id)
+                    .map(|entry| entry.active_seat_count),
+                Some(2)
+            );
+        }
+
+        send_disconnect(&tx, p0.id, GameAudience::Seat(0)).await;
+        wait_until(|| {
+            if let Ok(guard) = runtime.try_read() {
+                guard
+                    .game_meta
+                    .get(&game_id)
+                    .map(|meta| !meta.seats.iter().any(|seat| seat.user_id == p0.id))
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        })
+        .await;
+
+        {
+            let guard = runtime.read().await;
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&game_id)
+                    .map(|entry| entry.seat_count),
+                Some(1)
+            );
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&game_id)
+                    .map(|entry| entry.active_seat_count),
+                Some(1)
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn rematch_leave_and_rejoin_preserves_reserved_seat() {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(500)));
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
@@ -2245,6 +2442,13 @@ mod tests {
                 guard
                     .lobby_cache
                     .get(&rematch_id)
+                    .map(|entry| entry.active_seat_count),
+                Some(0)
+            );
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&rematch_id)
                     .map(|entry| entry.seat_user_ids.clone()),
                 Some(vec![p0.id, p1.id, p2.id])
             );
@@ -2310,6 +2514,13 @@ mod tests {
                     .lobby_cache
                     .get(&rematch_id)
                     .map(|entry| entry.seat_count),
+                Some(2)
+            );
+            assert_eq!(
+                guard
+                    .lobby_cache
+                    .get(&rematch_id)
+                    .map(|entry| entry.active_seat_count),
                 Some(2)
             );
             assert_eq!(

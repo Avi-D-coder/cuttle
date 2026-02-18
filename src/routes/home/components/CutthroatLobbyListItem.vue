@@ -72,7 +72,9 @@ const readyText = computed(() => {
   if (isSpectateMode.value) {
     return `${props.lobby.seat_count ?? 0} / 3 ${t('home.players')}`;
   }
-  return `${props.lobby.seat_count ?? 0} / 3 ${t('home.players')}`;
+  const activeSeatCount = props.lobby.active_seat_count ?? 0;
+  const readyCount = props.lobby.ready_count ?? 0;
+  return `${Math.max(activeSeatCount, readyCount)} / 3 ${t('home.players')}`;
 });
 
 function handleClick() {

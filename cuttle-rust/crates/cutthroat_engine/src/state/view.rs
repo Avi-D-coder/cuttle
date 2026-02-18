@@ -29,7 +29,7 @@ pub struct PlayerView {
     pub hand: Vec<PublicCard>,
     pub points: Vec<PointStackView>,
     pub royals: Vec<RoyalStackView>,
-    pub frozen: Vec<String>,
+    pub frozen: Vec<Token>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,7 +45,7 @@ pub struct SeatView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CounterTwoView {
     pub seat: Seat,
-    pub card: String,
+    pub card: Token,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,7 +71,7 @@ pub enum PhaseView {
     ResolvingSeven {
         seat: Seat,
         revealed: usize,
-        revealed_cards: Vec<String>,
+        revealed_cards: Vec<Token>,
     },
     GameOver,
 }
@@ -89,7 +89,7 @@ impl Phase {
                     .iter()
                     .map(|(seat, card)| CounterTwoView {
                         seat: *seat,
-                        card: card.to_token(),
+                        card: card.to_token_enum(),
                     })
                     .collect(),
             },
@@ -104,7 +104,7 @@ impl Phase {
             Phase::ResolvingSeven { seat, revealed, .. } => PhaseView::ResolvingSeven {
                 seat: *seat,
                 revealed: revealed.len(),
-                revealed_cards: revealed.iter().map(|card| card.to_token()).collect(),
+                revealed_cards: revealed.iter().map(|card| card.to_token_enum()).collect(),
             },
             Phase::GameOver => PhaseView::GameOver,
         }

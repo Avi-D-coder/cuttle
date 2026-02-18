@@ -2,8 +2,8 @@ use cutthroat_engine::state::{
     FrozenCard, HAND_LIMIT, JackOnStack, JokerOnStack, PointStack, PublicCard, RoyalStack,
 };
 use cutthroat_engine::{
-    Action, Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner, append_action,
-    encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog,
+    Action, Card, CutthroatState, JokerId, OneOffTarget, Phase, RuleError, SevenPlay, Token,
+    Winner, append_action, encode_header, full_deck_with_jokers, parse_tokenlog, replay_tokenlog,
 };
 
 fn c(token: &str) -> Card {
@@ -104,8 +104,8 @@ fn king_threshold_win() {
 fn joker_stacking_and_revert() {
     let mut state = empty_state();
     state.turn = 0;
-    state.players[0].hand.push(Card::Joker(0));
-    state.players[2].hand.push(Card::Joker(1));
+    state.players[0].hand.push(Card::Joker(JokerId::Joker0));
+    state.players[2].hand.push(Card::Joker(JokerId::Joker1));
     state.players[1].hand.push(c("2C"));
 
     state.players[1].royals.push(RoyalStack {
@@ -118,7 +118,7 @@ fn joker_stacking_and_revert() {
         .apply(
             0,
             Action::PlayJoker {
-                joker: Card::Joker(0),
+                joker: Card::Joker(JokerId::Joker0),
                 target_royal_card: c("KC"),
             },
         )
@@ -131,7 +131,7 @@ fn joker_stacking_and_revert() {
         .apply(
             2,
             Action::PlayJoker {
-                joker: Card::Joker(1),
+                joker: Card::Joker(JokerId::Joker1),
                 target_royal_card: c("KC"),
             },
         )
@@ -145,7 +145,7 @@ fn joker_stacking_and_revert() {
             Action::PlayOneOff {
                 card: c("2C"),
                 target: OneOffTarget::Joker {
-                    card: Card::Joker(1),
+                    card: Card::Joker(JokerId::Joker1),
                 },
             },
         )
@@ -161,7 +161,7 @@ fn joker_stacking_and_revert() {
 fn queen_protection_blocks_joker_targets() {
     let mut state = empty_state();
     state.turn = 0;
-    state.players[0].hand.push(Card::Joker(0));
+    state.players[0].hand.push(Card::Joker(JokerId::Joker0));
     state.players[1].royals.push(RoyalStack {
         base: c("QH"),
         base_owner: 1,
@@ -175,11 +175,11 @@ fn queen_protection_blocks_joker_targets() {
 
     let legal = state.legal_actions(0);
     assert!(legal.contains(&Action::PlayJoker {
-        joker: Card::Joker(0),
+        joker: Card::Joker(JokerId::Joker0),
         target_royal_card: c("QH")
     }));
     assert!(!legal.contains(&Action::PlayJoker {
-        joker: Card::Joker(0),
+        joker: Card::Joker(JokerId::Joker0),
         target_royal_card: c("KH")
     }));
 }
@@ -188,7 +188,7 @@ fn queen_protection_blocks_joker_targets() {
 fn joker_can_steal_top_jack_and_move_point_stack() {
     let mut state = empty_state();
     state.turn = 0;
-    state.players[0].hand.push(Card::Joker(0));
+    state.players[0].hand.push(Card::Joker(JokerId::Joker0));
     state.players[1].points.push(PointStack {
         base: c("5C"),
         base_owner: 1,
@@ -200,7 +200,7 @@ fn joker_can_steal_top_jack_and_move_point_stack() {
 
     let legal = state.legal_actions(0);
     assert!(legal.contains(&Action::PlayJoker {
-        joker: Card::Joker(0),
+        joker: Card::Joker(JokerId::Joker0),
         target_royal_card: c("JD"),
     }));
 
@@ -208,7 +208,7 @@ fn joker_can_steal_top_jack_and_move_point_stack() {
         .apply(
             0,
             Action::PlayJoker {
-                joker: Card::Joker(0),
+                joker: Card::Joker(JokerId::Joker0),
                 target_royal_card: c("JD"),
             },
         )
@@ -221,7 +221,7 @@ fn joker_can_steal_top_jack_and_move_point_stack() {
     assert_eq!(stolen.jacks.len(), 2);
     assert_eq!(
         stolen.jacks.last().map(|jack| jack.card),
-        Some(Card::Joker(0))
+        Some(Card::Joker(JokerId::Joker0))
     );
     assert_eq!(stolen.controller(), 0);
 }
@@ -233,7 +233,7 @@ fn seven_joker_can_target_top_jack() {
     state.phase = Phase::ResolvingSeven {
         seat: 0,
         base_player: 0,
-        revealed: vec![Card::Joker(0)],
+        revealed: vec![Card::Joker(JokerId::Joker0)],
     };
     state.players[1].points.push(PointStack {
         base: c("5C"),
@@ -246,7 +246,7 @@ fn seven_joker_can_target_top_jack() {
 
     let legal = state.legal_actions(0);
     assert!(legal.contains(&Action::ResolveSevenChoose {
-        card: Card::Joker(0),
+        card: Card::Joker(JokerId::Joker0),
         play: SevenPlay::Joker { target: c("JD") },
     }));
 
@@ -254,7 +254,7 @@ fn seven_joker_can_target_top_jack() {
         .apply(
             0,
             Action::ResolveSevenChoose {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
                 play: SevenPlay::Joker { target: c("JD") },
             },
         )
@@ -267,7 +267,7 @@ fn seven_joker_can_target_top_jack() {
             .jacks
             .last()
             .map(|jack| jack.card),
-        Some(Card::Joker(0))
+        Some(Card::Joker(JokerId::Joker0))
     );
 }
 
@@ -389,14 +389,14 @@ fn resolving_seven_revealed_cards_visible_to_all_players() {
 
     match view_resolver.phase {
         cutthroat_engine::state::PhaseView::ResolvingSeven { revealed_cards, .. } => {
-            assert_eq!(revealed_cards, vec!["5C".to_string(), "KD".to_string()]);
+            assert_eq!(revealed_cards, vec![Token::P5C, Token::KD]);
         }
         _ => panic!("expected resolving seven for resolver"),
     }
 
     match view_other.phase {
         cutthroat_engine::state::PhaseView::ResolvingSeven { revealed_cards, .. } => {
-            assert_eq!(revealed_cards, vec!["5C".to_string(), "KD".to_string()]);
+            assert_eq!(revealed_cards, vec![Token::P5C, Token::KD]);
         }
         _ => panic!("expected resolving seven for other player"),
     }
@@ -594,7 +594,7 @@ fn full_game_tokenlog_game_four_targets_and_wipes() {
         (
             1,
             Action::PlayJoker {
-                joker: Card::Joker(0),
+                joker: Card::Joker(JokerId::Joker0),
                 target_royal_card: c("KH"),
             },
         ),
@@ -603,7 +603,7 @@ fn full_game_tokenlog_game_four_targets_and_wipes() {
             Action::PlayOneOff {
                 card: c("2S"),
                 target: OneOffTarget::Joker {
-                    card: Card::Joker(0),
+                    card: Card::Joker(JokerId::Joker0),
                 },
             },
         ),
@@ -677,7 +677,7 @@ fn full_game_tokenlog_game_five_seven_variants() {
         (
             1,
             Action::ResolveSevenChoose {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
                 play: SevenPlay::Joker { target: c("QH") },
             },
         ),
@@ -1447,7 +1447,7 @@ fn nine_returns_joker_and_freezes() {
         base: c("KH"),
         base_owner: 1,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
             owner: 2,
         }],
     });
@@ -1458,7 +1458,7 @@ fn nine_returns_joker_and_freezes() {
             Action::PlayOneOff {
                 card: c("9D"),
                 target: OneOffTarget::Joker {
-                    card: Card::Joker(0),
+                    card: Card::Joker(JokerId::Joker0),
                 },
             },
         )
@@ -1466,12 +1466,12 @@ fn nine_returns_joker_and_freezes() {
     state.apply(1, Action::CounterPass).unwrap();
     state.apply(2, Action::CounterPass).unwrap();
 
-    assert!(state.players[2].hand.contains(&Card::Joker(0)));
+    assert!(state.players[2].hand.contains(&Card::Joker(JokerId::Joker0)));
     assert!(
         state.players[2]
             .frozen
             .iter()
-            .any(|f| f.card == Card::Joker(0))
+            .any(|f| f.card == Card::Joker(JokerId::Joker0))
     );
     assert!(state.players[1].royals.iter().any(|r| r.base == c("KH")));
 }
@@ -1566,7 +1566,7 @@ fn public_view_preserves_royal_stacks_across_viewers() {
         base: c("KH"),
         base_owner: 0,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
             owner: 2,
         }],
     });
@@ -1879,7 +1879,7 @@ fn queen_protection_blocks_all_targets_with_two_queens() {
     state.turn = 0;
     state.players[0].hand.push(c("2C"));
     state.players[0].hand.push(c("9C"));
-    state.players[0].hand.push(Card::Joker(0));
+    state.players[0].hand.push(Card::Joker(JokerId::Joker0));
     state.players[1].royals.push(RoyalStack {
         base: c("QH"),
         base_owner: 1,
@@ -1901,7 +1901,7 @@ fn queen_protection_blocks_all_targets_with_two_queens() {
         target: OneOffTarget::Royal { card: c("QH") }
     }));
     assert!(!legal.contains(&Action::PlayJoker {
-        joker: Card::Joker(0),
+        joker: Card::Joker(JokerId::Joker0),
         target_royal_card: c("QH")
     }));
 }
@@ -2013,7 +2013,7 @@ fn nine_oneoff_does_not_include_self_controlled_targets() {
         base: c("KC"),
         base_owner: 0,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
             owner: 0,
         }],
     });
@@ -2021,7 +2021,7 @@ fn nine_oneoff_does_not_include_self_controlled_targets() {
         base: c("KH"),
         base_owner: 1,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(1),
+            card: Card::Joker(JokerId::Joker1),
             owner: 1,
         }],
     });
@@ -2042,7 +2042,7 @@ fn nine_oneoff_does_not_include_self_controlled_targets() {
     assert!(!legal.contains(&Action::PlayOneOff {
         card: c("9C"),
         target: OneOffTarget::Joker {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
         },
     }));
 
@@ -2061,7 +2061,7 @@ fn nine_oneoff_does_not_include_self_controlled_targets() {
     assert!(legal.contains(&Action::PlayOneOff {
         card: c("9C"),
         target: OneOffTarget::Joker {
-            card: Card::Joker(1),
+            card: Card::Joker(JokerId::Joker1),
         },
     }));
 }
@@ -2093,7 +2093,7 @@ fn two_oneoff_does_not_include_self_controlled_targets() {
         base: c("KC"),
         base_owner: 0,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
             owner: 0,
         }],
     });
@@ -2101,7 +2101,7 @@ fn two_oneoff_does_not_include_self_controlled_targets() {
         base: c("KH"),
         base_owner: 1,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(1),
+            card: Card::Joker(JokerId::Joker1),
             owner: 1,
         }],
     });
@@ -2118,7 +2118,7 @@ fn two_oneoff_does_not_include_self_controlled_targets() {
     assert!(!legal.contains(&Action::PlayOneOff {
         card: c("2C"),
         target: OneOffTarget::Joker {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
         },
     }));
 
@@ -2133,7 +2133,7 @@ fn two_oneoff_does_not_include_self_controlled_targets() {
     assert!(legal.contains(&Action::PlayOneOff {
         card: c("2C"),
         target: OneOffTarget::Joker {
-            card: Card::Joker(1),
+            card: Card::Joker(JokerId::Joker1),
         },
     }));
 }
@@ -2172,12 +2172,12 @@ fn scuttle_uses_storage_seat_for_stack_removal() {
 fn play_joker_uses_storage_seat_for_stack_removal() {
     let mut state = empty_state();
     state.turn = 0;
-    state.players[0].hand.push(Card::Joker(0));
+    state.players[0].hand.push(Card::Joker(JokerId::Joker0));
     state.players[1].royals.push(RoyalStack {
         base: c("KH"),
         base_owner: 1,
         jokers: vec![JokerOnStack {
-            card: Card::Joker(1),
+            card: Card::Joker(JokerId::Joker1),
             owner: 2,
         }],
     });
@@ -2186,7 +2186,7 @@ fn play_joker_uses_storage_seat_for_stack_removal() {
         .apply(
             0,
             Action::PlayJoker {
-                joker: Card::Joker(0),
+                joker: Card::Joker(JokerId::Joker0),
                 target_royal_card: c("KH"),
             },
         )

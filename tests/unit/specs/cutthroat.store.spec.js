@@ -392,7 +392,7 @@ describe('cutthroat store websocket behavior', () => {
       type: 'lobbies',
       version: 1,
       lobbies: [ {
-        id: 1, name: 'lobby', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
+        id: 1, name: 'lobby', seat_count: 1, active_seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
       } ],
       spectatable_games: [
         {
@@ -439,7 +439,7 @@ describe('cutthroat store websocket behavior', () => {
       type: 'lobbies',
       version: 2,
       lobbies: [ {
-        id: 10, name: 'new', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
+        id: 10, name: 'new', seat_count: 1, active_seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
       } ],
       spectatable_games: [],
     });
@@ -447,7 +447,7 @@ describe('cutthroat store websocket behavior', () => {
       type: 'lobbies',
       version: 1,
       lobbies: [ {
-        id: 9, name: 'old', seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
+        id: 9, name: 'old', seat_count: 1, active_seat_count: 1, ready_count: 0, status: 0, viewer_has_reserved_seat: false,
       } ],
       spectatable_games: [],
     });
@@ -477,6 +477,29 @@ describe('cutthroat store websocket behavior', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('rejects lobby payloads that omit required active_seat_count metadata', () => {
+    const store = useCutthroatStore();
+    store.connectLobbyWs();
+    const [ ws ] = FakeWebSocket.instances;
+
+    ws.emitMessage({
+      type: 'lobbies',
+      version: 1,
+      lobbies: [ {
+        id: 77,
+        name: 'missing-active',
+        seat_count: 2,
+        ready_count: 1,
+        status: 0,
+        viewer_has_reserved_seat: false,
+      } ],
+      spectatable_games: [],
+    });
+
+    expect(store.lastError.message).toContain('Cutthroat protocol violation');
+    expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
   });
 });
 

@@ -88,7 +88,6 @@ describe('Cutthroat 3P Rematch UX', () => {
 
   it('When a full rematch lobby includes the viewer as a reserved seat, then the join control remains enabled from the Cutthroat list because reserved rematch seats must stay reclaimable even at full seat count.', () => {
     const sourceGameId = 7605;
-    const rematchLobbyId = 7606;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
     cy.seedCutthroatGameFromTranscript({
@@ -97,21 +96,31 @@ describe('Cutthroat 3P Rematch UX', () => {
       status: 2,
       playerSeat: 0,
     });
-    cy.seedCutthroatGameFromTranscript({
-      gameId: rematchLobbyId,
-      ...transcript,
-      status: 0,
-      playerSeat: 0,
-      isRematchLobby: true,
-      rematchFromGameId: sourceGameId,
-    });
+    cy.request('POST', `/cutthroat/api/v1/games/${sourceGameId}/rematch`)
+      .its('body.id')
+      .should('be.a', 'number')
+      .as('rematchLobbyId');
 
     cy.visit('/cutthroat');
-    cy.get(`[data-cy=cutthroat-join-lobby-${rematchLobbyId}]`, { timeout: 20000 })
-      .should('be.visible')
-      .and('be.enabled')
-      .click();
-    cy.location('pathname').should('eq', `/cutthroat/lobby/${rematchLobbyId}`);
+    cy.get('@rematchLobbyId').then((rematchLobbyId) => {
+      cy.window()
+        .its('cuttle.cutthroatStore')
+        .then((store) => store.connectLobbyWs({ replace: true }));
+      cy.window()
+        .its('cuttle.cutthroatStore.lobbies', { timeout: 20000 })
+        .should((lobbies) => {
+          expect(lobbies.some((entry) => entry.id === rematchLobbyId)).to.eq(true);
+        });
+      cy.get(`[data-cy=cutthroat-join-lobby-${rematchLobbyId}]`, { timeout: 20000 })
+        .closest('[data-cy=cutthroat-list-item]')
+        .should('contain.text', '0 / 3 players')
+        .and('not.contain.text', '3 / 3 players');
+      cy.get(`[data-cy=cutthroat-join-lobby-${rematchLobbyId}]`, { timeout: 20000 })
+        .should('be.visible')
+        .and('be.enabled')
+        .click();
+      cy.location('pathname').should('eq', `/cutthroat/lobby/${rematchLobbyId}`);
+    });
   });
 
   it('When a spectator opts into following rematches at replay end and a linked next game is already spectatable, then the client auto-navigates to that game because follow mode is an explicit continuity request.', () => {

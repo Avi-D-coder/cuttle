@@ -56,6 +56,7 @@ function seedCutthroatGameFromTranscript({
   name,
   isRematchLobby,
   rematchFromGameId,
+  spectatingUsernames,
 }) {
   const transcript = transcriptWithActions({
     dealer: 'P2',
@@ -69,6 +70,7 @@ function seedCutthroatGameFromTranscript({
     action_tokens: transcript.actionTokens,
     status,
     name,
+    spectating_usernames: spectatingUsernames,
     is_rematch_lobby: isRematchLobby,
     rematch_from_game_id: rematchFromGameId,
   });
@@ -314,6 +316,46 @@ describe('Home - Game List', () => {
 
       cy.get('[data-cy-game-list-selector=spectate]').click();
       cy.get('[data-cy=cutthroat-spectate-game-9901]', { timeout: 10000 }).should('be.visible');
+    });
+
+    it('When a rematch lobby reserves the viewer seat and the viewer readies without a rematch socket connection, then the home Cutthroat join row shows ready-player fallback instead of zero because occupancy display must account for readiness.', () => {
+      ensureCutthroatAvailable();
+      currentUserStatus().then((user) => {
+        seedCutthroatGameFromTranscript({
+          gameId: 9902,
+          status: 2,
+          name: 'Rematch Source',
+          players: [
+            { seat: 0, user_id: user.id, username: user.username, ready: true },
+            { seat: 1, user_id: 91022, username: 'ct-source-1', ready: true },
+            { seat: 2, user_id: 91023, username: 'ct-source-2', ready: true },
+          ],
+        });
+        cy.request('POST', '/cutthroat/api/v1/games/9902/rematch')
+          .its('body.id')
+          .should('be.a', 'number')
+          .as('rematchLobbyId');
+      });
+
+      cy.get('@rematchLobbyId').then((rematchLobbyId) => {
+        cy.request('POST', `/cutthroat/api/v1/games/${rematchLobbyId}/ready`, { ready: true })
+          .its('status')
+          .should('eq', 204);
+        cy.window()
+          .its('cuttle.cutthroatStore')
+          .then((store) => store.connectLobbyWs({ replace: true }));
+        cy.get('[data-cy-game-list-selector=play]').click();
+        cy.window()
+          .its('cuttle.cutthroatStore.lobbies', { timeout: 10000 })
+          .should((lobbies) => {
+            expect(lobbies.some((entry) => entry.id === rematchLobbyId)).to.eq(true);
+          });
+        cy.get(`[data-cy=cutthroat-join-lobby-${rematchLobbyId}]`, { timeout: 10000 })
+          .closest('[data-cy=cutthroat-list-item]')
+          .should('contain.text', '1 / 3 players')
+          .and('not.contain.text', '0 / 3 players');
+        cy.get(`[data-cy=cutthroat-join-lobby-${rematchLobbyId}]`).should('be.enabled');
+      });
     });
 
     it('Does not show open or completed games in spectate tab', () => {

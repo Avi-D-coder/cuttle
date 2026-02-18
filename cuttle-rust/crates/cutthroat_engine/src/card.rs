@@ -114,9 +114,15 @@ impl Suit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum JokerId {
+    Joker0,
+    Joker1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Card {
     Standard { rank: Rank, suit: Suit },
-    Joker(u8),
+    Joker(JokerId),
 }
 
 impl Serialize for Card {
@@ -124,7 +130,7 @@ impl Serialize for Card {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.to_token())
+        serializer.serialize_str(self.to_token_enum().as_str())
     }
 }
 
@@ -143,8 +149,8 @@ impl Card {
         token.parse::<Token>().ok().and_then(Token::card)
     }
 
-    pub fn to_token(self) -> String {
-        self.to_token_enum().as_str().to_string()
+    pub fn to_string(self) -> String {
+        self.to_token_enum().as_str().to_owned()
     }
 
     pub fn to_token_enum(self) -> Token {
@@ -277,8 +283,8 @@ pub fn full_deck_with_jokers() -> Vec<Card> {
             deck.push(Card::Standard { rank, suit });
         }
     }
-    deck.push(Card::Joker(0));
-    deck.push(Card::Joker(1));
+    deck.push(Card::Joker(JokerId::Joker0));
+    deck.push(Card::Joker(JokerId::Joker1));
     deck
 }
 
@@ -292,9 +298,9 @@ mod tests {
             rank: Rank::Seven,
             suit: Suit::Hearts,
         };
-        let tok = card.to_token();
+        let tok = card.to_string();
         assert_eq!(Card::from_token(&tok), Some(card));
-        assert_eq!(Card::from_token("J0"), Some(Card::Joker(0)));
-        assert_eq!(Card::from_token("J1"), Some(Card::Joker(1)));
+        assert_eq!(Card::from_token("J0"), Some(Card::Joker(JokerId::Joker0)));
+        assert_eq!(Card::from_token("J1"), Some(Card::Joker(JokerId::Joker1)));
     }
 }

@@ -98,6 +98,7 @@ pub(crate) struct LobbyCacheEntry {
     pub(crate) name: String,
     pub(crate) status: i16,
     pub(crate) seat_count: usize,
+    pub(crate) active_seat_count: usize,
     pub(crate) ready_count: usize,
     pub(crate) is_rematch_lobby: bool,
     pub(crate) seat_user_ids: Vec<i64>,
@@ -105,7 +106,10 @@ pub(crate) struct LobbyCacheEntry {
 }
 
 impl LobbyCacheEntry {
-    pub(crate) fn from_game(game: &GameEntry) -> Self {
+    pub(crate) fn from_game_with_active_seat_count(
+        game: &GameEntry,
+        active_seat_count: usize,
+    ) -> Self {
         let seat_user_ids = if game.is_rematch_lobby {
             game.series_player_order.clone()
         } else {
@@ -117,6 +121,7 @@ impl LobbyCacheEntry {
             name: game.name.clone(),
             status: game.status,
             seat_count: game.seats.len(),
+            active_seat_count,
             ready_count: game.seats.iter().filter(|seat| seat.ready).count(),
             is_rematch_lobby: game.is_rematch_lobby,
             seat_user_ids,
@@ -194,6 +199,7 @@ impl GlobalRuntimeState {
                     id: entry.game_id,
                     name: entry.name.clone(),
                     seat_count: entry.seat_count,
+                    active_seat_count: entry.active_seat_count,
                     ready_count: entry.ready_count,
                     status: entry.status,
                     viewer_has_reserved_seat: false,
@@ -239,9 +245,15 @@ impl GlobalRuntimeState {
         self.lobby_tx.subscribe()
     }
 
-    pub(crate) fn upsert_game_state(&mut self, game: &GameEntry) {
-        self.lobby_cache
-            .insert(game.id, LobbyCacheEntry::from_game(game));
+    pub(crate) fn upsert_game_state_with_active_seat_count(
+        &mut self,
+        game: &GameEntry,
+        active_seat_count: usize,
+    ) {
+        self.lobby_cache.insert(
+            game.id,
+            LobbyCacheEntry::from_game_with_active_seat_count(game, active_seat_count),
+        );
         self.game_meta.insert(game.id, GameMeta::from_game(game));
     }
 

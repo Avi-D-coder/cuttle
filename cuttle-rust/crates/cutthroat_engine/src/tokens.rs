@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use crate::card::{Card, Rank, Suit};
+use crate::card::{Card, JokerId, Rank, Suit};
 use crate::state::Seat;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -300,8 +300,8 @@ impl Token {
 
     pub fn card(self) -> Option<Card> {
         Some(match self {
-            Token::J0 => Card::Joker(0),
-            Token::J1 => Card::Joker(1),
+            Token::J0 => Card::Joker(JokerId::Joker0),
+            Token::J1 => Card::Joker(JokerId::Joker1),
             Token::AC => Card::Standard {
                 rank: Rank::Ace,
                 suit: Suit::Clubs,
@@ -516,9 +516,8 @@ impl Token {
 
     pub fn from_card(card: Card) -> Token {
         match card {
-            Card::Joker(0) => Token::J0,
-            Card::Joker(1) => Token::J1,
-            Card::Joker(_) => Token::J0,
+            Card::Joker(JokerId::Joker0) => Token::J0,
+            Card::Joker(JokerId::Joker1) => Token::J1,
             Card::Standard {
                 rank: Rank::Ace,
                 suit: Suit::Clubs,
@@ -855,7 +854,7 @@ mod tests {
     #[test]
     fn card_token_mapping_is_bijective_for_deck() {
         let mut deck = full_deck_with_jokers();
-        deck.sort_by_key(|card| card.to_token());
+        deck.sort_by_key(|card| card.to_string());
         for card in deck {
             let token = Token::from_card(card);
             assert_eq!(token.card(), Some(card));

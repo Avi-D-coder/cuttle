@@ -2,7 +2,7 @@
 
 use arbitrary::Arbitrary;
 use cutthroat_engine::{
-    Action, Card, CutthroatState, OneOffTarget, Phase, RuleError, SevenPlay, Winner,
+    Action, Card, CutthroatState, JokerId, OneOffTarget, Phase, RuleError, SevenPlay, Winner,
     append_action, encode_header, full_deck_with_jokers, join_tokens, parse_token_slice, parse_tokenlog,
     replay_tokenlog,
 };
@@ -201,7 +201,7 @@ fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -
             Action::CounterPass,
             Action::Draw,
             Action::PlayOneOff {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
                 target: OneOffTarget::None,
             },
         ],
@@ -209,35 +209,35 @@ fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -
             Action::Draw,
             Action::Pass,
             Action::PlayPoints {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
             },
         ],
         Phase::ResolvingThree { .. } => vec![
             Action::Pass,
             Action::Draw,
             Action::ResolveThreePick {
-                card_from_scrap: Card::Joker(0),
+                card_from_scrap: Card::Joker(JokerId::Joker0),
             },
         ],
         Phase::ResolvingFour { .. } => vec![
             Action::Pass,
             Action::Draw,
             Action::ResolveFourDiscard {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
             },
         ],
         Phase::ResolvingFive { .. } => vec![
             Action::Pass,
             Action::Draw,
             Action::ResolveFiveDiscard {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
             },
         ],
         Phase::ResolvingSeven { .. } => vec![
             Action::Pass,
             Action::Draw,
             Action::ResolveSevenChoose {
-                card: Card::Joker(0),
+                card: Card::Joker(JokerId::Joker0),
                 play: SevenPlay::Discard,
             },
         ],
@@ -246,25 +246,25 @@ fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -
 
     candidates.extend([
         Action::CounterTwo {
-            two_card: Card::Joker(0),
+            two_card: Card::Joker(JokerId::Joker0),
         },
         Action::PlayPoints {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
         },
         Action::PlayRoyal {
-            card: Card::Joker(0),
+            card: Card::Joker(JokerId::Joker0),
         },
         Action::PlayJack {
-            jack: Card::Joker(0),
-            target_point_base: Card::Joker(1),
+            jack: Card::Joker(JokerId::Joker0),
+            target_point_base: Card::Joker(JokerId::Joker1),
         },
         Action::PlayJoker {
-            joker: Card::Joker(0),
-            target_royal_card: Card::Joker(1),
+            joker: Card::Joker(JokerId::Joker0),
+            target_royal_card: Card::Joker(JokerId::Joker1),
         },
         Action::Scuttle {
-            card: Card::Joker(0),
-            target_point_base: Card::Joker(1),
+            card: Card::Joker(JokerId::Joker0),
+            target_point_base: Card::Joker(JokerId::Joker1),
         },
     ]);
 
@@ -279,7 +279,7 @@ fn pick_illegal_action(state: &CutthroatState, legal: &[Action], selector: u8) -
 
     // Defensive fallback; there should always be an illegal action available.
     Action::PlayPoints {
-        card: Card::Joker(0),
+        card: Card::Joker(JokerId::Joker0),
     }
 }
 

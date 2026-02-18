@@ -54,29 +54,29 @@ pub(crate) fn build_spectator_view(game: &GameEntry) -> SeatView {
             player_view.frozen = player
                 .frozen
                 .iter()
-                .map(|card| card.card.to_token())
+                .map(|card| card.card.to_token_enum())
                 .collect();
         }
     }
     view
 }
 
-pub(crate) fn format_action(action: &Action) -> String {
+pub(crate) fn format_action(action: &Action) -> &'static str {
     match action {
-        Action::Draw => "draw".to_string(),
-        Action::Pass => "pass".to_string(),
-        Action::PlayPoints { .. } => "points".to_string(),
-        Action::Scuttle { .. } => "scuttle".to_string(),
-        Action::PlayRoyal { .. } => "royal".to_string(),
-        Action::PlayJack { .. } => "jack".to_string(),
-        Action::PlayJoker { .. } => "joker".to_string(),
-        Action::PlayOneOff { .. } => "oneoff".to_string(),
-        Action::CounterTwo { .. } => "counter_two".to_string(),
-        Action::CounterPass => "counter_pass".to_string(),
-        Action::ResolveThreePick { .. } => "resolve_three".to_string(),
-        Action::ResolveFourDiscard { .. } => "resolve_four".to_string(),
-        Action::ResolveFiveDiscard { .. } => "resolve_five".to_string(),
-        Action::ResolveSevenChoose { .. } => "resolve_seven".to_string(),
+        Action::Draw => "draw",
+        Action::Pass => "pass",
+        Action::PlayPoints { .. } => "points",
+        Action::Scuttle { .. } => "scuttle",
+        Action::PlayRoyal { .. } => "royal",
+        Action::PlayJack { .. } => "jack",
+        Action::PlayJoker { .. } => "joker",
+        Action::PlayOneOff { .. } => "oneoff",
+        Action::CounterTwo { .. } => "counter_two",
+        Action::CounterPass => "counter_pass",
+        Action::ResolveThreePick { .. } => "resolve_three",
+        Action::ResolveFourDiscard { .. } => "resolve_four",
+        Action::ResolveFiveDiscard { .. } => "resolve_five",
+        Action::ResolveSevenChoose { .. } => "resolve_seven",
     }
 }
 

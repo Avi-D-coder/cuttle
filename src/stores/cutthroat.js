@@ -121,6 +121,7 @@ function isValidLobbySummary(lobbyEntry) {
     && isFiniteNumber(lobbyEntry.id)
     && typeof lobbyEntry.name === 'string'
     && isFiniteNumber(lobbyEntry.seat_count)
+    && isFiniteNumber(lobbyEntry.active_seat_count)
     && isFiniteNumber(lobbyEntry.ready_count)
     && isFiniteNumber(lobbyEntry.status)
     && typeof lobbyEntry.viewer_has_reserved_seat === 'boolean';

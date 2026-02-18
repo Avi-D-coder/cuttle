@@ -49,6 +49,7 @@ pub(crate) struct LobbySummary {
     pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) seat_count: usize,
+    pub(crate) active_seat_count: usize,
     pub(crate) ready_count: usize,
     pub(crate) status: i16,
     pub(crate) viewer_has_reserved_seat: bool,

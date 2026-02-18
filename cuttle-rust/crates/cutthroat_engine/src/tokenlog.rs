@@ -807,7 +807,7 @@ mod tests {
         let draw_fragment = format!(
             "P{} draw {}",
             state.turn,
-            state.deck.first().expect("deck has top card").to_token()
+            state.deck.first().expect("deck has top card").to_string()
         );
         assert!(
             tokens.contains(&draw_fragment),

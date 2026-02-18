@@ -236,7 +236,11 @@ impl CutthroatState {
                     .collect();
 
                 let frozen = if seat == viewer {
-                    player.frozen.iter().map(|f| f.card.to_token()).collect()
+                    player
+                        .frozen
+                        .iter()
+                        .map(|f| f.card.to_token_enum())
+                        .collect()
                 } else {
                     Vec::new()
                 };
