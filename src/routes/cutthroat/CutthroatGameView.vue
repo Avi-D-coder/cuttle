@@ -801,7 +801,7 @@
           class="finished-subtitle"
           data-cy="cutthroat-rematch-waiting"
         >
-          {{ t('game.dialogs.gameOverDialog.matchStatus.waitingForPlayers') }}
+          {{ rematchWaitingText }}
         </div>
       </template>
       <template #actions>
@@ -976,6 +976,27 @@ const isRematchWaiting = computed(() => {
     return spectatorFollowPending.value;
   }
   return rematchOfferPending.value;
+});
+const rematchWaitingPlayerLabels = computed(() => {
+  if (!isRematchWaiting.value) {return [];}
+  const seats = (playerView.value?.players ?? [])
+    .map((player) => player?.seat)
+    .filter((seat) => Number.isInteger(seat));
+  if (seats.length === 0) {return [];}
+
+  const waitingSeats = isSpectatorMode.value
+    ? seats
+    : seats.filter((seat) => seat !== mySeat.value);
+
+  const labels = waitingSeats.map((seat) => seatLabel(seat));
+  return [ ...new Set(labels.filter((label) => typeof label === 'string' && label.trim().length > 0)) ];
+});
+const rematchWaitingText = computed(() => {
+  const waitingPrefix = t('game.dialogs.gameOverDialog.matchStatus.waitingForPlayers');
+  if (rematchWaitingPlayerLabels.value.length === 0) {
+    return waitingPrefix;
+  }
+  return `${waitingPrefix}: ${rematchWaitingPlayerLabels.value.join(', ')}`;
 });
 const rematchLobbyIsOpen = computed(() => {
   if (!rematchLobbyId.value) {return false;}

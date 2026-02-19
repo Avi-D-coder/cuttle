@@ -40,7 +40,11 @@ describe('Cutthroat 3P Rematch UX', () => {
     });
 
     cy.location('pathname').should('eq', `/cutthroat/game/${gameId}`);
-    cy.get('[data-cy=cutthroat-rematch-waiting]').should('be.visible');
+    cy.get('[data-cy=cutthroat-rematch-waiting]')
+      .should('be.visible')
+      .and('contain', 'Waiting for Players')
+      .and('contain', 'cutthroat-opponent-1')
+      .and('contain', 'cutthroat-opponent-2');
     cy.get('[data-cy=cutthroat-rematch-btn]').should('contain', 'Unready')
       .click();
 
