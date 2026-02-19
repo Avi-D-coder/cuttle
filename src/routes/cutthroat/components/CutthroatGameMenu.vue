@@ -40,6 +40,18 @@
             </v-list-item>
           </template>
 
+          <v-list-item
+            v-if="!clipCopiedToClipboard"
+            data-cy="clip-highlight"
+            prepend-icon="mdi-movie-open"
+            @click.stop="clipHighlight"
+          >
+            {{ t('game.menus.gameMenu.clipHighlight') }}
+          </v-list-item>
+          <v-list-item v-else data-cy="highlight-copied" prepend-icon="mdi-check-bold">
+            {{ t('game.menus.gameMenu.highlightCopied') }}
+          </v-list-item>
+
           <TheLanguageSelector />
 
           <v-list-item data-cy="refresh" prepend-icon="mdi-refresh" @click="refreshPage">
@@ -88,7 +100,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import BaseMenu from '@/components/BaseMenu.vue';
 import BaseDialog from '@/components/BaseDialog.vue';
@@ -108,10 +121,25 @@ const componentProps = defineProps({
 
 const emit = defineEmits([ 'go-home', 'request-stalemate' ]);
 const { t } = useI18n();
+const route = useRoute();
 
 const showGameMenu = ref(false);
 const shownDialog = ref('');
 const loading = ref(false);
+const clipCopiedToClipboard = ref(false);
+
+const clipUrl = computed(() => {
+  if (typeof window === 'undefined') {return '';}
+  const { gameId } = route.params;
+  if (!gameId) {return '';}
+
+  const gameStateIndexRaw = Number(route.query.gameStateIndex);
+  const gameStateIndex = Number.isInteger(gameStateIndexRaw) && gameStateIndexRaw >= -1
+    ? gameStateIndexRaw
+    : -1;
+
+  return `${window.location.origin}/cutthroat/spectate/${gameId}?gameStateIndex=${gameStateIndex}`;
+});
 
 const showRulesDialog = computed({
   get() {
@@ -151,6 +179,16 @@ function refreshPage() {
   window.location.reload();
 }
 
+async function clipHighlight() {
+  if (!clipUrl.value) {return;}
+  try {
+    await navigator.clipboard.writeText(clipUrl.value);
+    clipCopiedToClipboard.value = true;
+  } catch (_err) {
+    clipCopiedToClipboard.value = false;
+  }
+}
+
 function requestStalemate() {
   if (!componentProps.canRequestStalemate || loading.value) {return;}
   loading.value = true;
@@ -162,4 +200,8 @@ function requestStalemate() {
     showGameMenu.value = false;
   }
 }
+
+watch(showGameMenu, () => {
+  clipCopiedToClipboard.value = false;
+});
 </script>
