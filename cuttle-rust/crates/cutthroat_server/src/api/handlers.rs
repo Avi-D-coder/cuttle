@@ -3,7 +3,8 @@ use crate::auth::{AuthUser, authorize};
 use crate::game_runtime::GlobalRuntimeState;
 use crate::game_runtime::{
     GameCommand, GameEntry, GameStreamSubscription, LobbySnapshotInternal, STATUS_FINISHED,
-    STATUS_STARTED, SeatEntry, create_game_for_user, create_rematch_for_user, game_sender,
+    STATUS_STARTED, RuntimeError, SeatEntry, create_game_for_user, create_rematch_for_user,
+    game_sender,
 };
 #[cfg(feature = "e2e-seed")]
 use crate::game_runtime::{
@@ -573,18 +574,26 @@ pub(crate) async fn leave_game(
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
     let user = authorize(&state, &headers).await?;
-    let sender = game_sender(&state.runtime, id)
-        .await
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let Some(sender) = game_sender(&state.runtime, id).await else {
+        // Idempotent leave: if the lobby already disappeared, callers can still
+        // treat this as a successful leave operation.
+        return Ok(StatusCode::NO_CONTENT);
+    };
     let (tx, rx) = oneshot::channel();
-    sender
+    if sender
         .send(GameCommand::LeaveGame { user, respond: tx })
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    rx.await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .map_err(|err| err.status_code())?;
-    Ok(StatusCode::NO_CONTENT)
+        .is_err()
+    {
+        // Game actor already shut down; leaving is effectively complete.
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    match rx.await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        // Idempotent leave: if seat/game is already gone, return success.
+        Err(RuntimeError::NotFound | RuntimeError::Forbidden) => Ok(StatusCode::NO_CONTENT),
+        Err(err) => Err(err.status_code()),
+    }
 }
 
 pub(crate) async fn set_ready(

@@ -1477,6 +1477,108 @@ fn nine_returns_joker_and_freezes() {
 }
 
 #[test]
+fn nine_on_single_joker_keeps_royal_on_board() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("9D"));
+    state.players[2].royals.push(RoyalStack {
+        base: c("KH"),
+        base_owner: 1,
+        jokers: vec![JokerOnStack {
+            card: Card::Joker(JokerId::Joker0),
+            owner: 2,
+        }],
+    });
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("9D"),
+                target: OneOffTarget::Joker {
+                    card: Card::Joker(JokerId::Joker0),
+                },
+            },
+        )
+        .unwrap();
+    state.apply(1, Action::CounterPass).unwrap();
+    state.apply(2, Action::CounterPass).unwrap();
+
+    assert!(state.players[2].hand.contains(&Card::Joker(JokerId::Joker0)));
+    assert!(
+        state.players[2]
+            .frozen
+            .iter()
+            .any(|f| f.card == Card::Joker(JokerId::Joker0))
+    );
+    assert!(state.scrap.iter().all(|card| *card != c("KH")));
+    assert!(state.scrap.iter().all(|card| *card != Card::Joker(JokerId::Joker0)));
+    assert!(state.players[1].royals.iter().any(|stack| {
+        stack.base == c("KH")
+            && stack.base_owner == 1
+            && stack.jokers.is_empty()
+            && stack.controller() == 1
+    }));
+    assert!(state.players[2].royals.is_empty());
+}
+
+#[test]
+fn nine_on_top_of_double_joker_reassigns_to_next_joker_controller() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("9D"));
+    state.players[2].royals.push(RoyalStack {
+        base: c("KH"),
+        base_owner: 1,
+        jokers: vec![
+            JokerOnStack {
+                card: Card::Joker(JokerId::Joker0),
+                owner: 0,
+            },
+            JokerOnStack {
+                card: Card::Joker(JokerId::Joker1),
+                owner: 2,
+            },
+        ],
+    });
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("9D"),
+                target: OneOffTarget::Joker {
+                    card: Card::Joker(JokerId::Joker1),
+                },
+            },
+        )
+        .unwrap();
+    state.apply(1, Action::CounterPass).unwrap();
+    state.apply(2, Action::CounterPass).unwrap();
+
+    assert!(state.players[2].hand.contains(&Card::Joker(JokerId::Joker1)));
+    assert!(
+        state.players[2]
+            .frozen
+            .iter()
+            .any(|f| f.card == Card::Joker(JokerId::Joker1))
+    );
+    assert!(state.scrap.iter().all(|card| *card != c("KH")));
+    assert!(state.scrap.iter().all(|card| *card != Card::Joker(JokerId::Joker0)));
+    assert!(state.scrap.iter().all(|card| *card != Card::Joker(JokerId::Joker1)));
+    assert!(state.players[0].royals.iter().any(|stack| {
+        stack.base == c("KH")
+            && stack.base_owner == 1
+            && stack.jokers.len() == 1
+            && stack.jokers[0].card == Card::Joker(JokerId::Joker0)
+            && stack.jokers[0].owner == 0
+            && stack.controller() == 0
+    }));
+    assert!(state.players[2].royals.is_empty());
+    assert!(state.players[1].royals.is_empty());
+}
+
+#[test]
 fn nine_returns_royal_and_freezes() {
     let mut state = empty_state();
     state.turn = 0;

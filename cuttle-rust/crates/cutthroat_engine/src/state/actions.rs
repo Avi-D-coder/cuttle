@@ -1311,53 +1311,41 @@ impl CutthroatState {
     }
 
     fn scrap_top_joker(&mut self, joker: Card) -> Result<(), RuleError> {
-        for seat in 0..PLAYER_COUNT {
-            for idx in 0..self.players[seat as usize].royals.len() {
-                if let Some(top) = self.players[seat as usize].royals[idx].jokers.last()
-                    && top.card == joker
-                {
-                    let target_owner = self.players[seat as usize].royals[idx].controller();
-                    if !self.can_target(target_owner, TargetKind::Joker, joker) {
-                        return Err(RuleError::InvalidAction);
-                    }
-                    let mut stack = self.players[seat as usize].royals.remove(idx);
-                    let removed = stack.jokers.pop().expect("joker exists");
-                    self.scrap.push(removed.card);
-                    let new_owner = stack.controller();
-                    self.players[new_owner as usize].royals.push(stack);
-                    return Ok(());
-                }
-            }
+        let (stack_seat, idx) = self
+            .find_royal_stack_by_top_joker(joker)
+            .ok_or(RuleError::InvalidAction)?;
+        let target_owner = self.players[stack_seat as usize].royals[idx].controller();
+        if !self.can_target(target_owner, TargetKind::Joker, joker) {
+            return Err(RuleError::InvalidAction);
         }
-        Err(RuleError::InvalidAction)
+        let mut stack = self.players[stack_seat as usize].royals.remove(idx);
+        let removed = stack.jokers.pop().expect("joker exists");
+        self.scrap.push(removed.card);
+        let new_owner = stack.controller();
+        self.players[new_owner as usize].royals.push(stack);
+        Ok(())
     }
 
     fn return_top_joker(&mut self, joker: Card) -> Result<(), RuleError> {
-        for seat in 0..PLAYER_COUNT {
-            for idx in 0..self.players[seat as usize].royals.len() {
-                if let Some(top) = self.players[seat as usize].royals[idx].jokers.last()
-                    && top.card == joker
-                {
-                    let target_owner = self.players[seat as usize].royals[idx].controller();
-                    if !self.can_target(target_owner, TargetKind::Joker, joker) {
-                        return Err(RuleError::InvalidAction);
-                    }
-                    let mut stack = self.players[seat as usize].royals.remove(idx);
-                    let removed = stack.jokers.pop().expect("joker exists");
-                    self.players[removed.owner as usize].hand.push(removed.card);
-                    self.players[removed.owner as usize]
-                        .frozen
-                        .push(FrozenCard {
-                            card: removed.card,
-                            remaining_turns: 1,
-                        });
-                    let new_owner = stack.controller();
-                    self.players[new_owner as usize].royals.push(stack);
-                    return Ok(());
-                }
-            }
+        let (stack_seat, idx) = self
+            .find_royal_stack_by_top_joker(joker)
+            .ok_or(RuleError::InvalidAction)?;
+        let target_owner = self.players[stack_seat as usize].royals[idx].controller();
+        if !self.can_target(target_owner, TargetKind::Joker, joker) {
+            return Err(RuleError::InvalidAction);
         }
-        Err(RuleError::InvalidAction)
+        let mut stack = self.players[stack_seat as usize].royals.remove(idx);
+        let removed = stack.jokers.pop().expect("joker exists");
+        self.players[removed.owner as usize].hand.push(removed.card);
+        self.players[removed.owner as usize]
+            .frozen
+            .push(FrozenCard {
+                card: removed.card,
+                remaining_turns: 1,
+            });
+        let new_owner = stack.controller();
+        self.players[new_owner as usize].royals.push(stack);
+        Ok(())
     }
 
     fn scrap_all_points(&mut self) {
@@ -1555,6 +1543,19 @@ impl CutthroatState {
             for (idx, stack) in self.players[seat as usize].points.iter().enumerate() {
                 if let Some(top) = stack.jacks.last()
                     && top.card == jack
+                {
+                    return Some((seat, idx));
+                }
+            }
+        }
+        None
+    }
+
+    fn find_royal_stack_by_top_joker(&self, joker: Card) -> Option<(Seat, usize)> {
+        for seat in 0..PLAYER_COUNT {
+            for (idx, stack) in self.players[seat as usize].royals.iter().enumerate() {
+                if let Some(top) = stack.jokers.last()
+                    && top.card == joker
                 {
                     return Some((seat, idx));
                 }
