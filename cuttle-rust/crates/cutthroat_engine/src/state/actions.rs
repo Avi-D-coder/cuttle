@@ -194,14 +194,13 @@ impl CutthroatState {
 
     pub fn public_view(&self, viewer: Seat) -> SeatView {
         let viewer_has_glasses = self.player_has_glasses(viewer);
-        let deck_is_empty = self.deck.is_empty();
         let players = self
             .players
             .iter()
             .enumerate()
             .map(|(idx, player)| {
                 let seat = idx as Seat;
-                let show_hand = seat == viewer || viewer_has_glasses || deck_is_empty;
+                let show_hand = seat == viewer || viewer_has_glasses;
                 let hand = if show_hand {
                     player
                         .hand

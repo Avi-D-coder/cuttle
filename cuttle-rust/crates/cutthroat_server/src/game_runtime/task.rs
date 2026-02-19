@@ -388,6 +388,7 @@ impl GameActor {
                     }
                 }
                 GameCommand::SocketDisconnected { user_id, audience } => {
+                    let is_seat_disconnect = matches!(audience, GameAudience::Seat(_));
                     let outcome = self.socket_disconnected(user_id, audience);
                     if outcome.remove_game {
                         self.deregister_self().await;
@@ -395,6 +396,15 @@ impl GameActor {
                     } else {
                         publish_game |= outcome.game_changed;
                         publish_lobby |= outcome.lobby_changed;
+                        let has_connected_source_seat =
+                            self.seat_connections.iter().any(|count| *count > 0);
+                        if self.game.status == STATUS_FINISHED
+                            && is_seat_disconnect
+                            && has_connected_source_seat
+                        {
+                            self.sync_unstarted_rematch_presence_from_source_disconnects()
+                                .await;
+                        }
                     }
                 }
                 GameCommand::SyncRematchPresenceFromSource {
@@ -1717,11 +1727,13 @@ mod tests {
     where
         F: FnMut() -> bool,
     {
-        for _ in 0..40 {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
             if predicate() {
                 return;
             }
-            sleep(Duration::from_millis(10)).await;
+            tokio::task::yield_now().await;
+            sleep(Duration::from_millis(25)).await;
         }
         panic!("condition not met in time");
     }

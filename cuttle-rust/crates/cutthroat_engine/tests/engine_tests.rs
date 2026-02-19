@@ -1537,7 +1537,7 @@ fn public_view_with_glasses_reveals_hands() {
 }
 
 #[test]
-fn public_view_with_empty_deck_reveals_hands() {
+fn public_view_with_empty_deck_hides_opponent_hands() {
     let mut state = empty_state();
     state.turn = 0;
     state.deck.clear();
@@ -1547,13 +1547,23 @@ fn public_view_with_empty_deck_reveals_hands() {
 
     for viewer in 0..3 {
         let view = state.public_view(viewer);
-        for player in &view.players {
-            assert!(
-                player
-                    .hand
-                    .iter()
-                    .all(|card| matches!(card, PublicCard::Known(_)))
-            );
+        for (idx, player) in view.players.iter().enumerate() {
+            let should_show = idx == viewer as usize;
+            if should_show {
+                assert!(
+                    player
+                        .hand
+                        .iter()
+                        .all(|card| matches!(card, PublicCard::Known(_)))
+                );
+            } else {
+                assert!(
+                    player
+                        .hand
+                        .iter()
+                        .all(|card| matches!(card, PublicCard::Hidden))
+                );
+            }
         }
     }
 }
