@@ -89,6 +89,57 @@ describe('cutthroat tokenlog helpers', () => {
     });
   });
 
+  it('does not consume following seat token for untargeted non-four one-offs', () => {
+    const tokenlog = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P0 oneOff 7D',
+      'P1 points TS',
+    ].join(' ');
+
+    expect(parseTokenlogActions(tokenlog)).toEqual([
+      {
+        type: 'ONEOFF',
+        seat: 0,
+        cardToken: '7D',
+        target: {
+          type: 'None',
+        },
+      },
+      {
+        type: 'OTHER',
+        seat: 1,
+        cardToken: 'TS',
+      },
+    ]);
+
+    expect(deriveLatestOneOffContextFromTokenlog(tokenlog)).toEqual({
+      oneOffSeat: 0,
+      oneOffCardToken: '7D',
+      oneOffTarget: {
+        type: 'None',
+      },
+    });
+  });
+
+  it('keeps player target parsing for four one-offs', () => {
+    const tokenlog = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P0 oneOff 4C P2',
+      'P1 resolve',
+    ].join(' ');
+
+    const parsed = parseTokenlogActions(tokenlog);
+    expect(parsed[0]).toEqual({
+      type: 'ONEOFF',
+      seat: 0,
+      cardToken: '4C',
+      target: {
+        type: 'Player',
+        seat: 2,
+      },
+    });
+  });
+
   it('returns tokenlog line for history and throws on malformed tokenlog', () => {
     const line = 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK P0 resolve';
     expect(formatTokenlogForHistory(line)).toEqual([ line ]);

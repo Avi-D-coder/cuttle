@@ -1043,6 +1043,8 @@ impl CutthroatState {
         if let Some(unchosen) = revealed.pop() {
             self.deck.insert(0, unchosen);
         }
+        // Leave resolving-seven by default; follow-up plays can set a new phase.
+        self.phase = Phase::Main;
 
         match play {
             SevenPlay::Discard => {
@@ -1178,6 +1180,7 @@ impl CutthroatState {
             Phase::ResolvingThree { .. }
                 | Phase::ResolvingFour { .. }
                 | Phase::ResolvingFive { .. }
+                | Phase::ResolvingSeven { .. }
                 | Phase::Countering(_)
         ) {
             self.phase = Phase::Main;

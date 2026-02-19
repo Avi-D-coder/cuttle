@@ -58,7 +58,7 @@ function isActionSeatThenVerb(tokens, index) {
   return ACTION_VERBS.has(tokens[index + 1] ?? '');
 }
 
-function parseTokenlogOneOffTarget(tokens, startIndex) {
+function parseTokenlogOneOffTarget(tokens, startIndex, oneOffCardToken = null) {
   const token = tokens[startIndex];
   if (!token) {
     return {
@@ -68,6 +68,15 @@ function parseTokenlogOneOffTarget(tokens, startIndex) {
   }
 
   if (isSeatToken(token)) {
+    const normalizedOneOffCard = typeof oneOffCardToken === 'string'
+      ? oneOffCardToken.trim().toUpperCase()
+      : '';
+    if (!normalizedOneOffCard.startsWith('4')) {
+      return {
+        target: { type: 'None' },
+        nextIndex: startIndex,
+      };
+    }
     return {
       target: {
         type: 'Player',
@@ -192,7 +201,7 @@ function parseTokenlogAction(tokens, startIndex) {
     }
     case 'oneOff': {
       const cardToken = normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1);
-      const { target, nextIndex } = parseTokenlogOneOffTarget(tokens, startIndex + 2);
+      const { target, nextIndex } = parseTokenlogOneOffTarget(tokens, startIndex + 2, cardToken);
       return {
         action: {
           type: 'ONEOFF',

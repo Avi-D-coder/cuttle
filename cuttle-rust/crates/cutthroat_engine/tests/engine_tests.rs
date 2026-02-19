@@ -1105,6 +1105,153 @@ fn seven_oneoff_with_all_twos_publicly_unavailable_skips_counter_cycle() {
 }
 
 #[test]
+fn seven_to_seven_oneoff_with_all_twos_unavailable_stays_in_resolving_seven() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("7C"));
+    state.players[1].hand.push(c("TS"));
+    state.deck = vec![c("7D"), c("8H"), c("AC"), c("KD")];
+    state.scrap.extend([c("2C"), c("2D"), c("2H"), c("2S")]);
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::ResolvingSeven { .. }));
+
+    state
+        .apply(
+            0,
+            Action::ResolveSevenChoose {
+                card: c("7D"),
+                play: SevenPlay::OneOff {
+                    target: OneOffTarget::None,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(
+        state.phase,
+        Phase::ResolvingSeven {
+            seat: 0,
+            base_player: 0,
+            ..
+        }
+    ));
+    assert_eq!(state.turn, 0);
+    assert!(state.scrap.contains(&c("7C")));
+    assert!(state.scrap.contains(&c("7D")));
+
+    let err = state
+        .apply(1, Action::PlayPoints { card: c("TS") })
+        .expect_err("non-acting seat should not be able to act during chained seven resolution");
+    assert!(matches!(err, RuleError::IllegalAction));
+}
+
+#[test]
+fn seven_to_seven_oneoff_counterable_resolves_to_fresh_resolving_seven_after_passes() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("7C"));
+    state.deck = vec![c("7D"), c("8H"), c("AC"), c("KD")];
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+    state.apply(1, Action::CounterPass).unwrap();
+    state.apply(2, Action::CounterPass).unwrap();
+
+    assert!(matches!(state.phase, Phase::ResolvingSeven { .. }));
+
+    state
+        .apply(
+            0,
+            Action::ResolveSevenChoose {
+                card: c("7D"),
+                play: SevenPlay::OneOff {
+                    target: OneOffTarget::None,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::Countering(_)));
+
+    state.apply(1, Action::CounterPass).unwrap();
+    state.apply(2, Action::CounterPass).unwrap();
+
+    assert!(matches!(
+        state.phase,
+        Phase::ResolvingSeven {
+            seat: 0,
+            base_player: 0,
+            ..
+        }
+    ));
+    assert_eq!(state.turn, 0);
+}
+
+#[test]
+fn seven_to_seven_oneoff_with_queen_stays_in_resolving_seven() {
+    let mut state = empty_state();
+    state.turn = 0;
+    state.players[0].hand.push(c("7C"));
+    state.players[0].royals.push(RoyalStack {
+        base: c("QH"),
+        base_owner: 0,
+        jokers: Vec::new(),
+    });
+    state.deck = vec![c("7D"), c("8H"), c("AC"), c("KD")];
+
+    state
+        .apply(
+            0,
+            Action::PlayOneOff {
+                card: c("7C"),
+                target: OneOffTarget::None,
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(state.phase, Phase::ResolvingSeven { .. }));
+
+    state
+        .apply(
+            0,
+            Action::ResolveSevenChoose {
+                card: c("7D"),
+                play: SevenPlay::OneOff {
+                    target: OneOffTarget::None,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(matches!(
+        state.phase,
+        Phase::ResolvingSeven {
+            seat: 0,
+            base_player: 0,
+            ..
+        }
+    ));
+    assert_eq!(state.turn, 0);
+}
+
+#[test]
 fn resolve_five_draws_respects_hand_limit() {
     let mut state = empty_state();
     state.turn = 0;
