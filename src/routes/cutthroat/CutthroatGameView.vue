@@ -1920,9 +1920,7 @@ onBeforeUnmount(() => {
 }
 
 .player-area.active-turn {
-  border-color: rgba(var(--v-theme-accent), 0.7);
-  box-shadow: 0 0 0 1px rgba(var(--v-theme-accent), 0.45);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .player-header {
@@ -1993,6 +1991,12 @@ onBeforeUnmount(() => {
   gap: 8px;
   flex-wrap: wrap;
   position: relative;
+  width: 100%;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.46);
+  border: 4px solid transparent;
+  border-radius: 4px;
+  transition: all 1s;
 }
 
 .player-area.opponent .player-hand {
@@ -2019,7 +2023,7 @@ onBeforeUnmount(() => {
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 8px 4px;
+  padding: 8px;
   min-height: clamp(108px, 16vh, 208px);
   align-items: flex-end;
 }
@@ -2036,11 +2040,21 @@ onBeforeUnmount(() => {
 
 .player-hand.me.my-turn {
   border: 4px solid rgba(var(--v-theme-accent));
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow:
-    0 15px 16px -12px rgba(0, 123, 59, 0.8),
-    0 24px 38px 12px rgba(0, 123, 59, 0.8),
-    0 10px 50px 16px rgba(33, 150, 83, 0.8);
+    0 10px 12px -10px rgba(0, 123, 59, 0.35),
+    0 12px 22px 4px rgba(0, 123, 59, 0.28),
+    0 8px 30px 8px rgba(33, 150, 83, 0.24);
+  background: linear-gradient(0deg, rgba(253, 98, 34, 1), rgba(255, 255, 255, 0.3));
+}
+
+.player-area.active-turn .player-hand {
+  border: 4px solid rgba(var(--v-theme-accent));
+  border-radius: 4px;
+  box-shadow:
+    0 10px 12px -10px rgba(0, 123, 59, 0.35),
+    0 12px 22px 4px rgba(0, 123, 59, 0.28),
+    0 8px 30px 8px rgba(33, 150, 83, 0.24);
   background: linear-gradient(0deg, rgba(253, 98, 34, 1), rgba(255, 255, 255, 0.3));
 }
 

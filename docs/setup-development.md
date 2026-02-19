@@ -63,6 +63,16 @@ Cutthroat runs on a separate Rust server that the Vue dev server proxies via `/c
 cargo run -p cutthroat_server
 ```
 
+Or from repo root, run all three processes together (client + JS server + Rust server):
+
+```
+npm run start:dev:cutthroat
+```
+
+`start:dev:cutthroat` now starts Rust automatically in one of two modes:
+- If `CUTTHROAT_DATABASE_URL` or `DATABASE_URL` is set, it runs normal persistence mode (and auto-runs migrations by default).
+- If no DB URL is set, it falls back to `e2e-seed` mode so Rust still starts for local Cutthroat development.
+
 3. Environment variables (defaults shown):
 
 - `JS_INTERNAL_BASE_URL=http://localhost:1337`
