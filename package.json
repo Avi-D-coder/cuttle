@@ -80,7 +80,7 @@
     "start:serve": "vite preview",
     "start:client": "vite --host",
     "start:server": "node app.js",
-    "start:rust": "sh -c 'cd cuttle-rust && if [ -n \"${CUTTHROAT_DATABASE_URL:-}${DATABASE_URL:-}\" ]; then CUTTHROAT_AUTO_RUN_MIGRATIONS=${CUTTHROAT_AUTO_RUN_MIGRATIONS:-true} cargo run -p cutthroat_server; else echo \"No CUTTHROAT_DATABASE_URL/DATABASE_URL set; starting cutthroat_server with e2e-seed (no persistence).\"; cargo run -p cutthroat_server --features e2e-seed; fi'",
+    "start:rust": "sh -c 'cd cuttle-rust && CUTTHROAT_DATABASE_URL=\"${CUTTHROAT_DATABASE_URL:-${DATABASE_URL:-postgresql://cuttlesworth:p4ssw0rd!@127.0.0.1:5432/cuttle}}\" CUTTHROAT_AUTO_RUN_MIGRATIONS=\"${CUTTHROAT_AUTO_RUN_MIGRATIONS:-true}\" cargo run -p cutthroat_server'",
     "start:preview": "npm run build;npm run start:server",
     "start:dev": "concurrently \"npm run start:client\" \"npm run start:server\"",
     "start:dev:cutthroat": "concurrently \"npm run start:client\" \"npm run start:server\" \"npm run start:rust\"",

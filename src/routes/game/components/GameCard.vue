@@ -244,8 +244,8 @@ export default {
 
 .selected {
   img {
-    border: 3px solid rgba(var(--v-theme-accent-lighten1));
     border-radius: 10px;
+    box-shadow: 0 0 0 3px rgba(var(--v-theme-accent-lighten1), 0.92);
   }
 }
 .jack {

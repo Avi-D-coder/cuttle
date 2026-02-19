@@ -195,26 +195,6 @@
             </div>
           </div>
 
-          <div class="history-panel history-panel-desktop">
-            <h3 class="history-title">
-              {{ t('game.history.title') }}
-            </h3>
-            <div ref="logsContainerDesktop" class="history-logs">
-              <p
-                v-for="(log, index) in historyLines"
-                :key="`cutthroat-log-desktop-${index}`"
-                class="history-log"
-                data-cy="cutthroat-history-log"
-                data-cy-history-log="history-log"
-              >
-                {{ log }}
-              </p>
-              <p v-if="historyLines.length === 0" class="history-log history-log-empty">
-                {{ t('cutthroat.game.noActions') }}
-              </p>
-            </div>
-          </div>
-
           <div class="player-area opponent float-right" :class="{ 'active-turn': isActiveTurnSeat(rightSeat) }">
             <button
               type="button"
@@ -334,61 +314,82 @@
         </div>
 
         <div class="table-center">
-          <div
-            class="pile"
-            :class="{ clickable: canUseDeck }"
-            data-cy="cutthroat-deck"
-            @click="handleDeckClick"
-          >
-            <div class="pile-title">
-              {{ t('cutthroat.game.deck') }} ({{ deckCount }})
-            </div>
-            <div class="pile-cards">
-              <div
-                v-if="isResolvingSeven"
-                class="reveal-group"
-                @click.stop
-              >
-                <button
-                  v-for="reveal in revealedCardEntries"
-                  :key="`reveal-${reveal.index}-${reveal.token}`"
-                  class="reveal-card"
-                  :class="{
-                    selected: isRevealSelected(reveal.index),
-                    clickable: isRevealSelectable(reveal.index),
-                  }"
-                  :disabled="!isRevealSelectable(reveal.index)"
-                  :data-cy="`cutthroat-reveal-${reveal.index}`"
-                  @click="handleRevealClick(reveal.index)"
-                >
-                  <CutthroatCard
-                    :card="reveal.card"
-                    class="hand-card"
-                    :is-selected="isRevealSelected(reveal.index)"
-                    :clickable="isRevealSelectable(reveal.index)"
-                  />
-                </button>
+          <div class="table-center-left">
+            <div
+              class="pile"
+              :class="{ clickable: canUseDeck }"
+              data-cy="cutthroat-deck"
+              @click="handleDeckClick"
+            >
+              <div class="pile-title">
+                {{ t('cutthroat.game.deck') }} ({{ deckCount }})
               </div>
-              <div v-else class="deck-stack">
-                <div class="deck-face" />
-                <div v-if="deckCount === 0" class="empty-deck-text">
-                  {{ t('cutthroat.game.pass') }}
+              <div class="pile-cards">
+                <div
+                  v-if="isResolvingSeven"
+                  class="reveal-group"
+                  @click.stop
+                >
+                  <button
+                    v-for="reveal in revealedCardEntries"
+                    :key="`reveal-${reveal.index}-${reveal.token}`"
+                    class="reveal-card"
+                    :class="{
+                      selected: isRevealSelected(reveal.index),
+                      clickable: isRevealSelectable(reveal.index),
+                    }"
+                    :disabled="!isRevealSelectable(reveal.index)"
+                    :data-cy="`cutthroat-reveal-${reveal.index}`"
+                    @click="handleRevealClick(reveal.index)"
+                  >
+                    <CutthroatCard
+                      :card="reveal.card"
+                      class="hand-card"
+                      :is-selected="isRevealSelected(reveal.index)"
+                      :clickable="isRevealSelectable(reveal.index)"
+                    />
+                  </button>
+                </div>
+                <div v-else class="deck-stack">
+                  <div class="deck-face" />
+                  <div v-if="deckCount === 0" class="empty-deck-text">
+                    {{ t('cutthroat.game.pass') }}
+                  </div>
                 </div>
               </div>
             </div>
+            <CutthroatScrapPile
+              :scrap-tokens="playerView.scrap"
+              :is-resolving-three-turn="isResolvingThreeTurn"
+              :is-action-disabled="isActionDisabled"
+              :is-straightened="store.isScrapStraightened"
+              @pick-scrap-card="handleScrapCardClick"
+              @request-scrap-straighten="handleRequestScrapStraighten"
+            />
           </div>
-          <CutthroatScrapPile
-            :scrap-tokens="playerView.scrap"
-            :is-resolving-three-turn="isResolvingThreeTurn"
-            :is-action-disabled="isActionDisabled"
-            :is-straightened="store.isScrapStraightened"
-            @pick-scrap-card="handleScrapCardClick"
-            @request-scrap-straighten="handleRequestScrapStraighten"
-          />
+          <div class="history-panel history-panel-desktop">
+            <h3 class="history-title">
+              {{ t('game.history.title') }}
+            </h3>
+            <div ref="logsContainerDesktop" class="history-logs">
+              <p
+                v-for="(log, index) in historyLines"
+                :key="`cutthroat-log-desktop-${index}`"
+                class="history-log"
+                data-cy="cutthroat-history-log"
+                data-cy-history-log="history-log"
+              >
+                {{ log }}
+              </p>
+              <p v-if="historyLines.length === 0" class="history-log history-log-empty">
+                {{ t('cutthroat.game.noActions') }}
+              </p>
+            </div>
+          </div>
         </div>
 
         <div class="table-bottom">
-          <div class="player-area me">
+          <div class="player-area me" :class="{ 'active-turn': isMyTurn }">
             <div class="player-header">
               <span>{{ seatLabel(mySeat) }}</span>
             </div>
@@ -935,8 +936,10 @@ const logsContainerDrawer = ref(null);
 const rematchLoading = ref(false);
 const rematchLobbyId = ref(null);
 const rematchOfferPending = ref(false);
+const rematchLobbySeats = ref([]);
 const spectatorFollowPending = ref(false);
 let rematchLobbyWsConnected = false;
+let rematchLobbySeatsFetchSeq = 0;
 
 const isMainPhase = computed(() => phaseType.value === 'Main');
 const isCounteringPhase = computed(() => phaseType.value === 'Countering');
@@ -977,18 +980,27 @@ const isRematchWaiting = computed(() => {
   }
   return rematchOfferPending.value;
 });
-const rematchWaitingPlayerLabels = computed(() => {
-  if (!isRematchWaiting.value) {return [];}
+function fallbackRematchWaitingLabels() {
   const seats = (playerView.value?.players ?? [])
     .map((player) => player?.seat)
-    .filter((seat) => Number.isInteger(seat));
-  if (seats.length === 0) {return [];}
-
-  const waitingSeats = isSpectatorMode.value
-    ? seats
-    : seats.filter((seat) => seat !== mySeat.value);
-
-  const labels = waitingSeats.map((seat) => seatLabel(seat));
+    .filter((seat) => Number.isInteger(seat))
+    .filter((seat) => seat !== mySeat.value);
+  return seats
+    .map((seat) => seatLabel(seat))
+    .filter((label) => typeof label === 'string' && label.trim().length > 0);
+}
+const rematchWaitingPlayerLabels = computed(() => {
+  if (!isRematchWaiting.value) {return [];}
+  const labels = isSpectatorMode.value
+    ? (playerView.value?.players ?? [])
+      .map((player) => player?.seat)
+      .filter((seat) => Number.isInteger(seat))
+      .map((seat) => seatLabel(seat))
+    : (rematchLobbySeats.value.length > 0
+      ? rematchLobbySeats.value
+        .filter((seat) => seat?.ready !== true && seat?.seat !== mySeat.value)
+        .map((seat) => seat?.username)
+      : fallbackRematchWaitingLabels());
   return [ ...new Set(labels.filter((label) => typeof label === 'string' && label.trim().length > 0)) ];
 });
 const rematchWaitingText = computed(() => {
@@ -1001,6 +1013,10 @@ const rematchWaitingText = computed(() => {
 const rematchLobbyIsOpen = computed(() => {
   if (!rematchLobbyId.value) {return false;}
   return store.lobbies.some((lobby) => lobby.id === rematchLobbyId.value);
+});
+const rematchLobbySummary = computed(() => {
+  if (!rematchLobbyId.value) {return null;}
+  return store.lobbies.find((lobby) => lobby.id === rematchLobbyId.value) ?? null;
 });
 const rematchGameHasStarted = computed(() => {
   if (!rematchLobbyId.value) {return false;}
@@ -1632,6 +1648,22 @@ function stopRematchLobbyWatch() {
   rematchLobbyWsConnected = false;
 }
 
+function resetRematchLobbySeats() {
+  rematchLobbySeats.value = [];
+}
+
+async function refreshRematchLobbySeats(id) {
+  if (!Number.isInteger(id)) {return;}
+  const fetchSeq = ++rematchLobbySeatsFetchSeq;
+  try {
+    const seats = await store.fetchLobbySeats(id);
+    if (fetchSeq !== rematchLobbySeatsFetchSeq || rematchLobbyId.value !== id) {return;}
+    rematchLobbySeats.value = seats;
+  } catch (_) {
+    // Keep fallback labels when seat snapshots are temporarily unavailable.
+  }
+}
+
 function startRematchLobbyWatch() {
   if (rematchLobbyWsConnected) {return;}
   store.connectLobbyWs();
@@ -1639,17 +1671,23 @@ function startRematchLobbyWatch() {
 }
 
 async function goToHome() {
-  if (rematchOfferPending.value && rematchLobbyId.value) {
-    try {
-      await store.setReady(rematchLobbyId.value, false);
-    } catch (_) {
-      // ignore cancellation errors when leaving
-    }
-    rematchOfferPending.value = false;
-  }
+  const shouldCancelRematch = rematchOfferPending.value && Number.isInteger(rematchLobbyId.value);
+  const rematchLobbyIdToCancel = shouldCancelRematch ? rematchLobbyId.value : null;
+
+  rematchOfferPending.value = false;
+  rematchLobbyId.value = null;
+  rematchLobbySeatsFetchSeq += 1;
+  resetRematchLobbySeats();
   spectatorFollowPending.value = false;
   stopRematchLobbyWatch();
-  router.push('/');
+  await router.push('/');
+
+  if (!shouldCancelRematch || !rematchLobbyIdToCancel) {return;}
+  try {
+    await store.setReady(rematchLobbyIdToCancel, false);
+  } catch (_) {
+    // ignore cancellation errors when leaving
+  }
 }
 
 async function navigateToSpectateGame(nextGameId, gameStateIndex) {
@@ -1701,6 +1739,9 @@ async function handleRematch() {
     if (rematchOfferPending.value && rematchLobbyId.value) {
       await store.setReady(rematchLobbyId.value, false);
       rematchOfferPending.value = false;
+      rematchLobbyId.value = null;
+      rematchLobbySeatsFetchSeq += 1;
+      resetRematchLobbySeats();
       stopRematchLobbyWatch();
       return;
     }
@@ -1708,6 +1749,7 @@ async function handleRematch() {
     rematchLobbyId.value = newGameId;
     await store.setReady(newGameId, true);
     rematchOfferPending.value = true;
+    await refreshRematchLobbySeats(newGameId);
     startRematchLobbyWatch();
   } catch (err) {
     snackbarStore.alert(err?.message ?? t('cutthroat.game.actionFailed'));
@@ -1735,6 +1777,8 @@ watch(
     const nextGameId = rematchLobbyId.value;
     rematchOfferPending.value = false;
     rematchLobbyId.value = null;
+    rematchLobbySeatsFetchSeq += 1;
+    resetRematchLobbySeats();
     stopRematchLobbyWatch();
     store.disconnectWs();
     await store.fetchState(nextGameId);
@@ -1762,11 +1806,29 @@ watch(
 
 watch(
   () => rematchLobbyId.value,
-  (id) => {
+  async (id) => {
+    if (!id) {
+      rematchLobbySeatsFetchSeq += 1;
+      resetRematchLobbySeats();
+      return;
+    }
+    await refreshRematchLobbySeats(id);
     if (!id || !rematchOfferPending.value) {return;}
     if (rematchLobbyIsOpen.value || rematchGameHasStarted.value) {return;}
     // Initial lobby snapshot can arrive asynchronously after rematch creation.
     startRematchLobbyWatch();
+  },
+);
+
+watch(
+  () => ({
+    lobbyId: rematchLobbyId.value,
+    readyCount: rematchLobbySummary.value?.ready_count ?? null,
+    pending: rematchOfferPending.value,
+  }),
+  async ({ lobbyId, readyCount, pending }) => {
+    if (!pending || !Number.isInteger(lobbyId) || !Number.isInteger(readyCount)) {return;}
+    await refreshRematchLobbySeats(lobbyId);
   },
 );
 
@@ -1878,7 +1940,7 @@ onBeforeUnmount(() => {
 
 .table-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
   gap: 16px;
   flex: 0 0 auto;
@@ -1892,6 +1954,13 @@ onBeforeUnmount(() => {
   gap: 24px;
   align-items: center;
   min-height: 0;
+}
+
+.table-center-left {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: center;
 }
 
 .table-bottom {
@@ -1994,8 +2063,8 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: 8px;
   background: rgba(0, 0, 0, 0.46);
-  border: 4px solid transparent;
-  border-radius: 4px;
+  border: 2px solid transparent;
+  border-radius: 10px;
   transition: all 1s;
 }
 
@@ -2039,22 +2108,14 @@ onBeforeUnmount(() => {
 }
 
 .player-hand.me.my-turn {
-  border: 4px solid rgba(var(--v-theme-accent));
-  border-radius: 4px;
-  box-shadow:
-    0 10px 12px -10px rgba(0, 123, 59, 0.35),
-    0 12px 22px 4px rgba(0, 123, 59, 0.28),
-    0 8px 30px 8px rgba(33, 150, 83, 0.24);
+  border: 2px solid rgba(var(--v-theme-accent-lighten1), 0.9);
+  box-shadow: 0 0 0 2px rgba(var(--v-theme-accent-lighten1), 0.34);
   background: linear-gradient(0deg, rgba(253, 98, 34, 1), rgba(255, 255, 255, 0.3));
 }
 
 .player-area.active-turn .player-hand {
-  border: 4px solid rgba(var(--v-theme-accent));
-  border-radius: 4px;
-  box-shadow:
-    0 10px 12px -10px rgba(0, 123, 59, 0.35),
-    0 12px 22px 4px rgba(0, 123, 59, 0.28),
-    0 8px 30px 8px rgba(33, 150, 83, 0.24);
+  border: 2px solid rgba(var(--v-theme-accent-lighten1), 0.82);
+  box-shadow: 0 0 0 1px rgba(var(--v-theme-accent-lighten1), 0.28);
   background: linear-gradient(0deg, rgba(253, 98, 34, 1), rgba(255, 255, 255, 0.3));
 }
 
@@ -2208,15 +2269,14 @@ onBeforeUnmount(() => {
 }
 
 .reveal-card.selected {
-  outline: 2px solid rgba(var(--v-theme-accent-lighten1));
   border-radius: 12px;
 }
 
 .history-panel {
   background-color: rgba(241, 200, 160, 0.65);
   color: #111111;
-  border-radius: 20px;
-  padding: 10px 12px;
+  border-radius: 16px;
+  padding: 8px 10px;
   min-height: 0;
 }
 
@@ -2353,6 +2413,66 @@ onBeforeUnmount(() => {
 }
 
 @media (min-width: 961px) {
+  #cutthroat-game-wrapper {
+    --cutthroat-player-width: min(48vw, 760px);
+    --cutthroat-left-rail-width: 320px;
+    --cutthroat-right-rail-width: 340px;
+  }
+
+  .table-center {
+    display: grid;
+    grid-template-columns:
+      var(--cutthroat-left-rail-width)
+      var(--cutthroat-player-width)
+      var(--cutthroat-right-rail-width);
+    justify-content: center;
+    align-items: start;
+  }
+
+  .table-center-left {
+    grid-column: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  .table-center-left :deep(#cutthroat-scrap) {
+    margin: 0;
+    transform: translateY(-10px);
+  }
+
+  .table-center-left .pile {
+    min-width: 0;
+    width: fit-content;
+    padding: 4px 6px;
+    border-radius: 12px;
+  }
+
+  .table-center-left .pile-title {
+    font-size: 0.78rem;
+    margin-bottom: 2px;
+  }
+
+  .table-center-left .deck-stack {
+    width: calc(clamp(148px, 22vh, 216px) / 1.3);
+  }
+
+  .table-center > .history-panel-desktop {
+    grid-column: 3;
+    display: flex;
+    align-self: start;
+    justify-self: center;
+    width: min(100%, 340px);
+    min-height: clamp(280px, 44vh, 520px);
+    max-height: clamp(280px, 44vh, 520px);
+  }
+
+  .table-bottom {
+    display: flex;
+    justify-content: center;
+  }
+
   .table-center {
     position: relative;
     z-index: 1;
@@ -2372,11 +2492,19 @@ onBeforeUnmount(() => {
     position: relative;
     z-index: 1;
   }
+
+  .player-area.me {
+    width: var(--cutthroat-player-width);
+    max-width: 760px;
+    margin: 0;
+  }
 }
 
-@media (max-width: 1280px) {
+@media (min-width: 961px) and (max-width: 1280px) {
   #cutthroat-game-wrapper {
     padding: 10px;
+    --cutthroat-left-rail-width: 276px;
+    --cutthroat-right-rail-width: 300px;
   }
 
   .table {
@@ -2384,12 +2512,16 @@ onBeforeUnmount(() => {
   }
 
   .table-top {
-    grid-template-columns: minmax(0, 1fr) minmax(170px, 240px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 10px;
   }
 
   .table-center {
     gap: 16px;
+  }
+
+  .table-center-left .deck-stack {
+    width: calc(clamp(128px, 19vh, 180px) / 1.3);
   }
 
   .player-area {
@@ -2482,6 +2614,11 @@ onBeforeUnmount(() => {
     align-items: center;
   }
 
+  .table-center-left {
+    gap: 8px;
+    justify-content: center;
+  }
+
   .history-panel-desktop {
     display: none;
   }
@@ -2533,6 +2670,8 @@ onBeforeUnmount(() => {
     flex-direction: column;
     justify-content: flex-start;
     max-height: none;
+    width: 100%;
+    max-width: none;
   }
 
   .stack-card-container {
@@ -2554,6 +2693,10 @@ onBeforeUnmount(() => {
   .pile {
     min-width: clamp(108px, 22vw, 136px);
     padding: 6px 8px;
+  }
+
+  .deck-stack {
+    width: clamp(54px, 8vh, 90px);
   }
 
   .pile-title {
@@ -2610,6 +2753,11 @@ onBeforeUnmount(() => {
     gap: 6px;
     min-height: auto;
     align-items: center;
+  }
+
+  .table-center-left {
+    gap: 6px;
+    justify-content: center;
   }
 
   .table.compact-resolving-seven .table-center {

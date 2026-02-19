@@ -34,7 +34,8 @@ describe('Cutthroat 3P Rematch UX', () => {
       .click();
 
     cy.wait('@rematchRequest').its('response.body.id')
-      .should('be.a', 'number');
+      .should('be.a', 'number')
+      .as('rematchGameId');
     cy.wait('@readyRequest').then(({ request }) => {
       expect(request.body).to.deep.eq({ ready: true });
     });
@@ -45,6 +46,35 @@ describe('Cutthroat 3P Rematch UX', () => {
       .and('contain', 'Waiting for Players')
       .and('contain', 'cutthroat-opponent-1')
       .and('contain', 'cutthroat-opponent-2');
+
+    cy.get('@rematchGameId').then((rematchGameId) => {
+      cy.window()
+        .its('cuttle.cutthroatStore')
+        .then((store) => {
+          const baseLobby = store.lobbies.find((entry) => entry.id === rematchGameId) ?? {
+            id: rematchGameId,
+            name: 'rematch',
+            seat_count: 3,
+            active_seat_count: 3,
+            ready_count: 1,
+            status: 0,
+            viewer_has_reserved_seat: true,
+          };
+          const otherLobbies = store.lobbies.filter((entry) => entry.id !== rematchGameId);
+          store.fetchLobbySeats = () => Promise.resolve([
+            { seat: 0, user_id: 1, username: 'cutthroat-player', ready: true },
+            { seat: 1, user_id: 2, username: 'cutthroat-opponent-1', ready: true },
+            { seat: 2, user_id: 3, username: 'cutthroat-opponent-2', ready: false },
+          ]);
+          store.lobbies = [ ...otherLobbies, { ...baseLobby, ready_count: 0 } ];
+          store.lobbies = [ ...otherLobbies, { ...baseLobby, ready_count: 2 } ];
+        });
+    });
+
+    cy.get('[data-cy=cutthroat-rematch-waiting]')
+      .should('contain', 'cutthroat-opponent-2')
+      .and('not.contain', 'cutthroat-opponent-1');
+
     cy.get('[data-cy=cutthroat-rematch-btn]').should('contain', 'Unready')
       .click();
 
@@ -87,6 +117,45 @@ describe('Cutthroat 3P Rematch UX', () => {
     cy.get('@rematchGameId').then((id) => {
       cy.visit(`/cutthroat/lobby/${id}`);
       cy.location('pathname').should('eq', `/cutthroat/lobby/${id}`);
+    });
+  });
+
+  it('When a finished-game player has a pending rematch and clicks Go home, then navigation to home is immediate even if unready is slow because leaving should not be blocked by rematch cancellation.', () => {
+    const gameId = 7609;
+    const transcript = transcriptWithActions({ dealer: 'P2' });
+
+    cy.seedCutthroatGameFromTranscript({
+      gameId,
+      ...transcript,
+      status: 2,
+      playerSeat: 0,
+    });
+
+    cy.intercept('POST', `/cutthroat/api/v1/games/${gameId}/rematch`).as('rematchRequest');
+    cy.intercept('POST', '/cutthroat/api/v1/games/*/ready', (req) => {
+      if (req.body?.ready === false) {
+        req.reply((res) => {
+          res.delay = 2500;
+        });
+        return;
+      }
+      req.continue();
+    }).as('readyRequest');
+
+    cy.openCutthroatGame(gameId, 'game');
+    cy.get('[data-cy=cutthroat-rematch-btn]').click();
+
+    cy.wait('@rematchRequest').its('response.body.id')
+      .should('be.a', 'number');
+    cy.wait('@readyRequest').then(({ request }) => {
+      expect(request.body).to.deep.eq({ ready: true });
+    });
+
+    cy.get('[data-cy=cutthroat-back-home-btn]').click();
+    cy.location('pathname', { timeout: 1000 }).should('eq', '/');
+
+    cy.wait('@readyRequest').then(({ request }) => {
+      expect(request.body).to.deep.eq({ ready: false });
     });
   });
 

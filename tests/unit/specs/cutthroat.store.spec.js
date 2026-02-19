@@ -606,6 +606,52 @@ describe('cutthroat store http methods', () => {
     });
   });
 
+  it('fetchLobbySeats returns lobby seat ready state without mutating game state', async () => {
+    const store = useCutthroatStore();
+    const payload = buildStatePayload(9);
+    payload.lobby.seats = [
+      { seat: 0, user_id: 11, username: 'alice', ready: true },
+      { seat: 1, user_id: 12, username: 'avi', ready: true },
+      { seat: 2, user_id: 13, username: 'bob', ready: false },
+    ];
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(payload),
+    });
+
+    await expect(store.fetchLobbySeats(77)).resolves.toEqual(payload.lobby.seats);
+    expect(fetch).toHaveBeenCalledWith('/cutthroat/api/v1/games/77/state', {
+      credentials: 'include',
+    });
+    expect(store.gameId).toBeNull();
+    expect(store.lobby).toEqual({ seats: [] });
+  });
+
+  it('fetchLobbySeats throws when lobby payload is invalid', async () => {
+    const store = useCutthroatStore();
+    fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        lobby: {
+          seats: [ { seat: 0, user_id: 11, username: 'alice' } ],
+        },
+      }),
+    });
+
+    await expect(store.fetchLobbySeats(77)).rejects.toThrow('Cutthroat protocol violation');
+    expect(store.lastError.message).toContain('Cutthroat protocol violation');
+  });
+
+  it('fetchLobbySeats throws on non-200 responses', async () => {
+    const store = useCutthroatStore();
+    fetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+
+    await expect(store.fetchLobbySeats(77)).rejects.toThrow('Failed to fetch lobby seats: 500');
+  });
+
   it('fetchState applies older versions for indexed replay snapshots', async () => {
     const store = useCutthroatStore();
     fetch.mockResolvedValueOnce({

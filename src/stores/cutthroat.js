@@ -386,6 +386,23 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     return data;
   }
 
+  async function fetchLobbySeats(id) {
+    ensureCutthroatAvailable();
+    const res = await fetch(resolveCutthroatHttpPath(`/cutthroat/api/v1/games/${id}/state`), {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw createHttpError('Failed to fetch lobby seats', res.status);
+    }
+    const data = await res.json();
+    if (!isObject(data) || !isValidLobbyView(data.lobby)) {
+      const message = protocolError('invalid HTTP lobby seats payload');
+      setLastError({ code: 1002, message });
+      throw new Error(message);
+    }
+    return data.lobby.seats;
+  }
+
   async function createGame() {
     ensureCutthroatAvailable();
     const res = await fetch(resolveCutthroatHttpPath('/cutthroat/api/v1/games'), {
@@ -692,6 +709,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     hasActiveSeatedPlayers,
     clearLastError,
     fetchState,
+    fetchLobbySeats,
     createGame,
     joinGame,
     leaveGame,

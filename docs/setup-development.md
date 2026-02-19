@@ -70,8 +70,9 @@ npm run start:dev:cutthroat
 ```
 
 `start:dev:cutthroat` now starts Rust automatically in one of two modes:
-- If `CUTTHROAT_DATABASE_URL` or `DATABASE_URL` is set, it runs normal persistence mode (and auto-runs migrations by default).
-- If no DB URL is set, it falls back to `e2e-seed` mode so Rust still starts for local Cutthroat development.
+- It runs persistence mode by default and auto-runs migrations (`CUTTHROAT_AUTO_RUN_MIGRATIONS=true` unless overridden).
+- If no DB URL env var is set, it defaults to `postgresql://cuttlesworth:p4ssw0rd!@127.0.0.1:5432/cuttle` for local docker Postgres.
+- For explicit no-DB local runs, use `npm run start:cutthroat:e2e-seed`.
 
 3. Environment variables (defaults shown):
 
