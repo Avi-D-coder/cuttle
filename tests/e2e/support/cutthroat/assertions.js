@@ -20,3 +20,18 @@ export function assertBottomGapWithin(maxGapPx) {
     expect(gap).to.be.lte(maxGapPx);
   });
 }
+
+export function assertScrapAndHistoryBottomAligned(maxDeltaPx = 1) {
+  cy.get(CUTTHROAT_SELECTORS.scrap).should('be.visible');
+  cy.get(CUTTHROAT_SELECTORS.historyDesktop).should('be.visible');
+
+  cy.window().then((win) => {
+    const scrap = win.document.querySelector(CUTTHROAT_SELECTORS.scrap);
+    const historyPanel = win.document.querySelector(CUTTHROAT_SELECTORS.historyDesktop);
+    const scrapRect = scrap.getBoundingClientRect();
+    const historyRect = historyPanel.getBoundingClientRect();
+    const bottomDelta = Math.abs(scrapRect.bottom - historyRect.bottom);
+
+    expect(bottomDelta).to.be.lte(maxDeltaPx);
+  });
+}

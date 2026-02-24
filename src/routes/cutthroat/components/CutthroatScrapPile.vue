@@ -7,7 +7,8 @@
     :attach="false"
   >
     <template #activator="{ props: dialogProps }">
-      <span
+      <div
+        class="cutthroat-scrap-activator"
         v-bind="dialogProps"
         @click="openDialog"
         @mousedown="isLongPressing = false"
@@ -60,7 +61,7 @@
             </div>
           </Transition>
         </div>
-      </span>
+      </div>
     </template>
 
     <template #title>
@@ -238,11 +239,19 @@ watch(showDialog, (isOpen) => {
 </script>
 
 <style scoped lang="scss">
+.cutthroat-scrap-activator {
+  display: inline-flex;
+  width: fit-content;
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
+}
+
 #cutthroat-scrap {
   position: relative;
   margin: 8px;
-  height: clamp(124px, 20vh, 184px);
-  width: calc(clamp(124px, 20vh, 184px) / 1.45);
+  height: var(--cutthroat-scrap-height, clamp(124px, 20vh, 184px));
+  width: calc(var(--cutthroat-scrap-height, clamp(124px, 20vh, 184px)) / 1.45);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -301,8 +310,8 @@ watch(showDialog, (isOpen) => {
 
 @media (max-width: 1280px) {
   #cutthroat-scrap {
-    height: clamp(112px, 18vh, 164px);
-    width: calc(clamp(112px, 18vh, 164px) / 1.45);
+    height: var(--cutthroat-scrap-height, clamp(112px, 18vh, 164px));
+    width: calc(var(--cutthroat-scrap-height, clamp(112px, 18vh, 164px)) / 1.45);
     margin: 4px;
 
     & #scrap-header {
@@ -318,8 +327,8 @@ watch(showDialog, (isOpen) => {
 
 @media (max-width: 960px) {
   #cutthroat-scrap {
-    height: clamp(96px, 16vh, 138px);
-    width: calc(clamp(96px, 16vh, 138px) / 1.45);
+    height: clamp(125px, 20.8vh, 179px);
+    width: calc(clamp(125px, 20.8vh, 179px) / 1.45);
     margin: 0;
 
     & #scrap-header {
@@ -335,8 +344,8 @@ watch(showDialog, (isOpen) => {
 
 @media (max-width: 600px) {
   #cutthroat-scrap {
-    height: 78px;
-    width: 58px;
+    height: 120px;
+    width: 83px;
     margin: 0;
 
     & #scrap-header {

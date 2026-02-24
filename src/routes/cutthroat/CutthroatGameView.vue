@@ -2198,6 +2198,9 @@ onBeforeUnmount(() => {
   padding: 12px 20px;
   min-width: clamp(136px, 17vw, 180px);
   text-align: center;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
 }
 
 .pile.clickable {
@@ -2417,6 +2420,17 @@ onBeforeUnmount(() => {
     --cutthroat-player-width: min(48vw, 760px);
     --cutthroat-left-rail-width: 320px;
     --cutthroat-right-rail-width: 340px;
+    --ct-side-rail-h: clamp(280px, 44vh, 520px);
+    --ct-rail-gap: 12px;
+    --ct-pile-pad-y: 4px;
+    --ct-pile-title-h: 15px;
+    --ct-pile-title-gap: 2px;
+    --ct-scrap-h: clamp(124px, 20vh, 184px);
+    --ct-deck-stack-h: calc(
+      var(--ct-side-rail-h) - var(--ct-scrap-h) - var(--ct-rail-gap) -
+      (2 * var(--ct-pile-pad-y)) - var(--ct-pile-title-h) - var(--ct-pile-title-gap)
+    );
+    --ct-deck-stack-w: calc(var(--ct-deck-stack-h) * 9 / 13);
   }
 
   .table-center {
@@ -2433,29 +2447,35 @@ onBeforeUnmount(() => {
     grid-column: 1;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
+    justify-content: space-between;
+    gap: var(--ct-rail-gap);
+    height: var(--ct-side-rail-h);
   }
 
   .table-center-left :deep(#cutthroat-scrap) {
     margin: 0;
-    transform: translateY(-10px);
+    transform: none;
+    --cutthroat-scrap-height: var(--ct-scrap-h);
   }
 
   .table-center-left .pile {
     min-width: 0;
     width: fit-content;
     padding: 4px 6px;
+    padding-top: var(--ct-pile-pad-y);
+    padding-bottom: var(--ct-pile-pad-y);
     border-radius: 12px;
   }
 
   .table-center-left .pile-title {
     font-size: 0.78rem;
-    margin-bottom: 2px;
+    line-height: var(--ct-pile-title-h);
+    margin-bottom: var(--ct-pile-title-gap);
   }
 
   .table-center-left .deck-stack {
-    width: calc(clamp(148px, 22vh, 216px) / 1.3);
+    height: var(--ct-deck-stack-h);
+    width: var(--ct-deck-stack-w);
   }
 
   .table-center > .history-panel-desktop {
@@ -2464,8 +2484,8 @@ onBeforeUnmount(() => {
     align-self: start;
     justify-self: center;
     width: min(100%, 340px);
-    min-height: clamp(280px, 44vh, 520px);
-    max-height: clamp(280px, 44vh, 520px);
+    min-height: var(--ct-side-rail-h);
+    max-height: var(--ct-side-rail-h);
   }
 
   .table-bottom {
@@ -2475,7 +2495,7 @@ onBeforeUnmount(() => {
 
   .table-center {
     position: relative;
-    z-index: 1;
+    z-index: 3;
   }
 
   .table-bottom {
@@ -2505,6 +2525,8 @@ onBeforeUnmount(() => {
     padding: 10px;
     --cutthroat-left-rail-width: 276px;
     --cutthroat-right-rail-width: 300px;
+    --ct-side-rail-h: clamp(280px, 36vh, 520px);
+    --ct-scrap-h: clamp(112px, 18vh, 164px);
   }
 
   .table {
@@ -2518,10 +2540,6 @@ onBeforeUnmount(() => {
 
   .table-center {
     gap: 16px;
-  }
-
-  .table-center-left .deck-stack {
-    width: calc(clamp(128px, 19vh, 180px) / 1.3);
   }
 
   .player-area {
@@ -2548,10 +2566,6 @@ onBeforeUnmount(() => {
 
   .stack-list {
     gap: 6px;
-  }
-
-  .history-panel-desktop {
-    max-height: 36vh;
   }
 
   :deep(.player-card) {
@@ -2588,14 +2602,14 @@ onBeforeUnmount(() => {
   .table {
     display: grid;
     height: 100%;
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 8px;
     align-content: stretch;
     overflow: hidden;
   }
 
   .table.compact-resolving-seven {
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .table-top {
@@ -2612,6 +2626,8 @@ onBeforeUnmount(() => {
     flex-wrap: nowrap;
     min-height: auto;
     align-items: center;
+    position: relative;
+    z-index: 2;
   }
 
   .table-center-left {
@@ -2663,6 +2679,8 @@ onBeforeUnmount(() => {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+    position: relative;
+    z-index: 1;
   }
 
   .player-area.me {
@@ -2696,7 +2714,7 @@ onBeforeUnmount(() => {
   }
 
   .deck-stack {
-    width: clamp(54px, 8vh, 90px);
+    width: clamp(70px, 10.4vh, 117px);
   }
 
   .pile-title {
@@ -2731,12 +2749,12 @@ onBeforeUnmount(() => {
   }
 
   .table {
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: 6px;
   }
 
   .table.compact-resolving-seven {
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .mobile-history-controls {
@@ -2857,8 +2875,8 @@ onBeforeUnmount(() => {
   }
 
   .deck-stack {
-    width: 44px;
-    height: 63px;
+    width: 73px;
+    height: 105px;
   }
 
   .empty-deck-text {

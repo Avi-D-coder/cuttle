@@ -1,5 +1,8 @@
 import { transcriptWithActions } from '../../../support/cutthroat/seed';
-import { assertBottomGapWithin } from '../../../support/cutthroat/assertions';
+import {
+  assertBottomGapWithin,
+  assertScrapAndHistoryBottomAligned,
+} from '../../../support/cutthroat/assertions';
 
 describe('Cutthroat 3P Layout', () => {
   beforeEach(() => {
@@ -16,6 +19,22 @@ describe('Cutthroat 3P Layout', () => {
     cy.viewport(1440, 900);
     cy.openCutthroatGame(gameId, 'game');
     assertBottomGapWithin(24);
+  });
+
+  it('When the desktop cutthroat board renders, then scrap and history bottoms align within one pixel because both side rails share a deterministic height equation.', () => {
+    const gameId = 7325;
+    const transcript = transcriptWithActions({ dealer: 'P2' });
+
+    cy.seedCutthroatGameFromTranscript({
+      gameId,
+      ...transcript,
+      status: 1,
+      playerSeat: 0,
+    });
+
+    cy.viewport(1440, 900);
+    cy.openCutthroatGame(gameId, 'game');
+    assertScrapAndHistoryBottomAligned(1);
   });
 
   it('When the 3P board renders on mobile, then the local player area still stays anchored near the viewport bottom because responsive layout must preserve touch ergonomics.', () => {
