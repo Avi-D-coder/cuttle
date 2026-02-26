@@ -258,7 +258,7 @@ watch(showDialog, (isOpen) => {
   align-items: center;
   cursor: pointer;
   user-select: none;
-  overflow: hidden;
+  overflow: visible;
 
   & #scrap-header {
     font-family: 'Luckiest Guy';
@@ -327,8 +327,8 @@ watch(showDialog, (isOpen) => {
 
 @media (max-width: 960px) {
   #cutthroat-scrap {
-    height: clamp(125px, 20.8vh, 179px);
-    width: calc(clamp(125px, 20.8vh, 179px) / 1.45);
+    height: var(--cutthroat-scrap-height, clamp(125px, 20.8vh, 179px));
+    width: calc(var(--cutthroat-scrap-height, clamp(125px, 20.8vh, 179px)) / 1.45);
     margin: 0;
 
     & #scrap-header {
@@ -344,8 +344,8 @@ watch(showDialog, (isOpen) => {
 
 @media (max-width: 600px) {
   #cutthroat-scrap {
-    height: 120px;
-    width: 83px;
+    height: var(--cutthroat-scrap-height, 120px);
+    width: calc(var(--cutthroat-scrap-height, 120px) / 1.45);
     margin: 0;
 
     & #scrap-header {

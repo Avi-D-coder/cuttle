@@ -83,6 +83,7 @@ const { t } = useI18n();
 const store = useCutthroatStore();
 const snackbarStore = useSnackbarStore();
 const readying = ref(false);
+const recoveringFromSocketError = ref(false);
 
 const gameId = computed(() => Number(route.params.gameId));
 const lobbyName = computed(() => {
@@ -108,6 +109,23 @@ const myReady = computed(() => {
   return entry?.ready ?? false;
 });
 
+function describeLobbyError(err, fallbackKey) {
+  const status = Number(err?.status ?? err?.code ?? NaN);
+  if (status === 404) {
+    return 'This lobby no longer exists. It may have closed after everyone disconnected.';
+  }
+  if (status === 409) {
+    return 'This lobby changed while you were away (already started, full, or seat expired).';
+  }
+  if (status === 403) {
+    return 'You no longer have access to this lobby. Try joining again from the lobby list.';
+  }
+  if (typeof err?.message === 'string' && err.message.trim().length > 0) {
+    return err.message;
+  }
+  return t(fallbackKey);
+}
+
 async function ensureJoined() {
   try {
     await store.fetchState(gameId.value);
@@ -119,7 +137,7 @@ async function ensureJoined() {
     return;
   } catch (err) {
     if (err?.status !== 403 && err?.status !== 404 && err?.status !== 409) {
-      snackbarStore.alert(err?.message ?? t('cutthroat.lobby.joinFailed'));
+      snackbarStore.alert(describeLobbyError(err, 'cutthroat.lobby.joinFailed'));
       router.push('/');
       return;
     }
@@ -134,7 +152,7 @@ async function ensureJoined() {
     }
     store.connectWs(gameId.value);
   } catch (err) {
-    snackbarStore.alert(err?.message ?? t('cutthroat.lobby.joinFailed'));
+    snackbarStore.alert(describeLobbyError(err, 'cutthroat.lobby.joinFailed'));
     router.push('/');
   }
 }
@@ -144,7 +162,7 @@ async function toggleReady() {
   try {
     await store.setReady(gameId.value, !myReady.value);
   } catch (err) {
-    snackbarStore.alert(err?.message ?? t('cutthroat.lobby.readyFailed'));
+    snackbarStore.alert(describeLobbyError(err, 'cutthroat.lobby.readyFailed'));
   } finally {
     readying.value = false;
   }
@@ -169,9 +187,20 @@ watch(
 
 watch(
   () => store.lastError,
-  (error) => {
+  async (error) => {
     if (!error) {return;}
-    snackbarStore.alert(error.message ?? t('cutthroat.lobby.readyFailed'));
+    const status = Number(error.code ?? NaN);
+    if ([ 403, 404, 409 ].includes(status) && !recoveringFromSocketError.value) {
+      recoveringFromSocketError.value = true;
+      store.clearLastError();
+      try {
+        await ensureJoined();
+      } finally {
+        recoveringFromSocketError.value = false;
+      }
+      return;
+    }
+    snackbarStore.alert(describeLobbyError(error, 'cutthroat.lobby.readyFailed'));
     store.clearLastError();
   },
 );

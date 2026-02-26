@@ -207,7 +207,7 @@ describe('cutthroat store websocket behavior', () => {
 
     expect(store.lastError).toEqual({
       code: 409,
-      message: 'conflict',
+      message: 'Lobby state changed while you were disconnected. Try rejoining the lobby.',
     });
   });
 

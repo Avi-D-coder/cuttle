@@ -162,6 +162,17 @@ function protocolError(reason) {
   return `Cutthroat protocol violation: ${reason}`;
 }
 
+function normalizeWsErrorMessage({ code, message }) {
+  const normalized = typeof message === 'string' ? message.trim().toLowerCase() : '';
+  if (code === 404 && normalized === 'not found') {
+    return 'Lobby no longer exists. It may have closed while your connection was interrupted.';
+  }
+  if (code === 409 && normalized === 'conflict') {
+    return 'Lobby state changed while you were disconnected. Try rejoining the lobby.';
+  }
+  return message;
+}
+
 export const useCutthroatStore = defineStore('cutthroat', () => {
   const capabilitiesStore = useCapabilitiesStore();
   const gameId = ref(null);
@@ -510,11 +521,15 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
             failGameProtocol(ws, 'invalid game error payload');
             return;
           }
-          const err = new Error(msg.message);
+          const normalizedMessage = normalizeWsErrorMessage({
+            code: msg.code,
+            message: msg.message,
+          });
+          const err = new Error(normalizedMessage);
           err.status = msg.code;
           setLastError({
             code: msg.code,
-            message: msg.message,
+            message: normalizedMessage,
           });
           rejectPendingAction(err);
           return;
@@ -587,9 +602,13 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
             failLobbyProtocol(ws, 'invalid lobby error payload');
             return;
           }
-          setLastError({
+          const normalizedMessage = normalizeWsErrorMessage({
             code: msg.code,
             message: msg.message,
+          });
+          setLastError({
+            code: msg.code,
+            message: normalizedMessage,
           });
           return;
         }

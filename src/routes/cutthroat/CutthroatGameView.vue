@@ -1428,6 +1428,27 @@ const isWaitingForResolveThreeAction = computed(() => {
   return !isResolvingThreeTurn.value;
 });
 
+function normalizeLabel(label) {
+  return typeof label === 'string' ? label.trim().toLowerCase() : '';
+}
+
+function appendResolveThreeContextDetails(baseText) {
+  const details = [];
+  const seenLabels = new Set([ normalizeLabel(actingPlayerLabel.value) ]);
+
+  const maybeAddDetail = (label, detailBuilder) => {
+    const normalized = normalizeLabel(label);
+    if (!normalized || seenLabels.has(normalized)) {return;}
+    seenLabels.add(normalized);
+    details.push(detailBuilder(label));
+  };
+
+  maybeAddDetail(triggeringPlayerLabel.value, (player) => t('cutthroat.game.playedBy', { player }));
+  maybeAddDetail(triggeringTargetPlayerLabel.value, (player) => t('cutthroat.game.targetingPlayer', { player }));
+
+  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
+}
+
 const waitingForCounterText = computed(() => {
   const baseText = t('game.overlays.mayCounter', {
     opponentUsername: actingPlayerLabel.value,
@@ -1457,17 +1478,9 @@ const waitingForDiscardText = computed(() => {
 });
 
 const waitingForResolveThreeText = computed(() => {
-  const baseText = t('game.overlays.choosingFromScrap', {
+  return appendResolveThreeContextDetails(t('game.overlays.choosingFromScrap', {
     opponentUsername: actingPlayerLabel.value,
-  });
-  const details = [];
-  if (triggeringPlayerLabel.value) {
-    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
-  }
-  if (triggeringTargetPlayerLabel.value) {
-    details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
-  }
-  return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
+  }));
 });
 
 const counterOverlayOneOffCard = computed(() => {
@@ -1961,6 +1974,11 @@ onBeforeUnmount(() => {
   gap: 24px;
   align-items: center;
   justify-content: center;
+  --ct-side-pile-card-h: clamp(124px, 20vh, 184px);
+}
+
+.table-center-left :deep(#cutthroat-scrap) {
+  --cutthroat-scrap-height: var(--ct-side-pile-card-h);
 }
 
 .table-bottom {
@@ -2071,6 +2089,7 @@ onBeforeUnmount(() => {
 .player-area.opponent .player-hand {
   flex-wrap: nowrap;
   overflow: hidden;
+  min-height: clamp(102px, 15vh, 162px);
 }
 
 .player-area.opponent .hand-card {
@@ -2220,8 +2239,8 @@ onBeforeUnmount(() => {
 
 .deck-stack {
   position: relative;
-  width: clamp(68px, 8vw, 90px);
-  aspect-ratio: 9 / 13;
+  height: var(--ct-side-pile-card-h);
+  width: calc(var(--ct-side-pile-card-h) * 9 / 13);
   margin: 0 auto;
 }
 
@@ -2426,11 +2445,6 @@ onBeforeUnmount(() => {
     --ct-pile-title-h: 15px;
     --ct-pile-title-gap: 2px;
     --ct-scrap-h: clamp(124px, 20vh, 184px);
-    --ct-deck-stack-h: calc(
-      var(--ct-side-rail-h) - var(--ct-scrap-h) - var(--ct-rail-gap) -
-      (2 * var(--ct-pile-pad-y)) - var(--ct-pile-title-h) - var(--ct-pile-title-gap)
-    );
-    --ct-deck-stack-w: calc(var(--ct-deck-stack-h) * 9 / 13);
   }
 
   .table-center {
@@ -2450,12 +2464,12 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     gap: var(--ct-rail-gap);
     height: var(--ct-side-rail-h);
+    --ct-side-pile-card-h: var(--ct-scrap-h);
   }
 
   .table-center-left :deep(#cutthroat-scrap) {
     margin: 0;
     transform: none;
-    --cutthroat-scrap-height: var(--ct-scrap-h);
   }
 
   .table-center-left .pile {
@@ -2474,8 +2488,8 @@ onBeforeUnmount(() => {
   }
 
   .table-center-left .deck-stack {
-    height: var(--ct-deck-stack-h);
-    width: var(--ct-deck-stack-w);
+    height: var(--ct-side-pile-card-h);
+    width: calc(var(--ct-side-pile-card-h) * 9 / 13);
   }
 
   .table-center > .history-panel-desktop {
@@ -2633,6 +2647,7 @@ onBeforeUnmount(() => {
   .table-center-left {
     gap: 8px;
     justify-content: center;
+    --ct-side-pile-card-h: clamp(125px, 20.8vh, 179px);
   }
 
   .history-panel-desktop {
@@ -2647,6 +2662,7 @@ onBeforeUnmount(() => {
     flex-wrap: nowrap;
     overflow: hidden;
     padding-bottom: 2px;
+    min-height: clamp(76px, 10.4vh, 118px);
   }
 
   .player-area.opponent .hand-card {
@@ -2714,7 +2730,8 @@ onBeforeUnmount(() => {
   }
 
   .deck-stack {
-    width: clamp(70px, 10.4vh, 117px);
+    height: var(--ct-side-pile-card-h);
+    width: calc(var(--ct-side-pile-card-h) * 9 / 13);
   }
 
   .pile-title {
@@ -2776,6 +2793,7 @@ onBeforeUnmount(() => {
   .table-center-left {
     gap: 6px;
     justify-content: center;
+    --ct-side-pile-card-h: 120px;
   }
 
   .table.compact-resolving-seven .table-center {
@@ -2796,6 +2814,10 @@ onBeforeUnmount(() => {
     flex: 1 1 0;
     max-width: clamp(34px, 19vw, 54px);
     min-width: 0;
+  }
+
+  .player-area.opponent .player-hand {
+    min-height: clamp(58px, 8.6vh, 92px);
   }
 
   .player-area.me {
@@ -2875,8 +2897,8 @@ onBeforeUnmount(() => {
   }
 
   .deck-stack {
-    width: 73px;
-    height: 105px;
+    height: var(--ct-side-pile-card-h);
+    width: calc(var(--ct-side-pile-card-h) * 9 / 13);
   }
 
   .empty-deck-text {
