@@ -134,123 +134,46 @@ function parseGlassesSnapshot(tokens, startIndex) {
 }
 
 function parseTokenlogAction(tokens, startIndex) {
-  const actionToken = tokens[startIndex];
-  if (!actionToken) {
-    throw createTokenlogParseError('Missing action token', startIndex, null);
-  }
+  const { action, nextIndex } = parseTokenlogActionDetailed(tokens, startIndex);
+  return {
+    action: mapDetailedActionToContextAction(action),
+    nextIndex,
+  };
+}
 
-  switch (actionToken) {
-    case 'draw': {
-      const maybeCard = tokens[startIndex + 1];
-      if (isTokenlogCardToken(maybeCard)) {
-        return {
-          action: {
-            type: 'OTHER',
-            cardToken: normalizeTokenlogCard(maybeCard, startIndex + 1),
-          },
-          nextIndex: startIndex + 2,
-        };
-      }
-      if (String(maybeCard ?? '').toUpperCase() === TOKENLOG_UNKNOWN_CARD) {
-        return {
-          action: {
-            type: 'OTHER',
-            cardToken: TOKENLOG_UNKNOWN_CARD,
-          },
-          nextIndex: startIndex + 2,
-        };
-      }
+function mapDetailedActionToContextAction(action) {
+  switch (action?.type) {
+    case 'ONEOFF':
       return {
-        action: { type: 'OTHER' },
-        nextIndex: startIndex + 1,
+        type: 'ONEOFF',
+        cardToken: action.cardToken,
+        target: action.target,
       };
-    }
-    case 'pass':
+    case 'COUNTER_TWO':
       return {
-        action: { type: 'OTHER' },
-        nextIndex: startIndex + 1,
+        type: 'COUNTER_TWO',
+        cardToken: action.cardToken,
       };
-    case 'points':
-    case 'discard':
+    case 'COUNTER_PASS':
       return {
-        action: { type: 'OTHER', cardToken: normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1) },
-        nextIndex: startIndex + 2,
+        type: 'COUNTER_PASS',
       };
-    case 'scuttle':
-      normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1);
-      normalizeTokenlogCard(tokens[startIndex + 2], startIndex + 2);
+    case 'DRAW':
+    case 'POINTS':
+    case 'RESOLVE_THREE_PICK':
+    case 'RESOLVE_FOUR_DISCARD':
+    case 'RESOLVE_FIVE_DISCARD':
       return {
-        action: { type: 'OTHER' },
-        nextIndex: startIndex + 3,
+        type: 'OTHER',
+        cardToken: action.cardToken,
       };
-    case 'playRoyal': {
-      const cardToken = normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1);
-      let cursor = startIndex + 2;
-      const [ rank ] = cardToken;
-      if (rank === 'J' || cardToken === 'J0' || cardToken === 'J1') {
-        normalizeTokenlogCard(tokens[cursor], cursor);
-        cursor += 1;
-      }
-      if (rank === '8') {
-        cursor = parseGlassesSnapshot(tokens, cursor);
-      }
-      return {
-        action: { type: 'OTHER' },
-        nextIndex: cursor,
-      };
-    }
-    case 'oneOff': {
-      const cardToken = normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1);
-      const { target, nextIndex } = parseTokenlogOneOffTarget(tokens, startIndex + 2, cardToken);
-      return {
-        action: {
-          type: 'ONEOFF',
-          cardToken,
-          target,
-        },
-        nextIndex,
-      };
-    }
-    case 'counter':
-      return {
-        action: {
-          type: 'COUNTER_TWO',
-          cardToken: normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1),
-        },
-        nextIndex: startIndex + 2,
-      };
-    case 'resolve': {
-      if (tokens[startIndex + 1] === 'discard') {
-        return {
-          action: {
-            type: 'OTHER',
-            cardToken: normalizeTokenlogCard(tokens[startIndex + 2], startIndex + 2),
-          },
-          nextIndex: startIndex + 3,
-        };
-      }
-      const maybeCard = tokens[startIndex + 1];
-      if (isTokenlogCardToken(maybeCard)) {
-        const nextIndex = startIndex + 2;
-        if (nextIndex >= tokens.length || isActionSeatThenVerb(tokens, nextIndex)) {
-          return {
-            action: {
-              type: 'OTHER',
-              cardToken: normalizeTokenlogCard(maybeCard, startIndex + 1),
-            },
-            nextIndex,
-          };
-        }
-      }
-      return {
-        action: {
-          type: 'COUNTER_PASS',
-        },
-        nextIndex: startIndex + 1,
-      };
-    }
+    case 'PASS':
+    case 'SCUTTLE':
+    case 'PLAY_ROYAL':
     default:
-      throw createTokenlogParseError('Unknown action token', startIndex, actionToken);
+      return {
+        type: 'OTHER',
+      };
   }
 }
 
@@ -414,12 +337,18 @@ export function encodeActionTokens(action, seat, phase = null) {
   return `${seatToken} ${body.join(' ')}`;
 }
 
-export function parseTokenlogActions(tokenlog = '') {
+function parseTokenlogEnvelope(tokenlog = '') {
   if (typeof tokenlog !== 'string') {
     throw createTokenlogParseError('Tokenlog must be a string', 0, null);
   }
   const trimmed = tokenlog.trim();
-  if (!trimmed) {return [];}
+  if (!trimmed) {
+    return {
+      dealer: null,
+      tokens: [],
+      actionCursor: 0,
+    };
+  }
 
   const tokens = trimmed.split(/\s+/);
   let cursor = 0;
@@ -435,7 +364,7 @@ export function parseTokenlogActions(tokenlog = '') {
     throw createTokenlogParseError('Expected DEALER marker', cursor, tokens[cursor] ?? null);
   }
   cursor += 1;
-  parseTokenlogSeat(tokens[cursor], cursor);
+  const dealer = parseTokenlogSeat(tokens[cursor], cursor);
   cursor += 1;
   if (tokens[cursor] !== 'DECK') {
     throw createTokenlogParseError('Expected DECK marker', cursor, tokens[cursor] ?? null);
@@ -450,18 +379,279 @@ export function parseTokenlogActions(tokenlog = '') {
   }
   cursor += 1;
 
-  const parsedActions = [];
+  return {
+    dealer,
+    tokens,
+    actionCursor: cursor,
+  };
+}
+
+export function parseTokenlogActions(tokenlog = '') {
+  const { actions } = parseTokenlogActionStream(tokenlog, parseTokenlogAction);
+  return actions;
+}
+
+const ONE_OFF_EFFECTS = {
+  A: 'Scrap all points',
+  '2': 'Scrap target Royal or Glasses eight',
+  '3': 'Choose 1 (non-three) card in the Scrap and put it to your hand',
+  '4': 'Your opponent discards two cards of their choice from their hand',
+  '5': 'Discard 1 card, and draw up to 3',
+  '6': 'Scrap all Royals and Glasses eights',
+  '7': 'Play one of the top two cards of the deck and put the other back (both are revealed)',
+  '8': 'Your opponent plays with an open hand (their cards are revealed to you)',
+  '9': 'Return target card to its controller\'s hand. They can\'t play it next turn',
+  T: 'No effect',
+};
+
+function historyRankSymbol(rankToken) {
+  return {
+    A: 'A',
+    T: '10',
+    J: 'J',
+    Q: 'Q',
+    K: 'K',
+  }[rankToken] ?? rankToken;
+}
+
+function cardTokenToHistoryName(token) {
+  if (!token || token === TOKENLOG_UNKNOWN_CARD) {return 'Unknown card';}
+  if (token === 'J0') {return 'Joker 0';}
+  if (token === 'J1') {return 'Joker 1';}
+  const normalized = String(token)
+    .trim()
+    .toUpperCase();
+  if (!TOKENLOG_CARD_RE.test(normalized)) {return 'Unknown card';}
+  const [ rank, suit ] = normalized;
+  const suitSymbol = {
+    C: '♣️',
+    D: '♦️',
+    H: '♥️',
+    S: '♠️',
+  }[suit] ?? '';
+  return `${historyRankSymbol(rank)}${suitSymbol}`;
+}
+
+function cardRankToken(cardToken = '') {
+  if (!cardToken || cardToken === TOKENLOG_UNKNOWN_CARD) {return '';}
+  const normalized = String(cardToken)
+    .trim()
+    .toUpperCase();
+  if (normalized === 'J0' || normalized === 'J1') {return normalized;}
+  return normalized[0] ?? '';
+}
+
+function seatNameForHistory(seat, seatNames = {}) {
+  if (!Number.isInteger(seat) || seat < 0) {return 'Player';}
+  if (Array.isArray(seatNames) && typeof seatNames[seat] === 'string' && seatNames[seat]) {
+    return seatNames[seat];
+  }
+  if (seatNames && typeof seatNames === 'object') {
+    const fromNumKey = seatNames[seat];
+    if (typeof fromNumKey === 'string' && fromNumKey) {return fromNumKey;}
+    const fromSeatKey = seatNames[`P${seat}`];
+    if (typeof fromSeatKey === 'string' && fromSeatKey) {return fromSeatKey;}
+  }
+  return `Player ${seat + 1}`;
+}
+
+function targetTextForOneOff(target, seatNames) {
+  if (!target || target.type === 'None') {return '';}
+  if (target.type === 'Player') {
+    return `, targeting ${seatNameForHistory(target.seat, seatNames)}`;
+  }
+  const token = target.token ?? null;
+  if (!token) {return '';}
+  return `, targeting the ${cardTokenToHistoryName(token)}`;
+}
+
+function oneOffResolveLine(action, seatNames, didResolve) {
+  const cardName = cardTokenToHistoryName(action.cardToken);
+  if (!didResolve) {
+    return `The ${cardName} is countered, and all cards played this turn are scrapped.`;
+  }
+
+  const rank = cardRankToken(action.cardToken);
+  const targetSeat = action.target?.type === 'Player' ? action.target.seat : null;
+  const targetName = Number.isInteger(targetSeat) ? seatNameForHistory(targetSeat, seatNames) : 'a player';
+  const targetCardName = action.target?.token ? cardTokenToHistoryName(action.target.token) : 'target card';
+  switch (rank) {
+    case 'A':
+      return `The ${cardName} one-off resolves; all point cards are scrapped.`;
+    case '2':
+      return `The ${cardName} resolves; the ${targetCardName} is scrapped.`;
+    case '3':
+      return `The ${cardName} one-off resolves; ${seatNameForHistory(action.seat, seatNames)} will draw one card of their choice from the Scrap pile.`;
+    case '4':
+      return `The ${cardName} one-off resolves; ${targetName} must discard two cards.`;
+    case '5':
+      return `The ${cardName} one-off resolves; ${seatNameForHistory(action.seat, seatNames)} must discard 1 card, and will draw up to 3.`;
+    case '6':
+      return `The ${cardName} one-off resolves; all Royals and Glasses are scrapped.`;
+    case '7':
+      return `The ${cardName} one-off resolves; they will play one card from the top two in the deck.`;
+    case '9':
+      return `The ${cardName} one-off resolves, returning the ${targetCardName} to its controller's hand. It cannot be played next turn.`;
+    default:
+      return `The ${cardName} one-off resolves.`;
+  }
+}
+
+function parseTokenlogActionDetailed(tokens, startIndex) {
+  const actionToken = tokens[startIndex];
+  if (!actionToken) {
+    throw createTokenlogParseError('Missing action token', startIndex, null);
+  }
+
+  switch (actionToken) {
+    case 'draw': {
+      const maybeCard = tokens[startIndex + 1];
+      if (isTokenlogCardToken(maybeCard) || String(maybeCard ?? '').toUpperCase() === TOKENLOG_UNKNOWN_CARD) {
+        return {
+          action: {
+            type: 'DRAW',
+            cardToken: String(maybeCard).toUpperCase(),
+          },
+          nextIndex: startIndex + 2,
+        };
+      }
+      return {
+        action: { type: 'DRAW' },
+        nextIndex: startIndex + 1,
+      };
+    }
+    case 'pass':
+      return {
+        action: { type: 'PASS' },
+        nextIndex: startIndex + 1,
+      };
+    case 'points':
+      return {
+        action: {
+          type: 'POINTS',
+          cardToken: normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1),
+        },
+        nextIndex: startIndex + 2,
+      };
+    case 'scuttle':
+      return {
+        action: {
+          type: 'SCUTTLE',
+          cardToken: normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1),
+          targetCardToken: normalizeTokenlogCard(tokens[startIndex + 2], startIndex + 2),
+        },
+        nextIndex: startIndex + 3,
+      };
+    case 'playRoyal': {
+      const cardToken = normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1);
+      let cursor = startIndex + 2;
+      let targetCardToken = null;
+      const rank = cardRankToken(cardToken);
+      if (rank === 'J' || cardToken === 'J0' || cardToken === 'J1') {
+        targetCardToken = normalizeTokenlogCard(tokens[cursor], cursor);
+        cursor += 1;
+      }
+      if (rank === '8') {
+        cursor = parseGlassesSnapshot(tokens, cursor);
+      }
+      return {
+        action: {
+          type: 'PLAY_ROYAL',
+          cardToken,
+          targetCardToken,
+        },
+        nextIndex: cursor,
+      };
+    }
+    case 'oneOff': {
+      const cardToken = normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1);
+      const { target, nextIndex } = parseTokenlogOneOffTarget(tokens, startIndex + 2, cardToken);
+      return {
+        action: {
+          type: 'ONEOFF',
+          cardToken,
+          target,
+        },
+        nextIndex,
+      };
+    }
+    case 'counter':
+      return {
+        action: {
+          type: 'COUNTER_TWO',
+          cardToken: normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1),
+        },
+        nextIndex: startIndex + 2,
+      };
+    case 'resolve': {
+      if (tokens[startIndex + 1] === 'discard') {
+        return {
+          action: {
+            type: 'RESOLVE_FOUR_DISCARD',
+            cardToken: normalizeTokenlogCard(tokens[startIndex + 2], startIndex + 2),
+          },
+          nextIndex: startIndex + 3,
+        };
+      }
+      const maybeCard = tokens[startIndex + 1];
+      if (isTokenlogCardToken(maybeCard)) {
+        const nextIndex = startIndex + 2;
+        if (nextIndex >= tokens.length || isActionSeatThenVerb(tokens, nextIndex)) {
+          return {
+            action: {
+              type: 'RESOLVE_THREE_PICK',
+              cardToken: normalizeTokenlogCard(maybeCard, startIndex + 1),
+            },
+            nextIndex,
+          };
+        }
+      }
+      return {
+        action: { type: 'COUNTER_PASS' },
+        nextIndex: startIndex + 1,
+      };
+    }
+    case 'discard':
+      return {
+        action: {
+          type: 'RESOLVE_FIVE_DISCARD',
+          cardToken: normalizeTokenlogCard(tokens[startIndex + 1], startIndex + 1),
+        },
+        nextIndex: startIndex + 2,
+      };
+    default:
+      throw createTokenlogParseError('Unknown action token', startIndex, actionToken);
+  }
+}
+
+function parseTokenlogActionsForHistory(tokenlog = '') {
+  return parseTokenlogActionStream(tokenlog, parseTokenlogActionDetailed);
+}
+
+function parseTokenlogActionStream(tokenlog = '', parseAction) {
+  const { dealer, tokens, actionCursor } = parseTokenlogEnvelope(tokenlog);
+  if (tokens.length === 0) {
+    return {
+      dealer: null,
+      actions: [],
+    };
+  }
+  const actions = [];
+  let cursor = actionCursor;
   while (cursor < tokens.length) {
     const seat = parseTokenlogSeat(tokens[cursor], cursor);
     cursor += 1;
-    const { action, nextIndex } = parseTokenlogAction(tokens, cursor);
-    parsedActions.push({
+    const { action, nextIndex } = parseAction(tokens, cursor);
+    actions.push({
       ...action,
       seat,
     });
     cursor = nextIndex;
   }
-  return parsedActions;
+  return {
+    dealer,
+    actions,
+  };
 }
 
 export function findActiveCounterChain(parsedActions = []) {
@@ -559,9 +749,151 @@ export function deriveLatestOneOffContextFromTokenlog(tokenlog = '', maxActions 
   }
 }
 
-export function formatTokenlogForHistory(tokenlog = '') {
+export function formatTokenlogForHistory(tokenlog = '', options = {}) {
   if (typeof tokenlog !== 'string') {return [];}
   const trimmed = tokenlog.trim();
   if (!trimmed) {return [];}
-  return [ trimmed ];
+
+  const seatNames = options?.seatNames ?? {};
+  const maxActions = options?.maxActions;
+
+  try {
+    const parsed = parseTokenlogActionsForHistory(trimmed);
+    const actionCount = Number.isInteger(maxActions) && maxActions >= 0
+      ? Math.min(maxActions, parsed.actions.length)
+      : parsed.actions.length;
+    const actions = parsed.actions.slice(0, actionCount);
+    const lines = [];
+
+    if (Number.isInteger(parsed.dealer)) {
+      const dealerName = seatNameForHistory(parsed.dealer, seatNames);
+      const firstSeat = (parsed.dealer + 1) % 3;
+      lines.push(`${dealerName} dealt; ${seatNameForHistory(firstSeat, seatNames)} will go first`);
+    }
+
+    let pendingSevenSeat = null;
+    let pendingOneOffResult = null;
+    for (let index = 0; index < actions.length; index += 1) {
+      const action = actions[index];
+      const actor = seatNameForHistory(action.seat, seatNames);
+      const actionFromSeven = Number.isInteger(pendingSevenSeat) && pendingSevenSeat === action.seat;
+
+      switch (action.type) {
+        case 'DRAW':
+          lines.push(`${actor} drew a card.`);
+          break;
+        case 'PASS':
+          lines.push(`${actor} passed.`);
+          break;
+        case 'POINTS':
+          if (actionFromSeven) {
+            lines.push(`${actor} played the ${cardTokenToHistoryName(action.cardToken)} from the top of the deck for points.`);
+          } else {
+            lines.push(`${actor} played the ${cardTokenToHistoryName(action.cardToken)} for points.`);
+          }
+          break;
+        case 'SCUTTLE':
+          if (actionFromSeven) {
+            lines.push(
+              `${actor} scuttled the ${cardTokenToHistoryName(action.targetCardToken)} with the ${cardTokenToHistoryName(action.cardToken)} from the top of the deck.`,
+            );
+          } else {
+            lines.push(
+              `${actor} scuttled the ${cardTokenToHistoryName(action.targetCardToken)} with the ${cardTokenToHistoryName(action.cardToken)}.`,
+            );
+          }
+          break;
+        case 'PLAY_ROYAL': {
+          const rank = cardRankToken(action.cardToken);
+          if (rank === 'J') {
+            if (actionFromSeven) {
+              lines.push(
+                `${actor} stole the ${cardTokenToHistoryName(action.targetCardToken)} with the ${cardTokenToHistoryName(action.cardToken)} from the top of the deck.`,
+              );
+            } else {
+              lines.push(
+                `${actor} stole the ${cardTokenToHistoryName(action.targetCardToken)} with the ${cardTokenToHistoryName(action.cardToken)}.`,
+              );
+            }
+          } else if (action.cardToken === 'J0' || action.cardToken === 'J1') {
+            lines.push(
+              `${actor} played the ${cardTokenToHistoryName(action.cardToken)} on the ${cardTokenToHistoryName(action.targetCardToken)}.`,
+            );
+          } else if (rank === '8') {
+            lines.push(
+              `${actor} played the ${cardTokenToHistoryName(action.cardToken)}${actionFromSeven ? ' from the top of the deck' : ''} as a glasses eight.`,
+            );
+          } else {
+            lines.push(
+              `${actor} played the ${cardTokenToHistoryName(action.cardToken)}${actionFromSeven ? ' from the top of the deck' : ''}.`,
+            );
+          }
+          break;
+        }
+        case 'ONEOFF': {
+          const effectText = ONE_OFF_EFFECTS[cardRankToken(action.cardToken)] ?? 'Resolve a one-off effect';
+          const oneOffTarget = targetTextForOneOff(action.target, seatNames);
+          if (actionFromSeven) {
+            lines.push(
+              `${actor} played the ${cardTokenToHistoryName(action.cardToken)} from the top of the deck as a one-off to ${effectText}${oneOffTarget}.`,
+            );
+          } else {
+            lines.push(
+              `${actor} played the ${cardTokenToHistoryName(action.cardToken)} as a one-off to ${effectText}${oneOffTarget}.`,
+            );
+          }
+
+          let twoCount = 0;
+          let cursor = index + 1;
+          while (cursor < actions.length && (actions[cursor].type === 'COUNTER_TWO' || actions[cursor].type === 'COUNTER_PASS')) {
+            if (actions[cursor].type === 'COUNTER_TWO') {
+              twoCount += 1;
+            }
+            cursor += 1;
+          }
+          const didResolve = (twoCount % 2) === 0;
+          pendingOneOffResult = {
+            flushAfterIndex: cursor - 1,
+            line: oneOffResolveLine(action, seatNames, didResolve),
+            didResolve,
+            rank: cardRankToken(action.cardToken),
+            seat: action.seat,
+          };
+          break;
+        }
+        case 'COUNTER_TWO':
+          lines.push(`${actor} played the ${cardTokenToHistoryName(action.cardToken)} to counter.`);
+          break;
+        case 'COUNTER_PASS':
+          break;
+        case 'RESOLVE_THREE_PICK':
+          lines.push(`${actor} took the ${cardTokenToHistoryName(action.cardToken)} from the Scrap pile to their hand.`);
+          break;
+        case 'RESOLVE_FOUR_DISCARD':
+          lines.push(`${actor} discarded the ${cardTokenToHistoryName(action.cardToken)}.`);
+          break;
+        case 'RESOLVE_FIVE_DISCARD':
+          lines.push(`${actor} discarded the ${cardTokenToHistoryName(action.cardToken)}.`);
+          break;
+        default:
+          break;
+      }
+
+      if (actionFromSeven && action.type !== 'COUNTER_TWO' && action.type !== 'COUNTER_PASS') {
+        pendingSevenSeat = null;
+      }
+
+      if (pendingOneOffResult && index >= pendingOneOffResult.flushAfterIndex) {
+        lines.push(pendingOneOffResult.line);
+        if (pendingOneOffResult.didResolve && pendingOneOffResult.rank === '7') {
+          pendingSevenSeat = pendingOneOffResult.seat;
+        }
+        pendingOneOffResult = null;
+      }
+    }
+
+    return lines;
+  } catch (_) {
+    return [];
+  }
 }

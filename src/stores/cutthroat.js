@@ -98,7 +98,6 @@ function isValidGameStatePayload(payload) {
     && isValidPublicView(payload.view)
     && isStringArray(payload.legal_actions)
     && isValidLobbyView(payload.lobby)
-    && isStringArray(payload.log_tail)
     && isStringArray(payload.tokenlog)
     && isFiniteNumber(payload.replay_total_states)
     && typeof payload.is_spectator === 'boolean'
@@ -184,7 +183,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
   const isSpectator = ref(false);
   const lobby = ref({ seats: [] });
   const spectatingUsers = ref([]);
-  const logTail = ref([]);
   const tokenlog = ref('');
   const replayTotalStates = ref(1);
   const socket = ref(null);
@@ -250,7 +248,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     isSpectator.value = false;
     lobby.value = { seats: [] };
     spectatingUsers.value = [];
-    logTail.value = [];
     tokenlog.value = '';
     replayTotalStates.value = 1;
     isScrapStraightened.value = false;
@@ -357,7 +354,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     legalActions.value = payload.legal_actions;
     lobby.value = payload.lobby;
     spectatingUsers.value = payload.spectating_usernames;
-    logTail.value = payload.log_tail;
     tokenlog.value = payload.tokenlog.join(' ');
     // `replay_total_states` is required by protocol so replay controls can be
     // computed without optional fallback parsing in the client.
@@ -730,7 +726,6 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     isSpectator,
     lobby,
     spectatingUsers,
-    logTail,
     tokenlog,
     replayTotalStates,
     lobbies,

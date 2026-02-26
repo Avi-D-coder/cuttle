@@ -872,6 +872,7 @@ import { parseCardToken, formatCardToken } from '@/util/cutthroat-cards';
 import {
   deriveFallbackChoiceTypesForSelectedCard,
   extractActionSource,
+  formatTokenlogForHistory,
   getCutthroatGameResult,
   isActionInteractionDisabled,
   isCutthroatGameFinished,
@@ -900,8 +901,21 @@ const phase = computed(() => playerView.value?.phase ?? null);
 const phaseType = computed(() => phase.value?.type ?? null);
 const phaseData = computed(() => phase.value?.data ?? {});
 const legalActions = computed(() => store.legalActions ?? []);
-const historyLines = computed(() => store.logTail ?? []);
 const seatEntries = computed(() => store.lobby?.seats ?? []);
+const seatNames = computed(() => {
+  const names = {};
+  for (const entry of seatEntries.value) {
+    if (!Number.isInteger(entry?.seat) || typeof entry?.username !== 'string' || !entry.username) {continue;}
+    names[entry.seat] = entry.username;
+  }
+  return names;
+});
+const historyLines = computed(() => {
+  return formatTokenlogForHistory(store.tokenlog ?? '', {
+    seatNames: seatNames.value,
+    maxActions: store.version,
+  });
+});
 const spectatorNames = computed(() => store.spectatingUsers ?? []);
 const isSpectatorMode = computed(() => store.isSpectator);
 const isSpectateRoute = computed(() => route.name === 'CutthroatSpectate');

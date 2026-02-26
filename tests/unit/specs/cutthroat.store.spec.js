@@ -74,7 +74,6 @@ function buildStatePayload(version = 1) {
     view: playerView,
     tokenlog: [ 'V1', 'CUTTHROAT3P', 'DEALER', 'P0', 'DECK', 'AC', 'ENDDECK' ],
     replay_total_states: 1,
-    log_tail: [],
     legal_actions: [ 'P1 draw' ],
     spectating_usernames: [],
     scrap_straightened: false,
@@ -117,6 +116,17 @@ describe('cutthroat store websocket behavior', () => {
     expect(store.legalActions).toEqual([ 'P1 draw' ]);
     expect(store.lobby.seats[0].username).toBe('avi');
     expect(store.tokenlog).toBe('V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK');
+  });
+
+  it('accepts valid state payloads with tokenlog-only history contract', () => {
+    const store = useCutthroatStore();
+    store.connectWs(42);
+    const [ ws ] = FakeWebSocket.instances;
+    const payload = buildStatePayload(6);
+    ws.emitMessage({ type: 'state', state: payload });
+
+    expect(store.lastError).toBeNull();
+    expect(store.version).toBe(6);
   });
 
   it('stores view payload when spectator flag is true', () => {

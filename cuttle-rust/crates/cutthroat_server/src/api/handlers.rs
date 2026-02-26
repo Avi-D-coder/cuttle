@@ -13,7 +13,6 @@ use crate::game_runtime::{
     seed_game_from_transcript as seed_game_from_transcript_runtime,
 };
 use crate::state::AppState;
-use crate::view::history::{HistoryAudience, build_history_log_for_audience_with_limit};
 use crate::view::response::{
     build_spectator_view, legal_action_tokens_for_seat, redact_tokenlog_tokens_for_client,
 };
@@ -74,9 +73,6 @@ pub(crate) struct GameStateResponse {
     pub(crate) view: SeatView,
     pub(crate) legal_actions: Vec<String>,
     pub(crate) lobby: LobbyView,
-    /// Human-readable action history lines generated server-side with the same
-    /// audience censorship rules as `view`.
-    pub(crate) log_tail: Vec<String>,
     /// Redacted token stream used by clients for counter/replay context.
     /// Serialized as a JSON array of token strings.
     pub(crate) tokenlog: Vec<Token>,
@@ -797,11 +793,6 @@ async fn load_archived_spectate_state(
     };
 
     let view = build_spectator_view(&replay_game);
-    let log_tail = build_history_log_for_audience_with_limit(
-        &replay_game,
-        HistoryAudience::Spectator,
-        Some(replay_index),
-    );
     let action_seat = action_seat_for_phase(&replay_game.engine.phase, replay_game.engine.turn);
     let legal_actions = if replay_game.status == STATUS_STARTED {
         legal_action_tokens_for_seat(&replay_game.engine, action_seat)
@@ -827,7 +818,6 @@ async fn load_archived_spectate_state(
                 })
                 .collect(),
         },
-        log_tail,
         tokenlog,
         replay_total_states: game.transcript.actions.len() as i64 + 1,
         is_spectator: true,

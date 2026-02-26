@@ -140,9 +140,12 @@ describe('cutthroat tokenlog helpers', () => {
     });
   });
 
-  it('returns tokenlog line for history and throws on malformed tokenlog', () => {
-    const line = 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK P0 resolve';
-    expect(formatTokenlogForHistory(line)).toEqual([ line ]);
+  it('formats verbose history lines and throws on malformed tokenlog', () => {
+    const line = 'V1 CUTTHROAT3P DEALER P0 DECK AC ENDDECK P1 draw';
+    expect(formatTokenlogForHistory(line, { seatNames: { 0: 'Dealer', 1: 'Starter' } })).toEqual([
+      'Dealer dealt; Starter will go first',
+      'Starter drew a card.',
+    ]);
     expect(formatTokenlogForHistory('')).toEqual([]);
     expect(() => parseTokenlogActions('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toThrow('Invalid card token');
     expect(deriveCounterDialogContextFromTokenlog('V1 CUTTHROAT3P DEALER P0 DECK BAD ENDDECK')).toBeNull();
@@ -304,6 +307,63 @@ describe('cutthroat tokenlog helpers', () => {
       { type: 'OTHER', seat: 0, cardToken: 'AC' },
       { type: 'OTHER', seat: 1, cardToken: 'UNKNOWN' },
       { type: 'OTHER', seat: 2 },
+    ]);
+  });
+
+  it('formats one-off resolution lines with counters and fizzles', () => {
+    const resolves = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P1 oneOff 4C P2',
+      'P2 resolve',
+      'P2 resolve discard 7H',
+      'P2 resolve discard 8D',
+    ].join(' ');
+    expect(formatTokenlogForHistory(resolves, { seatNames: { 0: 'Dealer', 1: 'Avi', 2: 'Spud' } })).toEqual([
+      'Dealer dealt; Avi will go first',
+      'Avi played the 4♣️ as a one-off to Your opponent discards two cards of their choice from their hand, targeting Spud.',
+      'The 4♣️ one-off resolves; Spud must discard two cards.',
+      'Spud discarded the 7♥️.',
+      'Spud discarded the 8♦️.',
+    ]);
+
+    const fizzles = [
+      'V1 CUTTHROAT3P DEALER P0 DECK AC AD AH AS ENDDECK',
+      'P1 oneOff 6S',
+      'P2 counter 2C',
+    ].join(' ');
+    expect(formatTokenlogForHistory(fizzles, { seatNames: { 0: 'Dealer', 1: 'Avi', 2: 'Spud' } })).toEqual([
+      'Dealer dealt; Avi will go first',
+      'Avi played the 6♠️ as a one-off to Scrap all Royals and Glasses eights.',
+      'Spud played the 2♣️ to counter.',
+      'The 6♠️ is countered, and all cards played this turn are scrapped.',
+    ]);
+  });
+
+  it('formats resolve-five discard sequences and replay-scoped lines', () => {
+    const tokenlog = [
+      'V1 CUTTHROAT3P DEALER P2 DECK AC AD AH AS ENDDECK',
+      'P0 oneOff 5H',
+      'P1 resolve',
+      'P2 resolve',
+      'P0 discard 7D',
+      'P0 draw UNKNOWN',
+    ].join(' ');
+
+    expect(formatTokenlogForHistory(tokenlog, { seatNames: { 0: 'Avi', 1: 'Bob', 2: 'Cy' } })).toEqual([
+      'Cy dealt; Avi will go first',
+      'Avi played the 5♥️ as a one-off to Discard 1 card, and draw up to 3.',
+      'The 5♥️ one-off resolves; Avi must discard 1 card, and will draw up to 3.',
+      'Avi discarded the 7♦️.',
+      'Avi drew a card.',
+    ]);
+
+    expect(formatTokenlogForHistory(tokenlog, {
+      seatNames: { 0: 'Avi', 1: 'Bob', 2: 'Cy' },
+      maxActions: 1,
+    })).toEqual([
+      'Cy dealt; Avi will go first',
+      'Avi played the 5♥️ as a one-off to Discard 1 card, and draw up to 3.',
+      'The 5♥️ one-off resolves; Avi must discard 1 card, and will draw up to 3.',
     ]);
   });
 });

@@ -9,10 +9,6 @@ use crate::game_runtime::types::{
 };
 use crate::game_runtime::{STATUS_FINISHED, STATUS_LOBBY, STATUS_STARTED};
 use crate::persistence::{CompletedGameRecord, PersistenceWriteMessage};
-use crate::view::history::{
-    HistoryAudience, build_history_log_for_audience, build_history_log_for_audience_with_limit,
-    build_history_log_for_viewer,
-};
 use crate::view::response::{
     build_spectator_view, legal_action_tokens_for_seat, normal_lobby_name,
     redact_tokenlog_tokens_for_client, serialize_tokenlog,
@@ -1026,11 +1022,6 @@ impl GameActor {
         let mut response = build_spectator_state_response(&replay_game);
         response.tokenlog = redact_tokenlog_tokens_for_client(&self.game.transcript, None);
         response.replay_total_states = replay_total_states(&self.game);
-        response.log_tail = build_history_log_for_audience_with_limit(
-            &replay_game,
-            HistoryAudience::Spectator,
-            Some(replay_index),
-        );
         response.has_active_seated_players = self.seat_connections.iter().any(|count| *count > 0);
         Ok(Arc::new(response))
     }
@@ -1335,7 +1326,6 @@ fn build_spectator_state_response(game: &GameEntry) -> GameStateResponse {
     } else {
         Vec::new()
     };
-    let log_tail = build_history_log_for_audience(game, HistoryAudience::Spectator);
     let tokenlog = redact_tokenlog_tokens_for_client(&game.transcript, None);
 
     GameStateResponse {
@@ -1345,7 +1335,6 @@ fn build_spectator_state_response(game: &GameEntry) -> GameStateResponse {
         view,
         legal_actions,
         lobby,
-        log_tail,
         tokenlog,
         replay_total_states: replay_total_states(game),
         is_spectator: true,
@@ -1384,7 +1373,6 @@ fn build_state_response(game: &GameEntry, seat: Seat) -> Result<GameStateRespons
     };
 
     let view = game.engine.public_view(seat);
-    let log_tail = build_history_log_for_viewer(game, seat);
     let tokenlog = redact_tokenlog_tokens_for_client(&game.transcript, Some(seat));
 
     Ok(GameStateResponse {
@@ -1394,7 +1382,6 @@ fn build_state_response(game: &GameEntry, seat: Seat) -> Result<GameStateRespons
         view,
         legal_actions,
         lobby,
-        log_tail,
         tokenlog,
         replay_total_states: replay_total_states(game),
         is_spectator: false,
