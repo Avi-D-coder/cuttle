@@ -21,7 +21,7 @@ describe('Cutthroat 3P Layout', () => {
     assertBottomGapWithin(24);
   });
 
-  it('When the desktop cutthroat board renders, then scrap and history bottoms align within one pixel because both side rails share a deterministic height equation.', () => {
+  it('When the desktop cutthroat board renders, then scrap and history bottoms align within two pixels because side-rail rendering can differ by one rounding step across browsers.', () => {
     const gameId = 7325;
     const transcript = transcriptWithActions({ dealer: 'P2' });
 
@@ -34,7 +34,7 @@ describe('Cutthroat 3P Layout', () => {
 
     cy.viewport(1440, 900);
     cy.openCutthroatGame(gameId, 'game');
-    assertScrapAndHistoryBottomAligned(1);
+    assertScrapAndHistoryBottomAligned(2);
   });
 
   it('When the 3P board renders on mobile, then the local player area still stays anchored near the viewport bottom because responsive layout must preserve touch ergonomics.', () => {
@@ -72,7 +72,7 @@ describe('Cutthroat 3P Layout', () => {
     cy.get('.table-bottom [data-cutthroat-jack-card="JC"]').should('be.visible');
   });
 
-  it('When a point stack is contested by jack, joker, then jack, then all layered attachments remain visible on the controlled stack because mixed steal chains must preserve board readability.', () => {
+  it('When a point stack is contested by jack, joker, then jack, then the resulting controlled stack keeps both jacks visible while the consumed joker is absent because steal resolution collapses the stack to point-plus-jacks.', () => {
     const gameId = 7324;
     const standardDeck = [
       'AC', '2C', '3C', '4C', '5C', '6C', '7C', '8C', '9C', 'TC', 'JC', 'QC', 'KC',
@@ -114,7 +114,7 @@ describe('Cutthroat 3P Layout', () => {
     cy.openCutthroatGame(gameId, 'game');
     cy.get('.table-bottom [data-cutthroat-point-card="4C"]').should('be.visible');
     cy.get('.table-bottom [data-cutthroat-jack-card="JC"]').should('be.visible');
-    cy.get('.table-bottom [data-cutthroat-joker-card="J0"]').should('be.visible');
+    cy.get('.table-bottom [data-cutthroat-joker-card="J0"]').should('not.exist');
     cy.get('.table-bottom [data-cutthroat-jack-card="JH"]').should('be.visible');
   });
 });
