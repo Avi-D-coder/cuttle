@@ -322,8 +322,7 @@ describe('cutthroat tokenlog helpers', () => {
       'Dealer dealt; Avi will go first',
       'Avi played the 4♣️ as a one-off to Your opponent discards two cards of their choice from their hand, targeting Spud.',
       'The 4♣️ one-off resolves; Spud must discard two cards.',
-      'Spud discarded the 7♥️.',
-      'Spud discarded the 8♦️.',
+      'Spud discarded the 7♥️ and the 8♦️.',
     ]);
 
     const fizzles = [

@@ -1463,13 +1463,24 @@ function appendResolveThreeContextDetails(baseText) {
   return details.length > 0 ? `${baseText} ${details.join(' ')}` : baseText;
 }
 
+function counterPlayedCardDetail() {
+  if (triggeringPlayerLabel.value && counterDialogOneOff.value?.name) {
+    return `${t('cutthroat.game.playerPlayedThe', { player: triggeringPlayerLabel.value })}${counterDialogOneOff.value.name}.`;
+  }
+  if (triggeringPlayerLabel.value) {
+    return t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value });
+  }
+  return '';
+}
+
 const waitingForCounterText = computed(() => {
   const baseText = t('game.overlays.mayCounter', {
     opponentUsername: actingPlayerLabel.value,
   });
   const details = [];
-  if (triggeringPlayerLabel.value) {
-    details.push(t('cutthroat.game.playedBy', { player: triggeringPlayerLabel.value }));
+  const playedCardDetail = counterPlayedCardDetail();
+  if (playedCardDetail) {
+    details.push(playedCardDetail);
   }
   if (triggeringTargetPlayerLabel.value) {
     details.push(t('cutthroat.game.targetingPlayer', { player: triggeringTargetPlayerLabel.value }));
@@ -2314,8 +2325,8 @@ onBeforeUnmount(() => {
 .history-panel {
   background-color: rgba(241, 200, 160, 0.65);
   color: #111111;
-  border-radius: 16px;
-  padding: 8px 10px;
+  border-radius: 20px;
+  padding: 0.5rem;
   min-height: 0;
 }
 
@@ -2328,7 +2339,7 @@ onBeforeUnmount(() => {
 }
 
 .history-title {
-  font-size: 1.1rem;
+  font-size: 1.25em;
   font-weight: 700;
   font-family:
     'Cormorant Infant',
@@ -2336,14 +2347,14 @@ onBeforeUnmount(() => {
     CenturyGothic,
     AppleGothic,
     sans-serif;
-  margin-bottom: 8px;
+  margin-bottom: 0.5rem;
 }
 
 .history-logs {
   max-height: 100%;
   overflow-y: auto;
   overflow-wrap: anywhere;
-  font-size: 0.8rem;
+  font-size: 0.75em;
   letter-spacing: 0.25px;
   font-family:
     'Libre Baskerville',
@@ -2358,8 +2369,7 @@ onBeforeUnmount(() => {
 }
 
 .history-log {
-  font-size: 0.86rem;
-  margin: 0 0 8px;
+  margin: 0 0 0.5rem;
 }
 
 .history-log-empty {
@@ -2548,6 +2558,17 @@ onBeforeUnmount(() => {
     width: var(--cutthroat-player-width);
     max-width: 760px;
     margin: 0;
+  }
+}
+
+@media screen and (min-width: 1024px) {
+  .history-title {
+    font-size: 48px;
+  }
+
+  .history-logs {
+    font-size: 1em;
+    padding: 0 1.25rem;
   }
 }
 

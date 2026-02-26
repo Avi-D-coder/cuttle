@@ -870,7 +870,20 @@ export function formatTokenlogForHistory(tokenlog = '', options = {}) {
           lines.push(`${actor} took the ${cardTokenToHistoryName(action.cardToken)} from the Scrap pile to their hand.`);
           break;
         case 'RESOLVE_FOUR_DISCARD':
-          lines.push(`${actor} discarded the ${cardTokenToHistoryName(action.cardToken)}.`);
+          if (
+            index + 1 < actions.length
+            && actions[index + 1].type === 'RESOLVE_FOUR_DISCARD'
+            && actions[index + 1].seat === action.seat
+          ) {
+            lines.push(
+              `${actor} discarded the ${cardTokenToHistoryName(action.cardToken)} and the ${
+                cardTokenToHistoryName(actions[index + 1].cardToken)
+              }.`,
+            );
+            index += 1;
+          } else {
+            lines.push(`${actor} discarded the ${cardTokenToHistoryName(action.cardToken)}.`);
+          }
           break;
         case 'RESOLVE_FIVE_DISCARD':
           lines.push(`${actor} discarded the ${cardTokenToHistoryName(action.cardToken)}.`);
