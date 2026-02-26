@@ -24,6 +24,7 @@ export default defineConfig({
     isolate: false,
     env:{
       VITE_JWT_SECRET: 'cuttle_TEST_JWT_SECRET',
+      TEST_SAILS_PORT: '0',
     }
   },
 });

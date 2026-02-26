@@ -18,6 +18,8 @@ import { useGameStore } from '@/stores/game';
 import { useAuthStore } from '@/stores/auth';
 import { useGameListStore } from '@/stores/gameList';
 import { useMyGamesStore } from '@/stores/myGames';
+import { useCutthroatStore } from '@/stores/cutthroat';
+import { useCapabilitiesStore } from '@/stores/capabilities';
 
 export default {
   components: {
@@ -54,6 +56,8 @@ export default {
       window.cuttle.authStore = useAuthStore();
       window.cuttle.gameListStore = useGameListStore();
       window.cuttle.myGamesStore = useMyGamesStore();
+      window.cuttle.cutthroatStore = useCutthroatStore();
+      window.cuttle.capabilitiesStore = useCapabilitiesStore();
     }
   },
 };

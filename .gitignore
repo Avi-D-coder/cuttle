@@ -143,6 +143,7 @@ nbproject
 tests/e2e/screenshots
 tests/e2e/videos
 storybook-static
+cuttle-rust/target
 
 
 ################################################
@@ -153,4 +154,3 @@ storybook-static
 .claude*
 .cursor*
 .gemini*
-

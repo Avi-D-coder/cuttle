@@ -29,9 +29,9 @@
             <ProfileGameListItem
               :name="item.name"
               :is-ranked="item.isRanked"
-              :winner-label="getIsWinner(item)"
-              :opponent-name="getOpponentName(item)"
-              :game-id="item.id"
+              :winner-label="item.winnerLabel"
+              :opponent-name="item.opponentName"
+              :replay-route="item.replayRoute"
             />
           </template>
         </v-virtual-scroll>
@@ -65,19 +65,6 @@ const myGamesStore = useMyGamesStore();
 
 
 const games = computed(() => myGamesStore.games);
-
-function getOpponentName(game) {
-  const opponent = game.p0.isOpponent ? game.p0 : game.p1;
-  return opponent.username;
-}
-
-function getIsWinner(game) {
-  if (!game.winnerId) {
-    return null;
-  }
-  const opponent = game.p0.isOpponent ? game.p0 : game.p1;
-  return game.winnerId !== opponent.id;
-}
 
 async function fetchGames() {
   try {

@@ -9,6 +9,7 @@
       hover
       :theme="isHovering ? 'light': 'dark'"
       :width="cardWidth"
+      :data-cy="dataCy || null"
       :data-move-choice="eventName"
       :aria-label="`Choose Move: ${moveName}`"
       @click.stop="$emit('choose-move')"
@@ -59,6 +60,10 @@ export default {
     cardWidth: {
       type: String,
       default: '30%',
+    },
+    dataCy: {
+      type: String,
+      default: '',
     },
   },
   emits: [ 'choose-move' ],

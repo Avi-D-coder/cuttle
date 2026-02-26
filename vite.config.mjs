@@ -18,11 +18,14 @@ export default defineConfig(({ mode }) => {
   // See https://vitejs.dev/config/#using-environment-variables-in-config
   const env = loadEnv(mode, process.cwd(), '');
   let HOST_SERVER_URL = 'http://localhost:1337';
+  let RUST_SERVER_URL = 'http://localhost:4000';
   if (env.CUTTLE_DOCKERIZED === 'true') {
-    // This needs to be the hostname of the docker container, not localhost since it happens
-    // on the server side as a proxy from vite server to the sailsjs container
-    HOST_SERVER_URL = 'http://server:1337';
+    // In the single-container Docker setup, Vite and Sails run in the same container.
+    HOST_SERVER_URL = 'http://127.0.0.1:1337';
     console.log(`Running Cuttle in DOCKER, setting server url to "${HOST_SERVER_URL}"`);
+  }
+  if (env.CUTTLE_RUST_URL) {
+    RUST_SERVER_URL = env.CUTTLE_RUST_URL;
   }
 
   return {
@@ -50,6 +53,15 @@ export default defineConfig(({ mode }) => {
           target: HOST_SERVER_URL,
           changeOrigin: true,
         },
+        '/cutthroat/api': {
+          target: RUST_SERVER_URL,
+          changeOrigin: true,
+        },
+        '/cutthroat/ws': {
+          target: RUST_SERVER_URL,
+          changeOrigin: true,
+          ws: true,
+        },
       },
       // Watching doesn't work on windows, so we need to use polling -- this does lead to high CPU
       // usage though, which is a bit of a bummer.
@@ -61,6 +73,48 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'assets',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, '/');
+
+            if (!normalizedId.includes('/node_modules/')) {
+              return undefined;
+            }
+
+            if (normalizedId.includes('/node_modules/vuetify/')) {
+              return 'vuetify';
+            }
+
+            if (normalizedId.includes('/node_modules/vue/') || normalizedId.includes('/node_modules/vue-router/')) {
+              return 'vue-core';
+            }
+
+            if (normalizedId.includes('/node_modules/chart.js/')) {
+              return 'vendor-chartjs';
+            }
+
+            if (normalizedId.includes('/node_modules/lodash/')) {
+              return 'vendor-lodash';
+            }
+
+            if (normalizedId.includes('/node_modules/socket.io-client/')
+              || normalizedId.includes('/node_modules/engine.io-client/')) {
+              return 'vendor-socketio';
+            }
+
+            if (normalizedId.includes('/node_modules/marked/')) {
+              return 'vendor-marked';
+            }
+
+            if (normalizedId.includes('/node_modules/vue-i18n/')) {
+              return 'vendor-i18n';
+            }
+
+            return 'vendor';
+          },
+        },
+      },
     },
   };
 });

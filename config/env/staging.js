@@ -3,6 +3,11 @@
  *
  */
 
+const envOrigins = (process.env.CUTTLE_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 module.exports = {
   datastores: {
     default: {
@@ -23,7 +28,9 @@ module.exports = {
    ***************************************************************************/
 
   models: {
-    migrate: 'safe',
+    // In dockerized local staging, allow schema bootstrap on fresh Postgres volumes.
+    // Non-docker staging environments remain strict/safe.
+    migrate: process.env.CUTTLE_DOCKERIZED === 'true' ? 'alter' : 'safe',
   },
 
   /***************************************************************************
@@ -39,6 +46,7 @@ module.exports = {
       'http://localhost',
       'http://localhost:8080',
       'http://localhost:1337',
+      ...envOrigins,
     ],
   },
 };

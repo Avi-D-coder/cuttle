@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "crates/cutthroat_engine",
+  "crates/cutthroat_server",
+]
+resolver = "2"
