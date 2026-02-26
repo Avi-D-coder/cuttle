@@ -2003,9 +2003,6 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   --ct-side-pile-card-h: clamp(124px, 20vh, 184px);
-}
-
-.table-center-left :deep(#cutthroat-scrap) {
   --cutthroat-scrap-height: var(--ct-side-pile-card-h);
 }
 
