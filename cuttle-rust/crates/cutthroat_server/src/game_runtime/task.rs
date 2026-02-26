@@ -25,9 +25,9 @@ use cutthroat_engine::{
     replay_tokenlog,
 };
 use rand::seq::SliceRandom;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(feature = "e2e-seed")]
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, mpsc, watch};
@@ -35,7 +35,10 @@ use tracing::error;
 
 const GAME_COMMAND_BUFFER: usize = 256;
 const FINISHED_CLEANUP_GRACE_SECONDS: i64 = 5;
+#[cfg(not(test))]
 const SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS: i64 = 10;
+#[cfg(test)]
+const SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS: i64 = 1;
 
 struct GameWatchSet {
     seat_tx: [watch::Sender<Arc<GameStateResponse>>; 3],
@@ -48,6 +51,7 @@ struct GameActor {
     game: GameEntry,
     streams: GameWatchSet,
     seat_connections: [usize; 3],
+    seat_disconnected_since: [Option<DateTime<Utc>>; 3],
     all_players_disconnected_since: Option<DateTime<Utc>>,
 }
 
@@ -61,6 +65,7 @@ struct DisconnectOutcome {
     game_changed: bool,
     lobby_changed: bool,
     remove_game: bool,
+    schedule_recheck: bool,
 }
 
 struct ApplyActionOutcome {
@@ -297,13 +302,15 @@ impl GameActor {
                 spectator_tx,
             },
             seat_connections: [0, 0, 0],
+            seat_disconnected_since: [None, None, None],
             all_players_disconnected_since: None,
         }
     }
 
     async fn run(mut self, mut rx: mpsc::Receiver<GameCommand>) {
         self.publish_game_watch();
-        let mut schedule_cleanup_recheck = self.refresh_all_players_disconnected_since();
+        let mut schedule_finished_cleanup_recheck = self.refresh_all_players_disconnected_since();
+        let mut schedule_disconnect_recheck = false;
 
         while let Some(cmd) = rx.recv().await {
             let mut publish_game = false;
@@ -394,6 +401,7 @@ impl GameActor {
                         self.deregister_self().await;
                         stop = true;
                     } else {
+                        schedule_disconnect_recheck |= outcome.schedule_recheck;
                         publish_game |= outcome.game_changed;
                         publish_lobby |= outcome.lobby_changed;
                         let has_connected_source_seat =
@@ -405,6 +413,21 @@ impl GameActor {
                             self.sync_unstarted_rematch_presence_from_source_disconnects()
                                 .await;
                         }
+                    }
+                }
+                GameCommand::ExplicitDisconnect {
+                    user_id,
+                    audience,
+                    reason,
+                } => {
+                    let _ = reason;
+                    let outcome = self.explicit_disconnect(user_id, audience);
+                    if outcome.remove_game {
+                        self.deregister_self().await;
+                        stop = true;
+                    } else {
+                        publish_game |= outcome.game_changed;
+                        publish_lobby |= outcome.lobby_changed;
                     }
                 }
                 GameCommand::SyncRematchPresenceFromSource {
@@ -460,7 +483,21 @@ impl GameActor {
                 }
             }
 
-            schedule_cleanup_recheck |= self.refresh_all_players_disconnected_since();
+            let stale_lobby_outcome = self.evict_stale_lobby_seats();
+            if stale_lobby_outcome.remove_game {
+                self.deregister_self().await;
+                break;
+            }
+            schedule_disconnect_recheck |= stale_lobby_outcome.schedule_recheck;
+            publish_game |= stale_lobby_outcome.game_changed;
+            publish_lobby |= stale_lobby_outcome.lobby_changed;
+
+            if self.game.status == STATUS_FINISHED {
+                self.sync_unstarted_rematch_presence_from_source_disconnects()
+                    .await;
+            }
+
+            schedule_finished_cleanup_recheck |= self.refresh_all_players_disconnected_since();
             if publish_game {
                 self.publish_game_watch();
             }
@@ -470,9 +507,15 @@ impl GameActor {
             if notify_source_rematch_started {
                 self.notify_source_rematch_started().await;
             }
-            if schedule_cleanup_recheck {
-                self.schedule_cleanup_recheck_after_disconnect_grace().await;
-                schedule_cleanup_recheck = false;
+            if schedule_finished_cleanup_recheck {
+                self.schedule_finished_cleanup_recheck_after_disconnect_grace()
+                    .await;
+                schedule_finished_cleanup_recheck = false;
+            }
+            if schedule_disconnect_recheck {
+                self.schedule_disconnect_recheck_after_disconnect_grace()
+                    .await;
+                schedule_disconnect_recheck = false;
             }
             if stop {
                 break;
@@ -511,6 +554,10 @@ impl GameActor {
         }
 
         if let Some(existing) = self.game.seats.iter().find(|seat| seat.user_id == user.id) {
+            let idx = existing.seat as usize;
+            if idx < self.seat_disconnected_since.len() {
+                self.seat_disconnected_since[idx] = None;
+            }
             return Ok(existing.seat);
         }
 
@@ -535,6 +582,10 @@ impl GameActor {
                 username: user.username,
                 ready: false,
             });
+            let idx = seat_index as usize;
+            if idx < self.seat_disconnected_since.len() {
+                self.seat_disconnected_since[idx] = None;
+            }
             return Ok(seat_index);
         }
 
@@ -558,6 +609,7 @@ impl GameActor {
             username: user.username,
             ready: false,
         });
+        self.seat_disconnected_since[seat_index] = None;
 
         if !self.game.is_rematch_lobby {
             self.game.name = normal_lobby_name(&self.game.seats);
@@ -578,7 +630,11 @@ impl GameActor {
             .position(|seat| seat.user_id == user.id)
             .ok_or(RuntimeError::Forbidden)?;
 
+        let seat_idx = self.game.seats[idx].seat as usize;
         self.game.seats.remove(idx);
+        if seat_idx < self.seat_disconnected_since.len() {
+            self.seat_disconnected_since[seat_idx] = None;
+        }
 
         if self.game.seats.is_empty() {
             return Ok(LeaveOutcome::RemoveGame);
@@ -679,6 +735,7 @@ impl GameActor {
                     return Err(RuntimeError::BadRequest);
                 }
                 self.seat_connections[idx] = self.seat_connections[idx].saturating_add(1);
+                self.seat_disconnected_since[idx] = None;
                 self.streams.seat_tx[idx].subscribe()
             }
         };
@@ -697,16 +754,22 @@ impl GameActor {
                 if idx < 3 && self.seat_connections[idx] > 0 {
                     self.seat_connections[idx] -= 1;
                 }
-                let mut seat_removed = false;
-                if self.game.status == STATUS_LOBBY && idx < 3 && self.seat_connections[idx] == 0 {
-                    let original_len = self.game.seats.len();
-                    self.game.seats.retain(|entry| entry.user_id != user_id);
-                    seat_removed = self.game.seats.len() != original_len;
+                let mut should_schedule_recheck = false;
+                if [STATUS_LOBBY, STATUS_FINISHED].contains(&self.game.status)
+                    && idx < 3
+                    && self.seat_connections[idx] == 0
+                {
+                    let user_is_seated = self.game.seats.iter().any(|entry| entry.user_id == user_id);
+                    if user_is_seated && self.seat_disconnected_since[idx].is_none() {
+                        self.seat_disconnected_since[idx] = Some(Utc::now());
+                        should_schedule_recheck = true;
+                    }
                 }
                 DisconnectOutcome {
-                    game_changed: seat_removed,
-                    lobby_changed: seat_removed,
-                    remove_game: seat_removed && self.game.seats.is_empty(),
+                    game_changed: false,
+                    lobby_changed: false,
+                    remove_game: false,
+                    schedule_recheck: should_schedule_recheck,
                 }
             }
             GameAudience::Spectator => {
@@ -724,8 +787,138 @@ impl GameActor {
                     game_changed: changed,
                     lobby_changed: changed,
                     remove_game: false,
+                    schedule_recheck: false,
                 }
             }
+        }
+    }
+
+    fn explicit_disconnect(&mut self, user_id: i64, audience: GameAudience) -> DisconnectOutcome {
+        match audience {
+            GameAudience::Seat(seat) => {
+                let idx = seat as usize;
+                if idx < self.seat_connections.len() {
+                    self.seat_connections[idx] = 0;
+                }
+                if self.game.status != STATUS_LOBBY {
+                    if idx < self.seat_disconnected_since.len() {
+                        self.seat_disconnected_since[idx] = Some(
+                            Utc::now() - chrono::Duration::seconds(SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS),
+                        );
+                    }
+                    return DisconnectOutcome {
+                        game_changed: false,
+                        lobby_changed: false,
+                        remove_game: false,
+                        schedule_recheck: false,
+                    };
+                }
+                let seat_removed = self.remove_lobby_seat_by_user_id(user_id);
+                DisconnectOutcome {
+                    game_changed: seat_removed,
+                    lobby_changed: seat_removed,
+                    remove_game: seat_removed && self.game.seats.is_empty(),
+                    schedule_recheck: false,
+                }
+            }
+            GameAudience::Spectator => {
+                let changed = self.game.active_spectators.remove(&user_id).is_some();
+                DisconnectOutcome {
+                    game_changed: changed,
+                    lobby_changed: changed,
+                    remove_game: false,
+                    schedule_recheck: false,
+                }
+            }
+        }
+    }
+
+    fn remove_lobby_seat_by_user_id(&mut self, user_id: i64) -> bool {
+        if self.game.status != STATUS_LOBBY {
+            return false;
+        }
+        let Some(idx) = self
+            .game
+            .seats
+            .iter()
+            .position(|seat| seat.user_id == user_id) else {
+            return false;
+        };
+        let seat_idx = self.game.seats[idx].seat as usize;
+        self.game.seats.remove(idx);
+        if seat_idx < self.seat_disconnected_since.len() {
+            self.seat_disconnected_since[seat_idx] = None;
+        }
+        if !self.game.is_rematch_lobby {
+            self.game.name = normal_lobby_name(&self.game.seats);
+        }
+        true
+    }
+
+    fn evict_stale_lobby_seats(&mut self) -> DisconnectOutcome {
+        if self.game.status != STATUS_LOBBY {
+            return DisconnectOutcome {
+                game_changed: false,
+                lobby_changed: false,
+                remove_game: false,
+                schedule_recheck: false,
+            };
+        }
+
+        let now = Utc::now();
+        let stale_user_ids: HashSet<i64> = self
+            .game
+            .seats
+            .iter()
+            .filter_map(|seat| {
+                let idx = seat.seat as usize;
+                if idx >= self.seat_connections.len() || self.seat_connections[idx] > 0 {
+                    return None;
+                }
+                let disconnected_since = self.seat_disconnected_since[idx]?;
+                let elapsed = (now - disconnected_since).num_seconds();
+                if elapsed >= SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS {
+                    Some(seat.user_id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut seat_changed = false;
+        if !stale_user_ids.is_empty() {
+            let original_len = self.game.seats.len();
+            self.game.seats.retain(|seat| !stale_user_ids.contains(&seat.user_id));
+            seat_changed = self.game.seats.len() != original_len;
+            for seat in &self.game.seats {
+                let idx = seat.seat as usize;
+                if idx < self.seat_connections.len() && self.seat_connections[idx] > 0 {
+                    self.seat_disconnected_since[idx] = None;
+                }
+            }
+            for idx in 0..self.seat_disconnected_since.len() {
+                if !self.game.seats.iter().any(|seat| seat.seat as usize == idx) {
+                    self.seat_disconnected_since[idx] = None;
+                }
+            }
+            if seat_changed && !self.game.is_rematch_lobby {
+                self.game.name = normal_lobby_name(&self.game.seats);
+            }
+        }
+
+        let has_pending_disconnected_lobby_seat = self.game.seats.iter().any(|seat| {
+            let idx = seat.seat as usize;
+            if idx >= self.seat_connections.len() || self.seat_connections[idx] > 0 {
+                return false;
+            }
+            self.seat_disconnected_since[idx].is_some()
+        });
+
+        DisconnectOutcome {
+            game_changed: seat_changed,
+            lobby_changed: seat_changed,
+            remove_game: self.game.seats.is_empty(),
+            schedule_recheck: has_pending_disconnected_lobby_seat,
         }
     }
 
@@ -976,7 +1169,14 @@ impl GameActor {
             .iter()
             .filter(|seat| {
                 let idx = seat.seat as usize;
-                idx < self.seat_connections.len() && self.seat_connections[idx] == 0
+                if idx >= self.seat_connections.len() || self.seat_connections[idx] > 0 {
+                    return false;
+                }
+                let Some(disconnected_since) = self.seat_disconnected_since[idx] else {
+                    return false;
+                };
+                (Utc::now() - disconnected_since).num_seconds()
+                    >= SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS
             })
             .map(|seat| seat.user_id)
             .collect();
@@ -1048,11 +1248,30 @@ impl GameActor {
                 .unwrap_or(false)
         };
 
-        rematch_started || all_players_disconnected_long_enough
+        let has_connected_source_seat = self.seat_connections.iter().any(|count| *count > 0);
+        (rematch_started && !has_connected_source_seat) || all_players_disconnected_long_enough
     }
 
-    async fn schedule_cleanup_recheck_after_disconnect_grace(&self) {
+    async fn schedule_finished_cleanup_recheck_after_disconnect_grace(&self) {
         if self.game.status != STATUS_FINISHED {
+            return;
+        }
+        let game_id = self.game.id;
+        let runtime = self.runtime.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(
+                SOURCE_DISCONNECT_CLEANUP_GRACE_SECONDS as u64,
+            ))
+            .await;
+            let Some(tx) = game_sender(&runtime, game_id).await else {
+                return;
+            };
+            let _ = tx.send(GameCommand::EvaluateCleanup).await;
+        });
+    }
+
+    async fn schedule_disconnect_recheck_after_disconnect_grace(&self) {
+        if self.game.status != STATUS_LOBBY && self.game.status != STATUS_FINISHED {
             return;
         }
         let game_id = self.game.id;
@@ -1723,6 +1942,21 @@ mod tests {
             .expect("disconnect send");
     }
 
+    async fn send_explicit_disconnect(
+        tx: &mpsc::Sender<GameCommand>,
+        user_id: i64,
+        audience: GameAudience,
+        reason: Option<&str>,
+    ) {
+        tx.send(GameCommand::ExplicitDisconnect {
+            user_id,
+            audience,
+            reason: reason.map(|value| value.to_string()),
+        })
+        .await
+        .expect("explicit disconnect send");
+    }
+
     async fn wait_until<F>(mut predicate: F)
     where
         F: FnMut() -> bool,
@@ -2089,7 +2323,7 @@ mod tests {
         send_disconnect(&source_tx, p1.id, GameAudience::Seat(1)).await;
         send_disconnect(&source_tx, p2.id, GameAudience::Seat(2)).await;
 
-        sleep(Duration::from_secs(2)).await;
+        sleep(Duration::from_millis(100)).await;
         subscribe_as_seat(&source_tx, p0.clone()).await;
 
         sleep(Duration::from_secs(
@@ -2361,6 +2595,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn non_rematch_lobby_transient_disconnect_keeps_seat_for_grace_window() {
+        let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(470)));
+        let (persistence_tx, _persistence_rx) = mpsc::channel(8);
+        let p0 = user(47, "p0");
+        let p1 = user(48, "p1");
+
+        let game_id =
+            create_game_for_user(runtime.clone(), persistence_tx.clone(), p0.clone()).await;
+        let tx = game_sender(&runtime, game_id).await.expect("sender");
+        join_game_result(&tx, p1.clone())
+            .await
+            .expect("p1 should join");
+
+        subscribe_as_seat(&tx, p0.clone()).await;
+        send_disconnect(&tx, p0.id, GameAudience::Seat(0)).await;
+
+        sleep(Duration::from_millis(150)).await;
+        {
+            let guard = runtime.read().await;
+            assert_eq!(
+                guard
+                    .game_meta
+                    .get(&game_id)
+                    .map(|meta| meta.seats.iter().any(|seat| seat.user_id == p0.id)),
+                Some(true)
+            );
+        }
+
+        wait_until(|| {
+            if let Ok(guard) = runtime.try_read() {
+                guard
+                    .game_meta
+                    .get(&game_id)
+                    .map(|meta| !meta.seats.iter().any(|seat| seat.user_id == p0.id))
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn rematch_leave_and_rejoin_preserves_reserved_seat() {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(500)));
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
@@ -2428,6 +2705,18 @@ mod tests {
             .expect("rematch sender");
 
         send_disconnect(&source_tx, p1.id, GameAudience::Seat(1)).await;
+        sleep(Duration::from_millis(150)).await;
+        {
+            let guard = runtime.read().await;
+            assert_eq!(
+                guard
+                    .game_meta
+                    .get(&rematch_id)
+                    .map(|meta| meta.seats.iter().any(|seat| seat.user_id == p1.id)),
+                Some(true)
+            );
+        }
+
         wait_until(|| {
             if let Ok(guard) = runtime.try_read() {
                 guard
@@ -2473,7 +2762,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rematch_lobby_disconnect_marks_player_as_left_and_preserves_reserved_rejoin() {
+    async fn rematch_lobby_explicit_disconnect_marks_player_as_left_and_preserves_reserved_rejoin()
+    {
         let runtime = Arc::new(RwLock::new(GlobalRuntimeState::new(575)));
         let (persistence_tx, _persistence_rx) = mpsc::channel(8);
         let p0 = user(65, "p0");
@@ -2504,7 +2794,13 @@ mod tests {
         subscribe_as_seat(&rematch_tx, p1.clone()).await;
         subscribe_as_seat(&rematch_tx, p2.clone()).await;
 
-        send_disconnect(&rematch_tx, p1.id, GameAudience::Seat(1)).await;
+        send_explicit_disconnect(
+            &rematch_tx,
+            p1.id,
+            GameAudience::Seat(1),
+            Some("go_home"),
+        )
+        .await;
         wait_until(|| {
             if let Ok(guard) = runtime.try_read() {
                 guard

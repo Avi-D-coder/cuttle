@@ -11,6 +11,8 @@ pub(crate) enum WsClientMessage {
     },
     #[serde(rename = "scrap_straighten")]
     ScrapStraighten,
+    #[serde(rename = "explicit_disconnect")]
+    ExplicitDisconnect { reason: Option<String> },
 }
 
 #[derive(Serialize)]

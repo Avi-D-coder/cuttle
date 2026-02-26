@@ -32,6 +32,12 @@ const LOBBY_WS_ALLOWED_ROUTES = new Set([
   ROUTE_NAME_CUTTHROAT_SPECTATE,
 ]);
 
+const CUTTHROAT_GAME_CONTEXT_ROUTES = new Set([
+  ROUTE_NAME_CUTTHROAT_LOBBY_GAME,
+  ROUTE_NAME_CUTTHROAT_GAME,
+  ROUTE_NAME_CUTTHROAT_SPECTATE,
+]);
+
 const mustBeAuthenticated = async (to, from, next) => {
   if ([ 'discord', 'google' ].includes(to.query.oauthsignup)){
     return next();
@@ -348,11 +354,16 @@ const router = createRouter({
   },
 });
 
-router.beforeEach(async (to, _from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
   // Make sure we try and reestablish a player's session if one exists
   // We do this before the route resolves to preempt the reauth/logout logic
   await authStore.requestStatus();
+
+  if (CUTTHROAT_GAME_CONTEXT_ROUTES.has(from?.name) && from.name !== to.name) {
+    const cutthroatStore = useCutthroatStore();
+    cutthroatStore.sendExplicitDisconnect('route_change');
+  }
 
   if (!LOBBY_WS_ALLOWED_ROUTES.has(to.name)) {
     const cutthroatStore = useCutthroatStore();

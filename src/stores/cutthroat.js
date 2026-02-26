@@ -705,6 +705,21 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     }));
   }
 
+  function sendExplicitDisconnect(reason = 'route_change') {
+    if (!socket.value || socket.value.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    try {
+      socket.value.send(JSON.stringify({
+        type: 'explicit_disconnect',
+        reason,
+      }));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   return {
     gameId,
     seat,
@@ -740,6 +755,7 @@ export const useCutthroatStore = defineStore('cutthroat', () => {
     disconnectLobbyWs,
     sendAction,
     sendScrapStraighten,
+    sendExplicitDisconnect,
     resetGameState,
   };
 });

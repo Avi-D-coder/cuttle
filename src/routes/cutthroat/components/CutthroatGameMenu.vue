@@ -31,9 +31,9 @@
 
           <template v-else>
             <v-list-item
-              v-if="canRequestStalemate"
               data-cy="stalemate-initiate"
               prepend-icon="mdi-handshake"
+              :disabled="!canRequestStalemate"
               @click="shownDialog = 'stalemate'"
             >
               {{ t('game.menus.gameMenu.stalemate') }}

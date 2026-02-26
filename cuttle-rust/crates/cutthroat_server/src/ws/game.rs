@@ -1,5 +1,6 @@
 use crate::api::handlers::{
-    apply_action_with_sender, set_socket_disconnected, subscribe_game_stream,
+    apply_action_with_sender, set_socket_disconnected, set_socket_explicit_disconnected,
+    subscribe_game_stream,
     toggle_scrap_straighten_with_sender,
 };
 use crate::auth::authorize;
@@ -84,6 +85,7 @@ async fn handle_ws(
     user: crate::auth::AuthUser,
     spectate_intent: bool,
 ) {
+    let mut explicit_disconnect_sent = false;
     let (sender, subscription) =
         match subscribe_game_stream(&state, game_id, user.clone(), spectate_intent).await {
             Ok(subscription) => subscription,
@@ -144,6 +146,16 @@ async fn handle_ws(
                                     send_error(&mut socket, code, message).await;
                                 }
                             }
+                            Ok(WsClientMessage::ExplicitDisconnect { reason }) => {
+                                set_socket_explicit_disconnected(
+                                    &sender,
+                                    user.id,
+                                    subscription.audience,
+                                    reason,
+                                ).await;
+                                explicit_disconnect_sent = true;
+                                break;
+                            }
                             Err(err) => {
                                 send_error(&mut socket, 400, format!("invalid message: {}", err)).await;
                             }
@@ -156,5 +168,7 @@ async fn handle_ws(
         }
     }
 
-    set_socket_disconnected(&sender, user.id, subscription.audience).await;
+    if !explicit_disconnect_sent {
+        set_socket_disconnected(&sender, user.id, subscription.audience).await;
+    }
 }

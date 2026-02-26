@@ -1040,6 +1040,21 @@ pub(crate) async fn set_socket_disconnected(
         .await;
 }
 
+pub(crate) async fn set_socket_explicit_disconnected(
+    sender: &mpsc::Sender<GameCommand>,
+    user_id: i64,
+    audience: crate::game_runtime::GameAudience,
+    reason: Option<String>,
+) {
+    let _ = sender
+        .send(GameCommand::ExplicitDisconnect {
+            user_id,
+            audience,
+            reason,
+        })
+        .await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::load_archived_spectate_state;

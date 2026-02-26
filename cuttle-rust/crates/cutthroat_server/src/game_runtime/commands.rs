@@ -92,6 +92,11 @@ pub(crate) enum GameCommand {
         user_id: i64,
         audience: GameAudience,
     },
+    ExplicitDisconnect {
+        user_id: i64,
+        audience: GameAudience,
+        reason: Option<String>,
+    },
     SyncRematchPresenceFromSource {
         disconnected_user_ids: Vec<i64>,
     },

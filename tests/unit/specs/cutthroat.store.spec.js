@@ -284,6 +284,29 @@ describe('cutthroat store websocket behavior', () => {
     });
   });
 
+  it('sendExplicitDisconnect sends websocket message when connected', () => {
+    const store = useCutthroatStore();
+    store.connectWs(99);
+    const [ ws ] = FakeWebSocket.instances;
+
+    const sent = store.sendExplicitDisconnect('go_home');
+
+    expect(sent).toBe(true);
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0])).toEqual({
+      type: 'explicit_disconnect',
+      reason: 'go_home',
+    });
+  });
+
+  it('sendExplicitDisconnect returns false when socket is not connected', () => {
+    const store = useCutthroatStore();
+
+    const sent = store.sendExplicitDisconnect('route_change');
+
+    expect(sent).toBe(false);
+  });
+
   it('connects spectator websocket path when requested', () => {
     const store = useCutthroatStore();
     store.connectWs(42, { spectateIntent: true });

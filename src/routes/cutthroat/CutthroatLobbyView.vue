@@ -169,6 +169,7 @@ async function toggleReady() {
 }
 
 function leaveLobby() {
+  store.sendExplicitDisconnect('go_home');
   store.leaveGame(gameId.value)
     .catch(() => {})
     .finally(() => {

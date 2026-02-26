@@ -1687,6 +1687,7 @@ async function goToHome() {
   const shouldCancelRematch = rematchOfferPending.value && Number.isInteger(rematchLobbyId.value);
   const rematchLobbyIdToCancel = shouldCancelRematch ? rematchLobbyId.value : null;
 
+  store.sendExplicitDisconnect('go_home');
   rematchOfferPending.value = false;
   rematchLobbyId.value = null;
   rematchLobbySeatsFetchSeq += 1;
@@ -1697,7 +1698,7 @@ async function goToHome() {
 
   if (!shouldCancelRematch || !rematchLobbyIdToCancel) {return;}
   try {
-    await store.setReady(rematchLobbyIdToCancel, false);
+    await store.leaveGame(rematchLobbyIdToCancel);
   } catch (_) {
     // ignore cancellation errors when leaving
   }
@@ -1706,6 +1707,7 @@ async function goToHome() {
 async function navigateToSpectateGame(nextGameId, gameStateIndex) {
   spectatorFollowPending.value = false;
   stopRematchLobbyWatch();
+  store.sendExplicitDisconnect('route_change');
   store.disconnectWs();
   try {
     await store.fetchState(nextGameId, {
@@ -1750,7 +1752,7 @@ async function handleRematch() {
   rematchLoading.value = true;
   try {
     if (rematchOfferPending.value && rematchLobbyId.value) {
-      await store.setReady(rematchLobbyId.value, false);
+      await store.leaveGame(rematchLobbyId.value);
       rematchOfferPending.value = false;
       rematchLobbyId.value = null;
       rematchLobbySeatsFetchSeq += 1;
@@ -1788,6 +1790,7 @@ watch(
     if (isSpectatorMode.value) {return;}
     if (!started || !rematchOfferPending.value || !rematchLobbyId.value) {return;}
     const nextGameId = rematchLobbyId.value;
+    store.sendExplicitDisconnect('join_new_lobby');
     rematchOfferPending.value = false;
     rematchLobbyId.value = null;
     rematchLobbySeatsFetchSeq += 1;
