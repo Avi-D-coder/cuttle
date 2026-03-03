@@ -22,7 +22,10 @@
       "readyAlt": "Face de la carte -- {playerUsername} est prêt",
       "rematchAlt": "Face de la carte -- {playerUsername} veut une revanche"
     },
-    "profile": "Mon profil"
+    "profile": "Mon profil",
+    "socket": {
+      "reconnectFailed": "Impossible de rétablir la connexion. Vérifiez votre connexion internet et réessayez."
+    }
   },
   "login": {
     "noAccount": "Vous n'avez pas de compte?",

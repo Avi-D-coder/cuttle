@@ -22,7 +22,10 @@
       "readyAlt": "Kartenfront -- {playerUsername} ist bereit",
       "rematchAlt": "Kartenfront -- {playerUsername} möchte ein Rückspiel"
     },
-    "profile": "Mein Profil"
+    "profile": "Mein Profil",
+    "socket": {
+      "reconnectFailed": "Verbindung konnte nicht wiederhergestellt werden. Bitte Internetverbindung prüfen und erneut versuchen."
+    }
   },
   "login": {
     "noAccount": "Hast du kein Konto?",

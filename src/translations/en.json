@@ -22,7 +22,10 @@
       "readyAlt": "Card front -- {playerUsername} is ready",
       "rematchAlt": "Card front -- {playerUsername} wants rematch"
     },
-    "profile": "My Profile"
+    "profile": "My Profile",
+    "socket": {
+      "reconnectFailed": "Unable to reconnect. Check your internet and try again."
+    }
   },
   "login": {
     "noAccount": "Don't have an account?",

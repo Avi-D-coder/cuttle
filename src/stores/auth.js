@@ -90,7 +90,11 @@ export const useAuthStore = defineStore('auth', {
 
         return;
       } catch (err) {
-        this.clearAuth();
+        // Avoid forcing logout on transient network errors.
+        // If auth state is unknown (initial load), fail closed.
+        if (this.authenticated === null) {
+          this.clearAuth();
+        }
       }
     },
     disconnectSocket() {

@@ -9,7 +9,11 @@ import {
   handleLeftGame,
   handleIsRanked,
 } from '@/plugins/sockets/gameListEvents';
-import { handleConnect } from '@/plugins/sockets/connectivityEvents';
+import {
+  handleConnect,
+  handleConnectError,
+  handleDisconnect,
+} from '@/plugins/sockets/connectivityEvents';
 
 export const io = sails(socketIoClient);
 
@@ -35,7 +39,9 @@ export const reconnectSockets = () => {
     const interval = setInterval(() => {
       // If we are connected to the socket, resolve
       if (io.socket.isConnected()) {
+        clearInterval(interval);
         resolve();
+        return;
       }
 
       // If no connection after threshold, reject the promise to prevent an infinite loop
@@ -75,4 +81,7 @@ io.socket.on('setIsRanked', handleIsRanked);
 // Connectivity //
 //////////////////
 
+// Keep connectivity event wiring centralized here to avoid circular imports.
 io.socket.on('connect', handleConnect);
+io.socket.on('disconnect', (reason) => handleDisconnect(io, reason));
+io.socket.on('connect_error', (err) => handleConnectError(io, err));

@@ -22,7 +22,10 @@
       "readyAlt": "Frente de la tarjeta -- {playerUsername} está listo",
       "rematchAlt": "Frente de la tarjeta -- {playerUsername} quiere revancha"
     },
-    "profile": "Mi perfil"
+    "profile": "Mi perfil",
+    "socket": {
+      "reconnectFailed": "No se pudo restablecer la conexión. Revisa tu internet e inténtalo de nuevo."
+    }
   },
   "login": {
     "noAccount": "¿No tienes una cuenta?",
